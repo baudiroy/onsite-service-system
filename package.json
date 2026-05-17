@@ -1,0 +1,42 @@
+{
+  "name": "onsite-service-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Phase 1 Node.js backend skeleton for the onsite service system.",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js",
+    "check": "find src -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "db:migrate": "node src/db/migrate.js",
+    "db:seed": "node src/db/seed.js",
+    "smoke:027e": "node scripts/smoke/027e_permission_regular_user_smoke.js",
+    "smoke:028": "node scripts/smoke/028_multi_dispatch_final_appointment_guard_smoke.js",
+    "smoke:029": "node scripts/smoke/029_single_open_appointment_guard_smoke.js",
+    "smoke:071:browser": "node scripts/smoke/browser/071_multi_dispatch_browser_smoke.js",
+    "smoke:046": "node scripts/smoke/046_line_inquiry_fixture_smoke.js",
+    "smoke:047": "node scripts/smoke/047_line_identity_admin_api_smoke.js",
+    "smoke:cleanup:inventory": "node scripts/smoke/cleanup/inventory_smoke_fixtures.js",
+    "admin:dev": "npm --prefix admin run dev",
+    "admin:build": "npm --prefix admin run build",
+    "admin:preview": "npm --prefix admin run preview",
+    "admin:check": "npm --prefix admin run check"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.10.0",
+    "pg": "^8.13.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}
