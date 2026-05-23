@@ -1,0 +1,536 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { Readable, Writable } = require('node:stream');
+const test = require('node:test');
+
+const {
+  createServerBootstrap,
+  resolveServerApp,
+  startServer,
+} = require('../../src/server');
+
+const { app: defaultApp } = require('../../src/app');
+
+const repoRoot = path.resolve(__dirname, '../..');
+const serverFile = path.join(repoRoot, 'src/server.js');
+
+function createSyntheticApp(calls) {
+  const safeCalls = Array.isArray(calls) ? calls : [];
+
+  return {
+    listen(port, callback) {
+      safeCalls.push({ event: 'listen', port });
+
+      if (callback) {
+        callback();
+      }
+
+      return {
+        close(closeCallback) {
+          safeCalls.push({ event: 'close' });
+
+          if (closeCallback) {
+            closeCallback();
+          }
+        },
+      };
+    },
+  };
+}
+
+function createRequest(pathname) {
+  const req = new Readable({
+    read() {
+      this.push(null);
+    },
+  });
+
+  req.method = 'GET';
+  req.url = pathname;
+  req.originalUrl = pathname;
+  req.headers = {};
+  req.connection = {};
+
+  return req;
+}
+
+function createResponse() {
+  const chunks = [];
+  const headers = {};
+
+  const res = new Writable({
+    write(chunk, encoding, callback) {
+      chunks.push(Buffer.from(chunk));
+      callback();
+    },
+  });
+
+  res.statusCode = 200;
+  res.setHeader = (name, value) => {
+    headers[name.toLowerCase()] = value;
+  };
+  res.getHeader = (name) => headers[name.toLowerCase()];
+  res.removeHeader = (name) => {
+    delete headers[name.toLowerCase()];
+  };
+  res.writeHead = (statusCode, headerValues) => {
+    res.statusCode = statusCode;
+    if (headerValues && typeof headerValues === 'object') {
+      for (const [name, value] of Object.entries(headerValues)) {
+        res.setHeader(name, value);
+      }
+    }
+    return res;
+  };
+  res.end = (chunk, encoding, callback) => {
+    if (chunk) {
+      chunks.push(Buffer.from(chunk, encoding));
+    }
+    Writable.prototype.end.call(res, callback);
+    return res;
+  };
+  res.bodyText = () => Buffer.concat(chunks).toString('utf8');
+  res.bodyJson = () => JSON.parse(res.bodyText());
+
+  return res;
+}
+
+function requestApp(app, pathname) {
+  return new Promise((resolve, reject) => {
+    const req = createRequest(pathname);
+    const res = createResponse();
+
+    res.on('finish', () => {
+      try {
+        resolve({
+          body: res.bodyJson(),
+          bodyText: res.bodyText(),
+          statusCode: res.statusCode,
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+    res.on('error', reject);
+    app.handle(req, res);
+  });
+}
+
+function envDbEnabled(overrides = {}) {
+  return {
+    CUSTOMER_ACCESS_ENABLED: 'true',
+    CUSTOMER_ACCESS_DB_ENABLED: 'true',
+    ...overrides,
+  };
+}
+
+function dbClientConfig(overrides = {}) {
+  return {
+    readOnly: true,
+    connectionString: 'postgres://db-url-should-not-leak',
+    token: 'token_should_not_leak',
+    secret: 'secret_should_not_leak',
+    password: 'password_should_not_leak',
+    ...overrides,
+  };
+}
+
+function customerAccessInput() {
+  return {
+    organizationId: 'org_server_pool_001',
+    caseId: 'case_server_pool_001',
+    customerId: 'customer_server_pool_001',
+    rawPhone: 'raw_phone_should_not_leak',
+    rawAddress: 'raw_address_should_not_leak',
+    rawLineUserId: 'line_user_should_not_leak',
+  };
+}
+
+function customerAccessOptions(overrides = {}) {
+  return {
+    getInput: customerAccessInput,
+    ...overrides,
+  };
+}
+
+function validRows() {
+  return {
+    caseRow: {
+      id: 'case_server_pool_001',
+      organization_id: 'org_server_pool_001',
+      customer_id: 'customer_server_pool_001',
+    },
+    customerIdentityRow: {
+      customer_id: 'customer_server_pool_001',
+      organization_id: 'org_server_pool_001',
+      verified: true,
+      line_channel_id: 'line_channel_server_pool_001',
+      line_user_id: 'line_user_should_not_leak',
+      raw_phone: 'raw_phone_should_not_leak',
+    },
+    publicationRow: {
+      case_id: 'case_server_pool_001',
+      organization_id: 'org_server_pool_001',
+      publication_allowed: true,
+      customer_visible_policy_passed: true,
+    },
+    serviceReportRow: {
+      public_report_id: 'report_public_server_pool_001',
+      status: 'available',
+      final_appointment_id: 'appt_should_not_be_in_response',
+      internal_note: 'internal_note_should_not_leak',
+      audit_log: 'audit_log_should_not_leak',
+      ai_raw_payload: 'ai_raw_payload_should_not_leak',
+      token: 'token_should_not_leak',
+      secret: 'secret_should_not_leak',
+    },
+  };
+}
+
+function createSyntheticPool(queryCalls, rowsOverride) {
+  const safeCalls = Array.isArray(queryCalls) ? queryCalls : [];
+  const rows = rowsOverride || validRows();
+
+  return {
+    query(sql, params) {
+      safeCalls.push({ sql, params });
+
+      if (sql.includes('from cases')) {
+        return { rows: rows.caseRow ? [rows.caseRow] : [] };
+      }
+      if (sql.includes('from customer_channel_identities')) {
+        return { rows: rows.customerIdentityRow ? [rows.customerIdentityRow] : [] };
+      }
+      if (sql.includes('from customer_access_publications')) {
+        return { rows: rows.publicationRow ? [rows.publicationRow] : [] };
+      }
+      if (sql.includes('from customer_visible_service_reports')) {
+        return { rows: rows.serviceReportRow ? [rows.serviceReportRow] : [] };
+      }
+
+      return { rows: [] };
+    },
+  };
+}
+
+function createPoolWithQueryGetter(accessCalls, queryCalls) {
+  const safeAccessCalls = Array.isArray(accessCalls) ? accessCalls : [];
+  const safeQueryCalls = Array.isArray(queryCalls) ? queryCalls : [];
+
+  return {
+    get query() {
+      safeAccessCalls.push('query-getter');
+      return function query(sql, params) {
+        safeQueryCalls.push({ sql, params });
+        return { rows: [] };
+      };
+    },
+  };
+}
+
+function createConnector(calls) {
+  const safeCalls = Array.isArray(calls) ? calls : [];
+
+  return {
+    createReadOnlyClient(config) {
+      safeCalls.push(config);
+      return createSyntheticPool([]);
+    },
+  };
+}
+
+function createLogger(calls) {
+  const safeCalls = Array.isArray(calls) ? calls : [];
+
+  return {
+    log(...args) {
+      safeCalls.push(['log', ...args]);
+    },
+    error(...args) {
+      safeCalls.push(['error', ...args]);
+    },
+  };
+}
+
+function requireSpecifiers(source) {
+  const specifiers = [];
+  const requireRegex = /require\(['"]([^'"]+)['"]\)/g;
+  let match;
+
+  while ((match = requireRegex.exec(source)) !== null) {
+    specifiers.push(match[1]);
+  }
+
+  return specifiers;
+}
+
+function assertNoLeak(value) {
+  const serialized = JSON.stringify(value);
+
+  for (const unsafeValue of [
+    'token_should_not_leak',
+    'secret_should_not_leak',
+    'postgres://db-url-should-not-leak',
+    'password_should_not_leak',
+    'raw_phone_should_not_leak',
+    'raw_address_should_not_leak',
+    'line_user_should_not_leak',
+    'internal_pool_error_should_not_leak',
+    'internal_note_should_not_leak',
+    'audit_log_should_not_leak',
+    'ai_raw_payload_should_not_leak',
+    'appt_should_not_be_in_response',
+    'finalAppointmentId',
+    'final_appointment_id',
+    'select ',
+    'from cases',
+  ]) {
+    assert.equal(serialized.includes(unsafeValue), false, `leaked ${unsafeValue}`);
+  }
+}
+
+test('options.app priority wins over explicit pool and db options', () => {
+  const app = createSyntheticApp([]);
+  const poolAccessCalls = [];
+  const resolved = resolveServerApp({
+    app,
+    customerAccessPool: createPoolWithQueryGetter(poolAccessCalls, []),
+    customerAccessDb: createPoolWithQueryGetter([], []),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled(),
+    customerAccess: customerAccessOptions(),
+  });
+
+  assert.equal(resolved, app);
+  assert.deepEqual(poolAccessCalls, []);
+});
+
+test('explicit customerAccessBootstrap priority wins over pool and db options', () => {
+  const poolAccessCalls = [];
+  const app = resolveServerApp({
+    customerAccessBootstrap: {
+      enabled: true,
+      customerAccess: {
+        dbAdapter: {},
+      },
+    },
+    customerAccessPool: createPoolWithQueryGetter(poolAccessCalls, []),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled(),
+    customerAccess: customerAccessOptions(),
+  });
+
+  assert.notEqual(app, defaultApp);
+  assert.deepEqual(poolAccessCalls, []);
+});
+
+test('explicit customerAccessComposer priority wins over pool and db options', () => {
+  const poolAccessCalls = [];
+  const connectorCalls = [];
+  const app = resolveServerApp({
+    customerAccessComposer: {
+      env: envDbEnabled(),
+      connector: createConnector(connectorCalls),
+      dbClientConfig: dbClientConfig(),
+      customerAccess: customerAccessOptions(),
+    },
+    customerAccessPool: createPoolWithQueryGetter(poolAccessCalls, []),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled(),
+  });
+
+  assert.notEqual(app, defaultApp);
+  assert.equal(connectorCalls.length, 1);
+  assert.deepEqual(poolAccessCalls, []);
+});
+
+test('pool options create composer path when no higher-priority options', () => {
+  const poolAccessCalls = [];
+  const bootstrap = createServerBootstrap({
+    customerAccessPool: createPoolWithQueryGetter(poolAccessCalls, []),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled(),
+    customerAccess: customerAccessOptions(),
+  });
+
+  assert.notEqual(bootstrap.app, defaultApp);
+  assert.deepEqual(poolAccessCalls, ['query-getter']);
+});
+
+test('bootstrap creation does not call pool.query or db.query', () => {
+  const poolCalls = [];
+  const dbCalls = [];
+  createServerBootstrap({
+    customerAccessPool: createSyntheticPool(poolCalls),
+    customerAccessDb: createSyntheticPool(dbCalls),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled(),
+    customerAccess: customerAccessOptions(),
+  });
+
+  assert.deepEqual(poolCalls, []);
+  assert.deepEqual(dbCalls, []);
+});
+
+test('readOnly true pool with env DB enabled returns synthetic allow path', async () => {
+  const poolCalls = [];
+  const bootstrap = createServerBootstrap({
+    customerAccessPool: createSyntheticPool(poolCalls),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled(),
+    customerAccess: customerAccessOptions(),
+  });
+  const response = await requestApp(bootstrap.app, '/customer-access/case_server_pool_001');
+
+  assert.equal(poolCalls.length > 0, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.status, 'allow');
+  assert.deepEqual(response.body.data, {
+    serviceReport: {
+      publicReportId: 'report_public_server_pool_001',
+      status: 'available',
+    },
+  });
+  assertNoLeak(response.body);
+});
+
+test('readOnly false pool with env DB enabled returns generic safe-deny and does not query pool', async () => {
+  const poolCalls = [];
+  const bootstrap = createServerBootstrap({
+    customerAccessPool: createSyntheticPool(poolCalls),
+    customerAccessDbClientConfig: dbClientConfig({ readOnly: false }),
+    env: envDbEnabled(),
+    customerAccess: customerAccessOptions(),
+  });
+  const response = await requestApp(bootstrap.app, '/customer-access/case_server_pool_001');
+
+  assert.deepEqual(poolCalls, []);
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.body.status, 'deny');
+  assertNoLeak(response.body);
+});
+
+test('pool query throw during request returns generic safe-deny with no raw error leak', async () => {
+  const bootstrap = createServerBootstrap({
+    customerAccessPool: {
+      query() {
+        throw new Error('internal_pool_error_should_not_leak postgres://db-url-should-not-leak token_should_not_leak');
+      },
+    },
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled(),
+    customerAccess: customerAccessOptions(),
+  });
+  const response = await requestApp(bootstrap.app, '/customer-access/case_server_pool_001');
+
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.body.status, 'deny');
+  assertNoLeak(response.body);
+});
+
+test('options.customerAccess.repository priority prevents generated pool query access', async () => {
+  const poolAccessCalls = [];
+  const bootstrap = createServerBootstrap({
+    customerAccessPool: createPoolWithQueryGetter(poolAccessCalls, []),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled(),
+    customerAccess: customerAccessOptions({
+      repository: {},
+    }),
+  });
+  const response = await requestApp(bootstrap.app, '/customer-access/case_server_pool_001');
+
+  assert.deepEqual(poolAccessCalls, []);
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.body.status, 'deny');
+});
+
+test('env disabled with pool does not query pool and safe-denies through default behavior', async () => {
+  const poolCalls = [];
+  const bootstrap = createServerBootstrap({
+    customerAccessPool: createSyntheticPool(poolCalls),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: {
+      CUSTOMER_ACCESS_ENABLED: 'false',
+      CUSTOMER_ACCESS_DB_ENABLED: 'true',
+    },
+    customerAccess: customerAccessOptions(),
+  });
+  const response = await requestApp(bootstrap.app, '/customer-access/case_server_pool_001');
+
+  assert.deepEqual(poolCalls, []);
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.body.status, 'deny');
+  assertNoLeak(response.body);
+});
+
+test('response does not leak token, secret, DB URL, raw phone, address, or LINE id', async () => {
+  const bootstrap = createServerBootstrap({
+    customerAccessPool: createSyntheticPool([]),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled({
+      DATABASE_URL: 'postgres://db-url-should-not-leak',
+      token: 'token_should_not_leak',
+      secret: 'secret_should_not_leak',
+      rawPhone: 'raw_phone_should_not_leak',
+      rawAddress: 'raw_address_should_not_leak',
+      rawLineUserId: 'line_user_should_not_leak',
+    }),
+    customerAccess: customerAccessOptions(),
+  });
+  const response = await requestApp(bootstrap.app, '/customer-access/case_server_pool_001');
+
+  assertNoLeak(response.body);
+});
+
+test('server module does not directly import DB adapter, query executor, repository, or read-only connector', () => {
+  const source = fs.readFileSync(serverFile, 'utf8');
+  const specifiers = requireSpecifiers(source);
+
+  assert.equal(specifiers.includes('./customerAccess/customerAccessBootstrapComposer'), true);
+  assert.equal(specifiers.includes('./customerAccess/customerAccessDbAdapter'), false);
+  assert.equal(specifiers.includes('./customerAccess/customerAccessDbQueryExecutor'), false);
+  assert.equal(specifiers.includes('./customerAccess/customerAccessReadOnlyRepository'), false);
+  assert.equal(specifiers.includes('./customerAccess/customerAccessReadOnlyDbConnector'), false);
+});
+
+test('server module does not import real DB, transaction, repository, provider, or AI customer access path', () => {
+  const source = fs.readFileSync(serverFile, 'utf8');
+  const specifiers = requireSpecifiers(source);
+
+  assert.equal(specifiers.some((specifier) => /repositories?|transaction|provider|line|sms|email|push|ai|rag|vector/i.test(specifier)), false);
+  assert.doesNotMatch(source, /new Pool|createCustomerAccessDbAdapter|createCustomerAccessDbQueryExecutor|createCustomerAccessReadOnlyRepository|createCustomerAccessReadOnlyDbConnector/i);
+});
+
+test('startServer with app and customerAccessPool uses injected app priority and only listens when explicit', () => {
+  const listenCalls = [];
+  const injectedApp = createSyntheticApp(listenCalls);
+  const bootstrap = createServerBootstrap({
+    app: injectedApp,
+    customerAccessPool: createSyntheticPool([]),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled(),
+    customerAccess: customerAccessOptions(),
+    port: 4060,
+  });
+
+  assert.equal(bootstrap.app, injectedApp);
+  assert.deepEqual(listenCalls, []);
+
+  startServer({
+    app: bootstrap.app,
+    customerAccessPool: createSyntheticPool([]),
+    customerAccessDbClientConfig: dbClientConfig(),
+    env: envDbEnabled(),
+    customerAccess: customerAccessOptions(),
+    port: bootstrap.port,
+    logger: createLogger([]),
+    pool: { end: async () => {} },
+    registerSignals: false,
+  });
+
+  assert.deepEqual(listenCalls, [{ event: 'listen', port: 4060 }]);
+});
