@@ -92,6 +92,18 @@ function safeString(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function firstSafeString(...values) {
+  for (const value of values) {
+    const candidate = safeString(value);
+
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 function safeObject(value) {
   return isPlainObject(value) ? sanitizeNestedValue(value) : {};
 }
@@ -132,6 +144,55 @@ function createLookup(input) {
   };
 }
 
+function createRecord(input) {
+  const lookup = createLookup(input);
+  const result = safeObject(input.result);
+  const caseRef = safeObject(input.caseRef);
+  const caseId = firstSafeString(input.caseId, result.caseId, caseRef.caseId);
+  const caseRefText = firstSafeString(input.caseRef, caseRef.caseRef, result.caseRef);
+  const safeRequestFingerprint = firstSafeString(
+    input.safeRequestFingerprint,
+    input.requestFingerprint,
+    input.fingerprint,
+  );
+
+  if (!caseId && !caseRefText) {
+    throw new RepairIntakeIdempotencyRepositoryError(
+      'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_RECORD_INPUT_INVALID',
+      ['provide_safe_result_or_case_ref'],
+    );
+  }
+
+  if (!safeRequestFingerprint) {
+    throw new RepairIntakeIdempotencyRepositoryError(
+      'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_RECORD_INPUT_INVALID',
+      ['provide_safe_request_fingerprint'],
+    );
+  }
+
+  return {
+    ...lookup,
+    caseId,
+    caseRefText,
+    expiresAt: safeString(input.expiresAt),
+    recordStatus: safeString(input.recordStatus) || safeString(result.status) || 'completed',
+    replayResultSafe: sanitizeNestedValue({
+      ...result,
+      caseId,
+      caseRef: caseRefText ? { caseRef: caseRefText, caseId } : undefined,
+      draftId: lookup.draftId || result.draftId,
+      organizationId: lookup.organizationId,
+      tenantId: lookup.tenantId,
+      requestId: lookup.requestId || result.requestId,
+      actorId: lookup.actorId || result.actorId,
+      status: safeString(result.status) || 'submitted',
+      submitted: result.submitted !== false,
+    }),
+    retentionUntil: safeString(input.retentionUntil),
+    safeRequestFingerprint,
+  };
+}
+
 function createSelectStatement(lookup) {
   const clauses = [
     'organization_id = $1',
@@ -168,6 +229,75 @@ function createSelectStatement(lookup) {
       'FROM repair_intake_idempotency_records',
       `WHERE ${clauses.join(' AND ')}`,
       'LIMIT 1',
+    ].join('\n'),
+  };
+}
+
+function createInsertStatement(record) {
+  return {
+    params: [
+      record.organizationId,
+      record.tenantId,
+      record.idempotencyKey,
+      record.operationType,
+      record.draftId,
+      record.safeRequestFingerprint,
+      record.caseId,
+      record.caseRefText,
+      JSON.stringify(record.replayResultSafe),
+      record.recordStatus,
+      record.expiresAt,
+      record.retentionUntil,
+    ],
+    text: [
+      'INSERT INTO repair_intake_idempotency_records (',
+      '    organization_id,',
+      '    tenant_id,',
+      '    idempotency_key,',
+      '    operation_type,',
+      '    draft_id,',
+      '    safe_request_fingerprint,',
+      '    replay_case_id,',
+      '    replay_case_ref,',
+      '    replay_result_safe,',
+      '    record_status,',
+      '    completed_at,',
+      '    expires_at,',
+      '    retention_until',
+      ') VALUES (',
+      '    $1,',
+      '    $2,',
+      '    $3,',
+      '    $4,',
+      '    $5,',
+      '    $6,',
+      '    $7,',
+      '    $8,',
+      '    $9::jsonb,',
+      '    $10,',
+      '    now(),',
+      '    $11,',
+      '    $12',
+      ')',
+      'ON CONFLICT (',
+      '    organization_id,',
+      "    COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid),",
+      '    operation_type,',
+      '    idempotency_key',
+      ') DO NOTHING',
+      'RETURNING',
+      '    id,',
+      '    organization_id,',
+      '    tenant_id,',
+      '    idempotency_key,',
+      '    operation_type,',
+      '    draft_id,',
+      '    replay_case_id,',
+      '    replay_case_ref,',
+      '    replay_result_safe,',
+      '    record_status,',
+      '    completed_at,',
+      '    expires_at',
     ].join('\n'),
   };
 }
@@ -215,6 +345,36 @@ function mapReplayRow(row, lookup) {
   });
 }
 
+function mapRecordedRow(row, record) {
+  const source = isPlainObject(row) ? row : {};
+  const result = safeObject(source.replay_result_safe);
+  const fallbackResult = safeObject(record.replayResultSafe);
+  const replayResult = Object.keys(result).length > 0 ? result : fallbackResult;
+  const caseId = firstSafeString(source.replay_case_id, replayResult.caseId, record.caseId);
+  const caseRefText = firstSafeString(source.replay_case_ref, record.caseRefText);
+
+  return sanitizeNestedValue({
+    action: firstSafeString(source.operation_type, record.operationType),
+    idempotencyKey: firstSafeString(source.idempotency_key, record.idempotencyKey),
+    draftId: firstSafeString(source.draft_id, replayResult.draftId, record.draftId),
+    caseId,
+    caseRef: caseRefText ? { caseRef: caseRefText, caseId } : undefined,
+    organizationId: firstSafeString(source.organization_id, record.organizationId),
+    tenantId: firstSafeString(source.tenant_id, record.tenantId),
+    requestId: record.requestId,
+    actorId: record.actorId,
+    status: firstSafeString(source.record_status, replayResult.status, record.recordStatus, 'completed'),
+    submitted: firstSafeString(source.record_status, record.recordStatus) !== 'failed',
+    reasonCode: 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_RECORDED',
+    requiredActions: [],
+    result: replayResult,
+    metadata: {
+      recordId: firstSafeString(source.id),
+    },
+    warnings: [],
+  });
+}
+
 function assertDbClient(dbClient) {
   if (!isPlainObject(dbClient) || typeof dbClient.query !== 'function') {
     throw new RepairIntakeIdempotencyRepositoryError(
@@ -247,11 +407,21 @@ function createRepairIntakeIdempotencyRepository(options = {}) {
     }
   }
 
-  async function recordDraftToCaseResult() {
-    throw new RepairIntakeIdempotencyRepositoryError(
-      'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_WRITER_NOT_IMPLEMENTED',
-      ['use_read_only_find_existing_result'],
-    );
+  async function recordDraftToCaseResult(input) {
+    const record = createRecord(sanitizeNestedValue(input));
+    const statement = createInsertStatement(record);
+
+    try {
+      const result = await dbClient.query(statement.text, statement.params);
+      const [row] = resolveRows(result);
+
+      return mapRecordedRow(row, record);
+    } catch (error) {
+      throw new RepairIntakeIdempotencyRepositoryError(
+        'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_RECORD_FAILED',
+        ['retry_or_manual_review'],
+      );
+    }
   }
 
   return {

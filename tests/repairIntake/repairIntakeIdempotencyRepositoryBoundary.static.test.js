@@ -20,7 +20,7 @@ function extractFunctionBody(source, functionName) {
   return source.slice(start, nextFunction === -1 ? source.length : nextFunction);
 }
 
-test('idempotency repository exposes expected injected read-only shape', () => {
+test('idempotency repository exposes expected injected read and write shape', () => {
   const source = readSource();
 
   assert.match(source, /function createRepairIntakeIdempotencyRepository\(/);
@@ -34,27 +34,32 @@ test('idempotency repository exposes expected injected read-only shape', () => {
   assert.match(source, /recordDraftToCaseResult,/);
 });
 
-test('recordDraftToCaseResult is fail-closed and does not call dbClient', () => {
+test('recordDraftToCaseResult uses repository-local parameterized writer SQL', () => {
   const source = readSource();
   const body = extractFunctionBody(source, 'recordDraftToCaseResult');
 
-  assert.match(body, /WRITER_NOT_IMPLEMENTED/);
-  assert.match(body, /throw new RepairIntakeIdempotencyRepositoryError/);
-  assert.doesNotMatch(body, /dbClient\.query/);
-  assert.doesNotMatch(body, /createSelectStatement/);
+  assert.match(body, /createRecord\(sanitizeNestedValue\(input\)\)/);
+  assert.match(body, /createInsertStatement\(record\)/);
+  assert.match(body, /dbClient\.query\(statement\.text, statement\.params\)/);
+  assert.match(body, /mapRecordedRow\(row, record\)/);
+  assert.match(source, /INSERT INTO repair_intake_idempotency_records/);
+  assert.match(source, /ON CONFLICT/);
+  assert.match(source, /DO NOTHING/);
+  assert.match(source, /RETURNING/);
 });
 
-test('idempotency repository source remains SELECT-only for repair_intake_idempotency_records', () => {
+test('idempotency repository source keeps allowed SELECT and INSERT markers only', () => {
   const source = readSource();
 
   assert.match(source, /'SELECT'/);
   assert.match(source, /FROM repair_intake_idempotency_records/);
+  assert.match(source, /INSERT INTO repair_intake_idempotency_records/);
+  assert.match(source, /ON CONFLICT/);
+  assert.match(source, /DO NOTHING/);
 
   for (const forbidden of [
-    /\bINSERT\b/,
     /\bUPDATE\b/,
     /\bDELETE\b/,
-    /\bUPSERT\b/,
     /\bMERGE\b/,
     /\bDROP\s+TABLE\b/,
     /\bTRUNCATE\b/,
@@ -73,6 +78,8 @@ test('idempotency repository uses parameterized query values without input inter
   assert.match(source, /idempotency_key = \$3/);
   assert.match(source, /params\.push\(lookup\.tenantId\)/);
   assert.match(source, /dbClient\.query\(statement\.text, statement\.params\)/);
+  assert.match(source, /JSON\.stringify\(record\.replayResultSafe\)/);
+  assert.match(source, /\$9::jsonb/);
 
   for (const forbidden of [
     /\$\{lookup\./,
@@ -97,6 +104,8 @@ test('idempotency repository keeps organization tenant operation and idempotency
   assert.match(source, /organizationId,/);
   assert.match(source, /tenantId: safeString\(input\.tenantId\)/);
   assert.match(source, /idempotencyKey: safeString\(row\.idempotency_key\)/);
+  assert.match(source, /safeRequestFingerprint/);
+  assert.match(source, /safe_request_fingerprint/);
 });
 
 test('idempotency repository sanitizes unsafe markers and does not return unsafe fields', () => {
@@ -105,6 +114,7 @@ test('idempotency repository sanitizes unsafe markers and does not return unsafe
   assert.match(source, /UNSAFE_FIELD_NAMES/);
   assert.match(source, /sanitizeNestedValue/);
   assert.match(source, /mapReplayRow/);
+  assert.match(source, /mapRecordedRow/);
 
   for (const denyMarker of [
     "'phone'",
@@ -158,6 +168,8 @@ test('idempotency repository has no forbidden imports or runtime coupling', () =
     /process\.env/,
     /DATABASE_URL/,
     /postgres:\/\//,
+    /src\/app/,
+    /src\/server/,
   ]) {
     assert.doesNotMatch(source, forbidden);
   }

@@ -289,7 +289,105 @@ test('contract integration invalid input fails before synthetic dbClient query',
   assertNoUnsafeText(result);
 });
 
-test('contract integration record unsupported path is sanitized and does not query dbClient', async () => {
+test('contract integration record success path forwards sanitized writer input to synthetic dbClient', async () => {
+  const { calls, contract, repositoryRecordCalls } = createContractHarness();
+
+  const result = await contract.recordDraftToCaseResult({
+    idempotencyKey: 'idem_1180',
+    organizationId: 'org_1180',
+    tenantId: 'tenant_1180',
+    operationType: 'draft_to_case',
+    draftId: 'draft_1180',
+    requestId: 'req_1180',
+    actorId: 'actor_1180',
+    requestFingerprint: 'fingerprint_1180',
+    result: {
+      caseId: 'case_1180',
+      status: 'submitted',
+      safeValue: 'safe recorded',
+      rawRequestBody: 'unsafe raw request',
+      finalAppointmentId: 'unsafe_final_appointment',
+    },
+    caseRef: {
+      caseRef: 'case_ref_1180',
+      caseId: 'case_1180',
+      finalAppointmentId: 'unsafe_final_appointment',
+    },
+    rawSql: 'unsafe sql',
+    phone: 'unsafe phone',
+    lineUserId: 'unsafe_line_user',
+  });
+
+  assert.equal(repositoryRecordCalls.length, 1);
+  assert.deepEqual(repositoryRecordCalls[0], {
+    idempotencyKey: 'idem_1180',
+    draftId: 'draft_1180',
+    caseId: 'case_1180',
+    caseRef: {
+      caseRef: 'case_ref_1180',
+      caseId: 'case_1180',
+    },
+    organizationId: 'org_1180',
+    tenantId: 'tenant_1180',
+    requestId: 'req_1180',
+    actorId: 'actor_1180',
+    operationType: 'draft_to_case',
+    result: {
+      caseId: 'case_1180',
+      status: 'submitted',
+      safeValue: 'safe recorded',
+    },
+    safeRequestFingerprint: 'fingerprint_1180',
+  });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /^INSERT INTO repair_intake_idempotency_records/);
+  assert.match(calls[0].sql, /ON CONFLICT/);
+  assert.match(calls[0].sql, /DO NOTHING/);
+  assert.equal(calls[0].sql.includes('idem_1180'), false);
+  assert.equal(calls[0].sql.includes('fingerprint_1180'), false);
+  assert.deepEqual(calls[0].params.slice(0, 8), [
+    'org_1180',
+    'tenant_1180',
+    'idem_1180',
+    'draft_to_case',
+    'draft_1180',
+    'fingerprint_1180',
+    'case_1180',
+    'case_ref_1180',
+  ]);
+  assert.deepEqual(result, {
+    ok: true,
+    action: 'draft_to_case',
+    idempotencyKey: 'idem_1180',
+    draftId: 'draft_1180',
+    caseId: 'case_1180',
+    caseRef: {
+      caseRef: 'case_ref_1180',
+      caseId: 'case_1180',
+    },
+    organizationId: 'org_1180',
+    tenantId: 'tenant_1180',
+    requestId: 'req_1180',
+    actorId: 'actor_1180',
+    status: 'completed',
+    submitted: true,
+    reasonCode: 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_RECORDED',
+    requiredActions: [],
+    result: {
+      caseId: 'case_1180',
+      status: 'submitted',
+      safeValue: 'safe replay',
+    },
+    metadata: {
+      recordId: 'idem_record_1180',
+    },
+    warnings: [],
+    recordId: null,
+  });
+  assertNoUnsafeText(result);
+});
+
+test('contract integration record missing fingerprint fails before synthetic dbClient query', async () => {
   const { calls, contract, repositoryRecordCalls } = createContractHarness();
 
   const result = await contract.recordDraftToCaseResult({
@@ -306,7 +404,7 @@ test('contract integration record unsupported path is sanitized and does not que
     },
   });
 
-  assert.equal(repositoryRecordCalls.length, 1);
+  assert.equal(repositoryRecordCalls.length, 0);
   assert.equal(calls.length, 0);
   assert.deepEqual(result, {
     ok: false,
@@ -320,8 +418,8 @@ test('contract integration record unsupported path is sanitized and does not que
     actorId: 'actor_1180',
     status: 'failed',
     submitted: false,
-    reasonCode: 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_CONTRACT_RECORD_FAILED',
-    requiredActions: ['retry_or_manual_review'],
+    reasonCode: 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_CONTRACT_INPUT_INVALID',
+    requiredActions: ['provide_request_fingerprint'],
     result: null,
     metadata: {},
     warnings: [],

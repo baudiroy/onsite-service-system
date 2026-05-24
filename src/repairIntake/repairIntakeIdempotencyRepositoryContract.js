@@ -10,13 +10,16 @@ const SAFE_FIELD_NAMES = new Set([
   'idempotencyKey',
   'metadata',
   'ok',
+  'operationType',
   'organizationId',
   'plan',
   'recordId',
   'reasonCode',
   'requestId',
+  'requestFingerprint',
   'requiredActions',
   'result',
+  'safeRequestFingerprint',
   'status',
   'submitted',
   'tenantId',
@@ -43,6 +46,8 @@ const UNSAFE_FIELD_NAMES = new Set([
   'raw',
   'rawRow',
   'rawRows',
+  'rawRequestBody',
+  'rawSql',
   'repository',
   'secret',
   'sql',
@@ -157,6 +162,35 @@ function safeArray(value) {
 
 function hasUsefulObject(value) {
   return isPlainObject(value) && Object.keys(value).length > 0;
+}
+
+function createWriterRecordInput(recordInput) {
+  const result = isPlainObject(recordInput.result) ? recordInput.result : {};
+  const caseRef = isPlainObject(recordInput.caseRef)
+    ? recordInput.caseRef
+    : isPlainObject(result.caseRef)
+      ? result.caseRef
+      : {};
+  const caseId = firstSafeString(recordInput.caseId, result.caseId, caseRef.caseId);
+  const caseRefValue = hasUsefulObject(caseRef) ? caseRef : null;
+
+  return sanitizeNestedValue({
+    idempotencyKey: firstSafeString(recordInput.idempotencyKey),
+    organizationId: firstSafeString(recordInput.organizationId),
+    tenantId: firstSafeString(recordInput.tenantId),
+    requestId: firstSafeString(recordInput.requestId),
+    actorId: firstSafeString(recordInput.actorId),
+    operationType: firstSafeString(recordInput.operationType, recordInput.action),
+    draftId: firstSafeString(recordInput.draftId, result.draftId),
+    caseId,
+    caseRef: caseRefValue,
+    result,
+    safeRequestFingerprint: firstSafeString(
+      recordInput.safeRequestFingerprint,
+      recordInput.requestFingerprint,
+    ),
+    metadata: isPlainObject(recordInput.metadata) ? recordInput.metadata : undefined,
+  });
 }
 
 function failureEnvelope(input, reasonCode, requiredActions = ['retry_or_manual_review']) {
@@ -354,6 +388,22 @@ function createRepairIntakeIdempotencyRepositoryContract(options = {}) {
       );
     }
 
+    if (!safeString(recordInput.organizationId)) {
+      return failureEnvelope(
+        recordInput,
+        'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_CONTRACT_INPUT_INVALID',
+        ['provide_organization_id'],
+      );
+    }
+
+    if (!firstSafeString(recordInput.safeRequestFingerprint, recordInput.requestFingerprint)) {
+      return failureEnvelope(
+        recordInput,
+        'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_CONTRACT_INPUT_INVALID',
+        ['provide_request_fingerprint'],
+      );
+    }
+
     if (!hasUsefulObject(recordInput.result) && !hasUsefulObject(recordInput.caseRef)) {
       return failureEnvelope(
         recordInput,
@@ -363,7 +413,8 @@ function createRepairIntakeIdempotencyRepositoryContract(options = {}) {
     }
 
     try {
-      const storedResult = await repository.recordDraftToCaseResult(recordInput);
+      const writerRecordInput = createWriterRecordInput(recordInput);
+      const storedResult = await repository.recordDraftToCaseResult(writerRecordInput);
 
       if (!isPlainObject(storedResult)) {
         return failureEnvelope(

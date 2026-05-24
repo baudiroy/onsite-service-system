@@ -65,6 +65,8 @@ function unsafeLookupInput() {
 function unsafeRecordInput() {
   return {
     ...unsafeLookupInput(),
+    operationType: 'draft_to_case',
+    requestFingerprint: 'fingerprint_task1085',
     result: {
       ok: true,
       submitted: true,
@@ -437,11 +439,10 @@ test('recordDraftToCaseResult forwards only sanitized record fields and returns 
       tenantId: 'tenant_task1085',
       requestId: 'req_task1085',
       actorId: 'actor_task1085',
-      status: 'submitted',
+      operationType: 'draft_to_case',
       metadata: {
         safeKey: 'safe lookup metadata',
       },
-      warnings: ['safe lookup warning'],
       result: {
         ok: true,
         submitted: true,
@@ -459,6 +460,7 @@ test('recordDraftToCaseResult forwards only sanitized record fields and returns 
           safeResultKey: 'safe record result metadata',
         },
       },
+      safeRequestFingerprint: 'fingerprint_task1085',
       caseRef: {
         caseId: 'case_task1085_ref',
         organizationId: 'org_task1085',
@@ -488,8 +490,19 @@ test('recordDraftToCaseResult invalid input and invalid repository result fail c
     {},
     { idempotencyKey: '' },
     { idempotencyKey: 'idem_task1085' },
-    { idempotencyKey: 'idem_task1085', result: {} },
-    { idempotencyKey: 'idem_task1085', caseRef: {} },
+    { idempotencyKey: 'idem_task1085', organizationId: 'org_task1085' },
+    {
+      idempotencyKey: 'idem_task1085',
+      organizationId: 'org_task1085',
+      requestFingerprint: 'fingerprint_task1085',
+      result: {},
+    },
+    {
+      idempotencyKey: 'idem_task1085',
+      organizationId: 'org_task1085',
+      requestFingerprint: 'fingerprint_task1085',
+      caseRef: {},
+    },
   ]) {
     const calls = [];
     const contract = createRepairIntakeIdempotencyRepositoryContract({

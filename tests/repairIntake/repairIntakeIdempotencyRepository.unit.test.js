@@ -76,6 +76,40 @@ function createDbClient(options = {}) {
           ].join(' '));
         }
 
+        if (/^INSERT INTO repair_intake_idempotency_records/.test(sql)) {
+          if (options.noRecordRow) {
+            return { rows: [] };
+          }
+
+          return {
+            rows: [{
+              id: 'idem_record_1191',
+              organization_id: 'org_1178',
+              tenant_id: 'tenant_1178',
+              idempotency_key: 'idem_1178',
+              operation_type: 'draft_to_case',
+              draft_id: 'draft_1178',
+              replay_case_id: 'case_1178',
+              replay_case_ref: 'case_ref_1178',
+              replay_result_safe: {
+                caseId: 'case_1178',
+                status: 'submitted',
+                safeValue: 'safe recorded',
+                phone: 'unsafe phone',
+                finalAppointmentId: 'unsafe_final_appointment',
+                rawRequestBody: 'unsafe raw body',
+              },
+              record_status: 'completed',
+              rawRow: {
+                phone: 'unsafe phone',
+              },
+              lineUserId: 'unsafe_line_user',
+              lineAccessToken: 'unsafe_line_token',
+              finalAppointmentId: 'unsafe_final_appointment',
+            }],
+          };
+        }
+
         if (options.noRow) {
           return { rows: [] };
         }
@@ -264,25 +298,145 @@ test('rejected query throws sanitized repository error', async () => {
   );
 });
 
-test('recordDraftToCaseResult is unsupported and does not call dbClient', async () => {
+test('recordDraftToCaseResult valid input calls parameterized idempotent writer once', async () => {
   const { client, calls } = createDbClient();
+  const repository = createRepairIntakeIdempotencyRepository({ dbClient: client });
+
+  const result = await repository.recordDraftToCaseResult({
+    idempotencyKey: 'idem_1178',
+    organizationId: 'org_1178',
+    tenantId: 'tenant_1178',
+    operationType: 'draft_to_case',
+    draftId: 'draft_1178',
+    requestId: 'req_1178',
+    actorId: 'actor_1178',
+    safeRequestFingerprint: 'fingerprint_1178',
+    result: {
+      caseId: 'case_1178',
+      status: 'submitted',
+      safeValue: 'safe recorded',
+      rawRequestBody: 'unsafe raw body',
+      finalAppointmentId: 'unsafe_final_appointment',
+    },
+    caseRef: {
+      caseRef: 'case_ref_1178',
+      caseId: 'case_1178',
+    },
+    expiresAt: '2026-06-01T00:00:00.000Z',
+    retentionUntil: '2026-07-01T00:00:00.000Z',
+  });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /^INSERT INTO repair_intake_idempotency_records/);
+  assert.match(calls[0].sql, /ON CONFLICT/);
+  assert.match(calls[0].sql, /DO NOTHING/);
+  assert.match(calls[0].sql, /RETURNING/);
+  assert.equal(calls[0].sql.includes('idem_1178'), false);
+  assert.equal(calls[0].sql.includes('org_1178'), false);
+  assert.equal(calls[0].sql.includes('fingerprint_1178'), false);
+  assert.deepEqual(calls[0].params, [
+    'org_1178',
+    'tenant_1178',
+    'idem_1178',
+    'draft_to_case',
+    'draft_1178',
+    'fingerprint_1178',
+    'case_1178',
+    'case_ref_1178',
+    JSON.stringify({
+      caseId: 'case_1178',
+      status: 'submitted',
+      safeValue: 'safe recorded',
+      caseRef: {
+        caseRef: 'case_ref_1178',
+        caseId: 'case_1178',
+      },
+      draftId: 'draft_1178',
+      organizationId: 'org_1178',
+      tenantId: 'tenant_1178',
+      requestId: 'req_1178',
+      actorId: 'actor_1178',
+      submitted: true,
+    }),
+    'submitted',
+    '2026-06-01T00:00:00.000Z',
+    '2026-07-01T00:00:00.000Z',
+  ]);
+
+  assert.deepEqual(result, {
+    action: 'draft_to_case',
+    idempotencyKey: 'idem_1178',
+    draftId: 'draft_1178',
+    caseId: 'case_1178',
+    caseRef: {
+      caseRef: 'case_ref_1178',
+      caseId: 'case_1178',
+    },
+    organizationId: 'org_1178',
+    tenantId: 'tenant_1178',
+    requestId: 'req_1178',
+    actorId: 'actor_1178',
+    status: 'completed',
+    submitted: true,
+    reasonCode: 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_RECORDED',
+    requiredActions: [],
+    result: {
+      caseId: 'case_1178',
+      status: 'submitted',
+      safeValue: 'safe recorded',
+    },
+    metadata: {
+      recordId: 'idem_record_1191',
+    },
+    warnings: [],
+  });
+  assertNoUnsafeText(result);
+});
+
+test('recordDraftToCaseResult invalid input fails before dbClient query', async () => {
+  const { client, calls } = createDbClient();
+  const repository = createRepairIntakeIdempotencyRepository({ dbClient: client });
+
+  for (const input of [
+    undefined,
+    null,
+    'idem_1178',
+    {},
+    { idempotencyKey: '', organizationId: 'org_1178' },
+    { idempotencyKey: 'idem_1178', organizationId: '' },
+    { idempotencyKey: 'idem_1178', organizationId: 'org_1178', safeRequestFingerprint: 'fp_1178' },
+    {
+      idempotencyKey: 'idem_1178',
+      organizationId: 'org_1178',
+      result: { caseId: 'case_1178' },
+    },
+  ]) {
+    await assert.rejects(
+      () => repository.recordDraftToCaseResult(input),
+      (error) => error instanceof RepairIntakeIdempotencyRepositoryError
+        && error.stack === undefined,
+    );
+  }
+
+  assert.equal(calls.length, 0);
+});
+
+test('recordDraftToCaseResult rejected query throws sanitized repository error', async () => {
+  const { client } = createDbClient({ reject: true });
   const repository = createRepairIntakeIdempotencyRepository({ dbClient: client });
 
   await assert.rejects(
     () => repository.recordDraftToCaseResult({
       idempotencyKey: 'idem_1178',
       organizationId: 'org_1178',
+      safeRequestFingerprint: 'fingerprint_1178',
       result: { caseId: 'case_1178' },
     }),
-    (error) => assertRepositoryError(
-      error,
-      'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_WRITER_NOT_IMPLEMENTED',
-    ),
+    (error) => assertRepositoryError(error, 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_RECORD_FAILED'),
   );
-  assert.equal(calls.length, 0);
 });
 
-test('source has no forbidden imports and no write SQL markers', () => {
+test('source has no forbidden imports and keeps writer isolated', () => {
   const source = fs.readFileSync(sourcePath, 'utf8');
 
   for (const forbidden of [
@@ -294,10 +448,8 @@ test('source has no forbidden imports and no write SQL markers', () => {
     'src/repositories',
     'process.env',
     'DATABASE_URL',
-    'INSERT ',
     'UPDATE ',
     'DELETE ',
-    'UPSERT ',
     'MERGE ',
     'createDefault',
     'app.js',
@@ -309,4 +461,8 @@ test('source has no forbidden imports and no write SQL markers', () => {
   ]) {
     assert.equal(source.includes(forbidden), false, `forbidden source marker found: ${forbidden}`);
   }
+
+  assert.equal(source.includes('INSERT INTO repair_intake_idempotency_records'), true);
+  assert.equal(source.includes('ON CONFLICT'), true);
+  assert.equal(source.includes('DO NOTHING'), true);
 });
