@@ -36,6 +36,8 @@ const UNSAFE_FIELD_NAMES = new Set([
   'phone',
   'query',
   'raw',
+  'rawDraft',
+  'rawPlan',
   'rawRow',
   'rawRows',
   'repository',
@@ -67,7 +69,8 @@ function normalizedFieldName(value) {
 function fieldIsUnsafe(key) {
   const normalized = normalizedFieldName(key);
 
-  return [...UNSAFE_FIELD_NAMES].some((fieldName) => normalizedFieldName(fieldName) === normalized);
+  return normalized.startsWith('raw')
+    || [...UNSAFE_FIELD_NAMES].some((fieldName) => normalizedFieldName(fieldName) === normalized);
 }
 
 function fieldIsSafe(key) {

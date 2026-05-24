@@ -37,6 +37,7 @@ function unsafeCreationInput() {
         phone: '+886900001079',
       },
       rawRows: [{ phone: '+886900001079' }],
+      rawPlan: { phone: '+886900001079' },
     },
     plan: {
       status: 'planned',
@@ -124,6 +125,7 @@ function createRepository(calls, options = {}) {
           status: 'planned',
           reasonCode: 'PLAN_READY_TASK1079',
           rawRows: [{ phone: '+886900001079' }],
+          rawPlan: { phone: '+886900001079' },
         },
         summary: {
           title: 'safe case summary',
@@ -184,6 +186,8 @@ function assertNoUnsafeText(value) {
     'Bearer unsafe',
     'unsafe cookie',
     'rawRows',
+    'rawPlan',
+    'rawDraft',
     'raw',
     'sql',
     'query',

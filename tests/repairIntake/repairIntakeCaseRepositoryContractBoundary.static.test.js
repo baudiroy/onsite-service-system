@@ -32,7 +32,8 @@ function stripConstArrayBlock(source, constName) {
 }
 
 function sourceWithoutAllowedDenyList(source) {
-  return stripConstArrayBlock(source, 'UNSAFE_FIELD_NAMES');
+  return stripConstArrayBlock(source, 'UNSAFE_FIELD_NAMES')
+    .replace("normalized.startsWith('raw')", '');
 }
 
 test('Task1080 static boundary reads the case repository contract source', () => {
@@ -109,6 +110,8 @@ test('Task1079 case contract source lists sensitive fields only as deny-list mar
 
   for (const sensitiveField of [
     'raw',
+    'rawDraft',
+    'rawPlan',
     'rawRow',
     'rawRows',
     'sql',
@@ -137,6 +140,8 @@ test('Task1079 case contract source lists sensitive fields only as deny-list mar
 
   for (const forbiddenOutsideDenyList of [
     "'raw'",
+    "'rawDraft'",
+    "'rawPlan'",
     "'rawRow'",
     "'rawRows'",
     "'sql'",
