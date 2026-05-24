@@ -20,6 +20,12 @@ const fixture = {
   customerMobile: `090061${Date.now().toString().slice(-6)}`,
   otherCustomerName: `Task061 Smoke029 Cross Case Customer ${smokeRunId}`,
   otherCustomerMobile: `090161${Date.now().toString().slice(-6)}`,
+  dispatchMismatchCustomerName: `Task061 Smoke029 Dispatch Mismatch Customer ${smokeRunId}`,
+  dispatchMismatchCustomerMobile: `090361${Date.now().toString().slice(-6)}`,
+  actualTimeCustomerName: `Task061 Smoke029 Actual Time Customer ${smokeRunId}`,
+  actualTimeCustomerMobile: `090461${Date.now().toString().slice(-6)}`,
+  reopenCustomerName: `Task061 Smoke029 Reopen Guard Customer ${smokeRunId}`,
+  reopenCustomerMobile: `090261${Date.now().toString().slice(-6)}`,
   caseModelNoPrefix: `T061-${shortSmokeRunId}`,
   caseProblemDescription: (marker) => `${smokePrefix} single open appointment guard ${marker}`,
   dispatchNote: (marker) => `${smokePrefix} dispatch ${marker}`,
@@ -36,12 +42,20 @@ const fixture = {
 const state = {
   organizationId: null,
   dispatchUnitId: null,
+  dispatchAssignmentId: null,
   caseId: null,
   caseNo: null,
   otherCaseId: null,
+  dispatchMismatchCaseId: null,
+  dispatchMismatchAssignmentId: null,
+  actualTimeCaseId: null,
+  actualTimeAppointmentId: null,
   appointmentOneId: null,
   appointmentTwoId: null,
   otherAppointmentId: null,
+  reopenCaseId: null,
+  reopenAppointmentOneId: null,
+  reopenAppointmentTwoId: null,
   serviceReportId: null
 };
 
@@ -206,7 +220,7 @@ async function prepareCaseForDispatch(token, marker, customerName, customerMobil
   await transitionCase(token, adminCase.id, 'review');
   await transitionCase(token, adminCase.id, 'accept');
 
-  requireOk(await api(`/api/v1/admin/cases/${adminCase.id}/dispatch`, {
+  const dispatchAssignment = requireOk(await api(`/api/v1/admin/cases/${adminCase.id}/dispatch`, {
     method: 'POST',
     token,
     body: {
@@ -215,10 +229,13 @@ async function prepareCaseForDispatch(token, marker, customerName, customerMobil
     }
   }), `create dispatch ${marker}`);
 
-  return adminCase;
+  return {
+    ...adminCase,
+    dispatchAssignmentId: dispatchAssignment.id
+  };
 }
 
-async function createAppointmentResponse(token, caseId, sequence, startOffsetMinutes) {
+async function createAppointmentResponse(token, caseId, sequence, startOffsetMinutes, overrides = {}) {
   return api(`/api/v1/admin/cases/${caseId}/appointments`, {
     method: 'POST',
     token,
@@ -228,7 +245,8 @@ async function createAppointmentResponse(token, caseId, sequence, startOffsetMin
       visitType: 'repair',
       timezone: 'Asia/Taipei',
       visitSequence: sequence,
-      note: fixture.appointmentNote(sequence)
+      note: fixture.appointmentNote(sequence),
+      ...overrides
     }
   });
 }
@@ -310,7 +328,34 @@ async function main() {
     );
     state.caseId = adminCase.id;
     state.caseNo = adminCase.caseNo;
-    return { caseId: state.caseId, caseNo: state.caseNo };
+    state.dispatchAssignmentId = adminCase.dispatchAssignmentId;
+    return { caseId: state.caseId, caseNo: state.caseNo, dispatchAssignmentId: state.dispatchAssignmentId };
+  });
+
+  await test('cross-case dispatchAssignmentId is rejected during appointment creation', async () => {
+    if (!adminToken || !state.caseId) throw new Error('Admin token and primary case are required.');
+    const dispatchMismatchCase = await prepareCaseForDispatch(
+      adminToken,
+      'dispatch-mismatch',
+      fixture.dispatchMismatchCustomerName,
+      fixture.dispatchMismatchCustomerMobile
+    );
+    state.dispatchMismatchCaseId = dispatchMismatchCase.id;
+    state.dispatchMismatchAssignmentId = dispatchMismatchCase.dispatchAssignmentId;
+
+    const response = await createAppointmentResponse(adminToken, state.caseId, 1, 60, {
+      dispatchAssignmentId: state.dispatchMismatchAssignmentId
+    });
+    const failure = requireFailure(response, 'create appointment with cross-case dispatch assignment', [400]);
+    if (!failure.message || !failure.message.includes('dispatchAssignmentId')) {
+      throw new Error(`unexpected dispatch assignment validation message: ${failure.message}`);
+    }
+
+    return {
+      caseId: state.caseId,
+      dispatchMismatchCaseId: state.dispatchMismatchCaseId,
+      failure
+    };
   });
 
   await test('create first appointment succeeds', async () => {
@@ -323,6 +368,24 @@ async function main() {
     return { appointmentId: state.appointmentOneId, appointmentStatus: appointment.appointmentStatus };
   });
 
+  await test('appointment status completed without completed visitResult is rejected', async () => {
+    if (!adminToken || !state.appointmentOneId) throw new Error('Admin token and appointment 1 are required.');
+    const response = await api(`/api/v1/admin/appointments/${state.appointmentOneId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: {
+        appointmentStatus: 'completed'
+      }
+    });
+
+    const failure = requireFailure(response, 'complete appointment without visitResult', [400]);
+    if (!failure.message || !failure.message.includes('visitResult')) {
+      throw new Error(`unexpected completed appointment validation message: ${failure.message}`);
+    }
+
+    return failure;
+  });
+
   await test('second open appointment for same case is rejected', async () => {
     if (!adminToken || !state.caseId) throw new Error('Admin token and primary case are required.');
     const response = await createAppointmentResponse(adminToken, state.caseId, 2, 180);
@@ -331,6 +394,106 @@ async function main() {
       throw new Error(`unexpected conflict message: ${failure.message}`);
     }
     return failure;
+  });
+
+  await test('appointment scheduledEndAt before scheduledStartAt is rejected', async () => {
+    if (!adminToken || !state.appointmentOneId) throw new Error('Admin token and appointment 1 are required.');
+    const response = await api(`/api/v1/admin/appointments/${state.appointmentOneId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: {
+        scheduledStartAt: isoMinutesFromNow(180),
+        scheduledEndAt: isoMinutesFromNow(120),
+        rescheduleReason: fixture.rescheduleReason
+      }
+    });
+
+    const failure = requireFailure(response, 'update appointment with invalid scheduled time range', [400]);
+    if (!failure.message || !failure.message.includes('scheduledEndAt')) {
+      throw new Error(`unexpected scheduled time validation message: ${failure.message}`);
+    }
+
+    return failure;
+  });
+
+  await test('appointment scheduled time partial update is rejected', async () => {
+    if (!adminToken || !state.appointmentOneId) throw new Error('Admin token and appointment 1 are required.');
+    const response = await api(`/api/v1/admin/appointments/${state.appointmentOneId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: {
+        scheduledEndAt: isoMinutesFromNow(90),
+        rescheduleReason: fixture.rescheduleReason
+      }
+    });
+
+    const failure = requireFailure(response, 'partial update scheduled end without start', [400]);
+    if (!failure.message || !failure.message.includes('scheduledStartAt')) {
+      throw new Error(`unexpected scheduled partial validation message: ${failure.message}`);
+    }
+
+    return failure;
+  });
+
+  await test('appointment actualFinishedAt before actualArrivalAt is rejected', async () => {
+    if (!adminToken) throw new Error('Admin token is required.');
+    const actualTimeCase = await prepareCaseForDispatch(
+      adminToken,
+      'actual-time',
+      fixture.actualTimeCustomerName,
+      fixture.actualTimeCustomerMobile
+    );
+    state.actualTimeCaseId = actualTimeCase.id;
+
+    const appointment = await createAppointment(adminToken, state.actualTimeCaseId, 1, 300);
+    state.actualTimeAppointmentId = appointment.id;
+
+    const response = await api(`/api/v1/admin/appointments/${state.actualTimeAppointmentId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: {
+        actualArrivalAt: isoMinutesFromNow(360),
+        actualFinishedAt: isoMinutesFromNow(330)
+      }
+    });
+
+    const failure = requireFailure(response, 'update appointment with invalid actual time range', [400]);
+    if (!failure.message || !failure.message.includes('actualFinishedAt')) {
+      throw new Error(`unexpected actual time validation message: ${failure.message}`);
+    }
+
+    return failure;
+  });
+
+  await test('appointment actual time partial update validates resulting range', async () => {
+    if (!adminToken || !state.actualTimeAppointmentId) {
+      throw new Error('Admin token and actual-time appointment are required.');
+    }
+
+    const arrival = await updateAppointment(adminToken, state.actualTimeAppointmentId, {
+      actualArrivalAt: isoMinutesFromNow(360)
+    }, 'set actual arrival only');
+    if (!arrival.actualArrivalAt) throw new Error('actualArrivalAt was not set.');
+
+    const invalidFinished = await api(`/api/v1/admin/appointments/${state.actualTimeAppointmentId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: {
+        actualFinishedAt: isoMinutesFromNow(330)
+      }
+    });
+    const failure = requireFailure(invalidFinished, 'partial update invalid actual finish', [400]);
+
+    const finished = await updateAppointment(adminToken, state.actualTimeAppointmentId, {
+      actualFinishedAt: isoMinutesFromNow(390)
+    }, 'set valid actual finish');
+    if (!finished.actualFinishedAt) throw new Error('actualFinishedAt was not set.');
+
+    return {
+      invalidStatus: failure.status,
+      validArrivalAtSet: Boolean(finished.actualArrivalAt),
+      validFinishedAtSet: Boolean(finished.actualFinishedAt)
+    };
   });
 
   await test('reschedule first appointment succeeds', async () => {
@@ -379,6 +542,57 @@ async function main() {
     const appointment = await createAppointment(adminToken, state.otherCaseId, 1, 360);
     state.otherAppointmentId = appointment.id;
     return { otherCaseId: state.otherCaseId, otherAppointmentId: state.otherAppointmentId };
+  });
+
+  await test('reopening a completed appointment is rejected by status/result consistency guard', async () => {
+    if (!adminToken) throw new Error('Admin token is required.');
+    const reopenCase = await prepareCaseForDispatch(
+      adminToken,
+      'reopen-guard',
+      fixture.reopenCustomerName,
+      fixture.reopenCustomerMobile
+    );
+    state.reopenCaseId = reopenCase.id;
+
+    const first = await createAppointment(adminToken, state.reopenCaseId, 1, 420);
+    state.reopenAppointmentOneId = first.id;
+
+    const completed = await updateAppointment(adminToken, state.reopenAppointmentOneId, {
+      appointmentStatus: 'completed',
+      visitResult: 'completed',
+      nextAction: 'no_action'
+    }, 'mark reopen guard appointment completed');
+    if (completed.appointmentStatus !== 'completed') {
+      throw new Error(`expected completed appointment status, got ${completed.appointmentStatus}`);
+    }
+    if (completed.visitResult !== 'completed') {
+      throw new Error(`expected completed visitResult, got ${completed.visitResult}`);
+    }
+
+    const second = await createAppointment(adminToken, state.reopenCaseId, 2, 540);
+    state.reopenAppointmentTwoId = second.id;
+
+    const response = await api(`/api/v1/admin/appointments/${state.reopenAppointmentOneId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: { appointmentStatus: 'scheduled' }
+    });
+    const failure = requireFailure(response, 'reopen completed appointment with completed visit result', [400]);
+    if (!failure.message || !failure.message.includes('appointmentStatus')) {
+      throw new Error(`unexpected reopen conflict message: ${failure.message}`);
+    }
+
+    const reopenedCase = await getCase(adminToken, state.reopenCaseId);
+    if (reopenedCase.status === 'completed' || reopenedCase.status === 'closed') {
+      throw new Error(`reopen guard unexpectedly changed case status: ${reopenedCase.status}`);
+    }
+
+    return {
+      caseId: state.reopenCaseId,
+      terminalAppointmentId: state.reopenAppointmentOneId,
+      activeAppointmentId: state.reopenAppointmentTwoId,
+      failure
+    };
   });
 
   await test('mark second appointment completed', async () => {

@@ -24,6 +24,8 @@ const fixture = {
   suppliedCustomerMobile: `090228${Date.now().toString().slice(-6)}`,
   deterministicCustomerName: `Task028 Deterministic Final Appointment Customer ${smokeRunId}`,
   deterministicCustomerMobile: `090328${Date.now().toString().slice(-6)}`,
+  concurrentCustomerName: `Task028 Concurrent Completion Customer ${smokeRunId}`,
+  concurrentCustomerMobile: `090428${Date.now().toString().slice(-6)}`,
   caseModelNoPrefix: `T028-${shortSmokeRunId}`,
   caseProblemDescription: (marker) => `${smokePrefix} multi dispatch guard ${marker}`,
   dispatchNote: (marker) => `${smokePrefix} dispatch ${marker}`,
@@ -33,13 +35,20 @@ const fixture = {
   diagnosisResult: `${smokePrefix} diagnosis`,
   repairAction: `${smokePrefix} repair action`,
   engineerNote: `${smokePrefix} engineer note`,
+  pendingFinalDiagnosisResult: `${smokePrefix} should not create with non-completed final appointment`,
   duplicateDiagnosisResult: `${smokePrefix} duplicate report`,
   missingFinalRepairResult: `${smokePrefix} should not complete without final appointment`,
   pendingPartsRepairResult: `${smokePrefix} should not complete with pending parts appointment`,
   crossCaseRepairResult: `${smokePrefix} should not complete with cross-case appointment`,
   repairResult: `${smokePrefix} repair result`,
+  repeatCompletionRepairResult: `${smokePrefix} repeat completion must not mutate`,
   suppliedRepairResult: `${smokePrefix} supplied final appointment accepted`,
-  deterministicRepairResult: `${smokePrefix} deterministic final appointment inferred`
+  deterministicRepairResult: `${smokePrefix} deterministic final appointment inferred`,
+  concurrentRepairResult: `${smokePrefix} concurrent completion winner`,
+  concurrentDuplicateRepairResult: `${smokePrefix} concurrent completion loser`,
+  servicePartName: `${smokePrefix} draft service part`,
+  blockedServicePartName: `${smokePrefix} blocked completed service part`,
+  blockedServicePartUpdateName: `${smokePrefix} blocked completed service part update`
 };
 
 const state = {
@@ -50,13 +59,18 @@ const state = {
   otherCaseId: null,
   suppliedCaseId: null,
   deterministicCaseId: null,
+  concurrentCaseId: null,
   appointmentOneId: null,
   appointmentTwoId: null,
   otherAppointmentId: null,
   suppliedAppointmentId: null,
   deterministicAppointmentOneId: null,
   deterministicAppointmentTwoId: null,
-  serviceReportId: null
+  concurrentAppointmentId: null,
+  serviceReportId: null,
+  servicePartId: null,
+  deterministicServiceReportId: null,
+  concurrentServiceReportId: null
 };
 
 const results = [];
@@ -241,8 +255,40 @@ async function updateAppointment(token, appointmentId, payload, label) {
   }), label);
 }
 
+async function createServicePart(token, reportId, payload, label) {
+  return requireOk(await api(`/api/v1/admin/service-reports/${reportId}/parts`, {
+    method: 'POST',
+    token,
+    body: payload
+  }), label);
+}
+
+async function listServiceParts(token, reportId) {
+  const response = await api(`/api/v1/admin/service-reports/${reportId}/parts?limit=50&offset=0`, { token });
+  if (!response.ok) {
+    throw new Error(`list service parts failed: ${JSON.stringify(responseSummary(response))}`);
+  }
+  return response.json?.data || [];
+}
+
+function findServicePart(parts, partId) {
+  return parts.find((part) => part.id === partId) || null;
+}
+
 async function getCase(token, caseId) {
   return requireOk(await api(`/api/v1/admin/cases/${caseId}`, { token }), 'get case');
+}
+
+async function getServiceReportByCase(token, caseId) {
+  return requireOk(await api(`/api/v1/admin/cases/${caseId}/service-report`, { token }), 'get service report');
+}
+
+async function getCaseMessageCount(token, caseId) {
+  const response = await api(`/api/v1/admin/cases/${caseId}/messages?limit=1&offset=0&sort=createdAtAsc`, { token });
+  if (!response.ok) {
+    throw new Error(`get case message count failed: ${JSON.stringify(responseSummary(response))}`);
+  }
+  return response.json?.pagination?.total ?? response.json?.data?.length ?? 0;
 }
 
 function assertCaseNotCompleted(adminCase, label) {
@@ -335,6 +381,23 @@ async function main() {
     return { appointmentId: appointment.id, visitResult: appointment.visitResult, nextAction: appointment.nextAction };
   });
 
+  await test('service report create with non-completed finalAppointmentId is rejected', async () => {
+    if (!adminToken || !state.caseId || !state.appointmentOneId) {
+      throw new Error('Admin token, primary case, and appointment 1 are required.');
+    }
+    const response = await api(`/api/v1/admin/cases/${state.caseId}/service-report`, {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        diagnosisResult: fixture.pendingFinalDiagnosisResult,
+        finalAppointmentId: state.appointmentOneId
+      }
+    });
+
+    const failure = requireFailure(response, 'create service report with non-completed finalAppointmentId', [400]);
+    return failure;
+  });
+
   await test('create second appointment after first terminal result', async () => {
     if (!adminToken || !state.caseId) throw new Error('Admin token and primary case are required.');
     const appointmentTwo = await createAppointment(adminToken, state.caseId, 2, 180);
@@ -372,6 +435,30 @@ async function main() {
     });
     const failure = requireFailure(response, 'duplicate service report', [409]);
     return failure;
+  });
+
+  await test('create draft service part before report completion', async () => {
+    if (!adminToken || !state.serviceReportId) {
+      throw new Error('Admin token and service report are required.');
+    }
+
+    const part = await createServicePart(adminToken, state.serviceReportId, {
+      partName: fixture.servicePartName,
+      partNo: `T028-PART-${shortSmokeRunId}`,
+      quantity: 1,
+      partStatus: 'planned'
+    }, 'create draft service part');
+
+    state.servicePartId = part.id;
+
+    if (part.serviceReportId !== state.serviceReportId) {
+      throw new Error('service part was not linked to the primary service report.');
+    }
+
+    return {
+      servicePartId: state.servicePartId,
+      partStatus: part.partStatus
+    };
   });
 
   await test('completion without finalAppointmentId is rejected and case remains open', async () => {
@@ -502,6 +589,227 @@ async function main() {
     };
   });
 
+  await test('completed report finalAppointmentId cannot be cleared', async () => {
+    if (!adminToken || !state.serviceReportId || !state.caseId || !state.appointmentTwoId) {
+      throw new Error('Admin token, service report, primary case, and appointment 2 are required.');
+    }
+
+    const reportBefore = await getServiceReportByCase(adminToken, state.caseId);
+    const response = await api(`/api/v1/admin/service-reports/${state.serviceReportId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: {
+        finalAppointmentId: null
+      }
+    });
+
+    const failure = requireFailure(response, 'clear finalAppointmentId on completed report', [409]);
+    const reportAfter = await getServiceReportByCase(adminToken, state.caseId);
+
+    if (reportAfter.finalAppointmentId !== reportBefore.finalAppointmentId) {
+      throw new Error('completed report finalAppointmentId was cleared or changed.');
+    }
+    if (reportAfter.onsiteCompletedAt !== reportBefore.onsiteCompletedAt) {
+      throw new Error('clear finalAppointmentId changed report onsiteCompletedAt.');
+    }
+
+    return {
+      ...failure,
+      finalAppointmentIdStable: reportAfter.finalAppointmentId === reportBefore.finalAppointmentId,
+      reportCompletedAtStable: reportAfter.onsiteCompletedAt === reportBefore.onsiteCompletedAt
+    };
+  });
+
+  await test('completed report cannot add service part', async () => {
+    if (!adminToken || !state.serviceReportId) {
+      throw new Error('Admin token and service report are required.');
+    }
+
+    const response = await api(`/api/v1/admin/service-reports/${state.serviceReportId}/parts`, {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        partName: fixture.blockedServicePartName,
+        quantity: 1,
+        partStatus: 'used'
+      }
+    });
+
+    const failure = requireFailure(response, 'add service part to completed report', [409]);
+    const partsAfter = await listServiceParts(adminToken, state.serviceReportId);
+    const blockedPart = partsAfter.find((part) => part.partName === fixture.blockedServicePartName);
+    if (blockedPart) {
+      throw new Error('completed report accepted a new service part.');
+    }
+
+    return {
+      ...failure,
+      blockedPartCreated: false
+    };
+  });
+
+  await test('completed report cannot update existing service part', async () => {
+    if (!adminToken || !state.serviceReportId || !state.servicePartId) {
+      throw new Error('Admin token, service report, and service part are required.');
+    }
+
+    const partsBefore = await listServiceParts(adminToken, state.serviceReportId);
+    const partBefore = findServicePart(partsBefore, state.servicePartId);
+    if (!partBefore) throw new Error('draft service part was not found before update rejection test.');
+
+    const response = await api(`/api/v1/admin/service-parts/${state.servicePartId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: {
+        partName: fixture.blockedServicePartUpdateName,
+        quantity: 2
+      }
+    });
+
+    const failure = requireFailure(response, 'update service part on completed report', [409]);
+    const partsAfter = await listServiceParts(adminToken, state.serviceReportId);
+    const partAfter = findServicePart(partsAfter, state.servicePartId);
+    if (!partAfter) throw new Error('service part disappeared after rejected update.');
+    if (partAfter.partName !== partBefore.partName) {
+      throw new Error('rejected completed-report service part update changed partName.');
+    }
+    if (partAfter.quantity !== partBefore.quantity) {
+      throw new Error('rejected completed-report service part update changed quantity.');
+    }
+
+    return {
+      ...failure,
+      partNameStable: partAfter.partName === partBefore.partName,
+      quantityStable: partAfter.quantity === partBefore.quantity
+    };
+  });
+
+  await test('completed report cannot delete existing service part', async () => {
+    if (!adminToken || !state.serviceReportId || !state.servicePartId) {
+      throw new Error('Admin token, service report, and service part are required.');
+    }
+
+    const response = await api(`/api/v1/admin/service-parts/${state.servicePartId}`, {
+      method: 'DELETE',
+      token: adminToken
+    });
+
+    const failure = requireFailure(response, 'delete service part on completed report', [409]);
+    const partsAfter = await listServiceParts(adminToken, state.serviceReportId);
+    const partAfter = findServicePart(partsAfter, state.servicePartId);
+    if (!partAfter) {
+      throw new Error('rejected completed-report service part delete removed the part.');
+    }
+
+    return {
+      ...failure,
+      servicePartStillPresent: true
+    };
+  });
+
+  await test('repeat completion is rejected without mutating completed report or case', async () => {
+    if (!adminToken || !state.serviceReportId || !state.caseId || !state.appointmentTwoId) {
+      throw new Error('Admin token, service report, primary case, and appointment 2 are required.');
+    }
+
+    const reportBefore = await getServiceReportByCase(adminToken, state.caseId);
+    const caseBefore = await getCase(adminToken, state.caseId);
+    const messagesBefore = await getCaseMessageCount(adminToken, state.caseId);
+
+    const response = await api(`/api/v1/admin/service-reports/${state.serviceReportId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: {
+        serviceStatus: 'completed',
+        repairResult: fixture.repeatCompletionRepairResult
+      }
+    });
+
+    const failure = requireFailure(response, 'repeat complete completed report', [409]);
+    const reportAfter = await getServiceReportByCase(adminToken, state.caseId);
+    const caseAfter = await getCase(adminToken, state.caseId);
+    const messagesAfter = await getCaseMessageCount(adminToken, state.caseId);
+
+    if (reportAfter.finalAppointmentId !== reportBefore.finalAppointmentId) {
+      throw new Error('repeat completion changed finalAppointmentId.');
+    }
+    if (reportAfter.onsiteCompletedAt !== reportBefore.onsiteCompletedAt) {
+      throw new Error('repeat completion changed report onsiteCompletedAt.');
+    }
+    if (reportAfter.repairResult !== reportBefore.repairResult) {
+      throw new Error('repeat completion changed completed report repairResult.');
+    }
+    if (caseAfter.completedAt !== caseBefore.completedAt) {
+      throw new Error('repeat completion changed case completedAt.');
+    }
+    if (caseAfter.status !== caseBefore.status) {
+      throw new Error('repeat completion changed case status.');
+    }
+    if (messagesAfter !== messagesBefore) {
+      throw new Error('repeat completion created duplicate timeline message.');
+    }
+
+    return {
+      ...failure,
+      finalAppointmentIdStable: reportAfter.finalAppointmentId === reportBefore.finalAppointmentId,
+      reportCompletedAtStable: reportAfter.onsiteCompletedAt === reportBefore.onsiteCompletedAt,
+      caseCompletedAtStable: caseAfter.completedAt === caseBefore.completedAt,
+      timelineMessageCountStable: messagesAfter === messagesBefore
+    };
+  });
+
+  await test('completed report cannot be reopened through normal update', async () => {
+    if (!adminToken || !state.serviceReportId || !state.caseId) {
+      throw new Error('Admin token, service report, and primary case are required.');
+    }
+
+    const reportBefore = await getServiceReportByCase(adminToken, state.caseId);
+    const caseBefore = await getCase(adminToken, state.caseId);
+    const messagesBefore = await getCaseMessageCount(adminToken, state.caseId);
+
+    const response = await api(`/api/v1/admin/service-reports/${state.serviceReportId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: {
+        serviceStatus: 'in_progress',
+        repairResult: fixture.repeatCompletionRepairResult
+      }
+    });
+
+    const failure = requireFailure(response, 'reopen completed report', [409]);
+    const reportAfter = await getServiceReportByCase(adminToken, state.caseId);
+    const caseAfter = await getCase(adminToken, state.caseId);
+    const messagesAfter = await getCaseMessageCount(adminToken, state.caseId);
+
+    if (reportAfter.serviceStatus !== 'completed') {
+      throw new Error(`completed report was reopened to ${reportAfter.serviceStatus}.`);
+    }
+    if (reportAfter.finalAppointmentId !== reportBefore.finalAppointmentId) {
+      throw new Error('reopen attempt changed finalAppointmentId.');
+    }
+    if (reportAfter.onsiteCompletedAt !== reportBefore.onsiteCompletedAt) {
+      throw new Error('reopen attempt changed report onsiteCompletedAt.');
+    }
+    if (caseAfter.status !== caseBefore.status) {
+      throw new Error('reopen attempt changed case status.');
+    }
+    if (caseAfter.completedAt !== caseBefore.completedAt) {
+      throw new Error('reopen attempt changed case completedAt.');
+    }
+    if (messagesAfter !== messagesBefore) {
+      throw new Error('reopen attempt created duplicate timeline message.');
+    }
+
+    return {
+      ...failure,
+      serviceStatusStable: reportAfter.serviceStatus === 'completed',
+      finalAppointmentIdStable: reportAfter.finalAppointmentId === reportBefore.finalAppointmentId,
+      reportCompletedAtStable: reportAfter.onsiteCompletedAt === reportBefore.onsiteCompletedAt,
+      caseCompletedAtStable: caseAfter.completedAt === caseBefore.completedAt,
+      timelineMessageCountStable: messagesAfter === messagesBefore
+    };
+  });
+
   await test('supplied same-case completed finalAppointmentId is still accepted', async () => {
     if (!adminToken) throw new Error('Admin token is required.');
     const suppliedCase = await prepareCaseForDispatch(
@@ -595,6 +903,7 @@ async function main() {
         engineerNote: fixture.engineerNote
       }
     }), 'create deterministic service report');
+    state.deterministicServiceReportId = deterministicReport.id;
 
     const completedReport = requireOk(await api(`/api/v1/admin/service-reports/${deterministicReport.id}`, {
       method: 'PATCH',
@@ -616,6 +925,165 @@ async function main() {
       serviceReportId: completedReport.id,
       inferredFinalAppointmentId: completedReport.finalAppointmentId,
       expectedFinalAppointmentId: state.deterministicAppointmentTwoId
+    };
+  });
+
+  await test('repeat completion with different supplied finalAppointmentId cannot override completed report', async () => {
+    if (
+      !adminToken ||
+      !state.deterministicCaseId ||
+      !state.deterministicServiceReportId ||
+      !state.deterministicAppointmentOneId ||
+      !state.deterministicAppointmentTwoId
+    ) {
+      throw new Error('Admin token, deterministic case, report, and appointments are required.');
+    }
+
+    const reportBefore = await getServiceReportByCase(adminToken, state.deterministicCaseId);
+    const caseBefore = await getCase(adminToken, state.deterministicCaseId);
+    const messagesBefore = await getCaseMessageCount(adminToken, state.deterministicCaseId);
+
+    const response = await api(`/api/v1/admin/service-reports/${state.deterministicServiceReportId}`, {
+      method: 'PATCH',
+      token: adminToken,
+      body: {
+        serviceStatus: 'completed',
+        finalAppointmentId: state.deterministicAppointmentOneId,
+        repairResult: fixture.repeatCompletionRepairResult
+      }
+    });
+
+    const failure = requireFailure(response, 'repeat complete with different supplied finalAppointmentId', [409]);
+    const reportAfter = await getServiceReportByCase(adminToken, state.deterministicCaseId);
+    const caseAfter = await getCase(adminToken, state.deterministicCaseId);
+    const messagesAfter = await getCaseMessageCount(adminToken, state.deterministicCaseId);
+
+    if (reportAfter.finalAppointmentId !== state.deterministicAppointmentTwoId) {
+      throw new Error('different supplied finalAppointmentId overrode completed report finalAppointmentId.');
+    }
+    if (reportAfter.finalAppointmentId !== reportBefore.finalAppointmentId) {
+      throw new Error('completed report finalAppointmentId changed after repeat supplied-id completion.');
+    }
+    if (reportAfter.onsiteCompletedAt !== reportBefore.onsiteCompletedAt) {
+      throw new Error('repeat supplied-id completion changed report onsiteCompletedAt.');
+    }
+    if (caseAfter.completedAt !== caseBefore.completedAt) {
+      throw new Error('repeat supplied-id completion changed case completedAt.');
+    }
+    if (messagesAfter !== messagesBefore) {
+      throw new Error('repeat supplied-id completion created duplicate timeline message.');
+    }
+
+    return {
+      ...failure,
+      finalAppointmentIdStable: reportAfter.finalAppointmentId === reportBefore.finalAppointmentId,
+      attemptedFinalAppointmentId: state.deterministicAppointmentOneId,
+      preservedFinalAppointmentId: reportAfter.finalAppointmentId,
+      reportCompletedAtStable: reportAfter.onsiteCompletedAt === reportBefore.onsiteCompletedAt,
+      caseCompletedAtStable: caseAfter.completedAt === caseBefore.completedAt,
+      timelineMessageCountStable: messagesAfter === messagesBefore
+    };
+  });
+
+  await test('concurrent completion only allows one first-transition side effect', async () => {
+    if (!adminToken) throw new Error('Admin token is required.');
+    const concurrentCase = await prepareCaseForDispatch(
+      adminToken,
+      'concurrent',
+      fixture.concurrentCustomerName,
+      fixture.concurrentCustomerMobile
+    );
+    state.concurrentCaseId = concurrentCase.id;
+
+    const appointment = await createAppointment(adminToken, state.concurrentCaseId, 1, 780);
+    const completedAppointment = await updateAppointment(adminToken, appointment.id, {
+      appointmentStatus: 'completed',
+      visitResult: 'completed',
+      nextAction: 'close_case',
+      actualArrivalAt: isoMinutesFromNow(780),
+      actualFinishedAt: isoMinutesFromNow(810)
+    }, 'update concurrent appointment completed');
+    state.concurrentAppointmentId = completedAppointment.id;
+
+    const serviceReport = requireOk(await api(`/api/v1/admin/cases/${state.concurrentCaseId}/service-report`, {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        diagnosisResult: fixture.diagnosisResult,
+        repairAction: fixture.repairAction,
+        engineerNote: fixture.engineerNote
+      }
+    }), 'create concurrent service report');
+    state.concurrentServiceReportId = serviceReport.id;
+
+    const messagesBefore = await getCaseMessageCount(adminToken, state.concurrentCaseId);
+
+    const [firstResponse, secondResponse] = await Promise.all([
+      api(`/api/v1/admin/service-reports/${state.concurrentServiceReportId}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: {
+          serviceStatus: 'completed',
+          repairResult: fixture.concurrentRepairResult
+        }
+      }),
+      api(`/api/v1/admin/service-reports/${state.concurrentServiceReportId}`, {
+        method: 'PATCH',
+        token: adminToken,
+        body: {
+          serviceStatus: 'completed',
+          repairResult: fixture.concurrentDuplicateRepairResult
+        }
+      })
+    ]);
+
+    const responses = [firstResponse, secondResponse];
+    const successes = responses.filter((response) => response.ok);
+    const failures = responses.filter((response) => !response.ok);
+
+    if (successes.length !== 1 || failures.length !== 1) {
+      throw new Error(`expected exactly one concurrent completion success and one failure, got ${JSON.stringify(responses.map(responseSummary))}`);
+    }
+
+    const completedReport = successes[0].json?.data;
+    if (!completedReport) {
+      throw new Error('concurrent completion success did not return report data.');
+    }
+    if (completedReport.serviceStatus !== 'completed') {
+      throw new Error(`expected completed concurrent report, got ${completedReport.serviceStatus}`);
+    }
+    if (completedReport.finalAppointmentId !== state.concurrentAppointmentId) {
+      throw new Error(`expected inferred finalAppointmentId ${state.concurrentAppointmentId}, got ${completedReport.finalAppointmentId}`);
+    }
+
+    const failure = requireFailure(failures[0], 'losing concurrent completion', [409]);
+    const reportAfter = await getServiceReportByCase(adminToken, state.concurrentCaseId);
+    const caseAfter = await getCase(adminToken, state.concurrentCaseId);
+    const messagesAfter = await getCaseMessageCount(adminToken, state.concurrentCaseId);
+
+    if (reportAfter.finalAppointmentId !== state.concurrentAppointmentId) {
+      throw new Error('losing concurrent completion changed finalAppointmentId.');
+    }
+    if (reportAfter.onsiteCompletedAt !== completedReport.onsiteCompletedAt) {
+      throw new Error('losing concurrent completion changed report onsiteCompletedAt.');
+    }
+    if (caseAfter.status !== 'completed') {
+      throw new Error(`expected concurrent case completed, got ${caseAfter.status}`);
+    }
+    if (!caseAfter.completedAt) {
+      throw new Error('concurrent case completedAt was not set.');
+    }
+    if (messagesAfter !== messagesBefore + 1) {
+      throw new Error('concurrent completion created duplicate or missing timeline message.');
+    }
+
+    return {
+      successCount: successes.length,
+      failureStatus: failure.status,
+      finalAppointmentIdStable: reportAfter.finalAppointmentId === state.concurrentAppointmentId,
+      reportCompletedAtStable: reportAfter.onsiteCompletedAt === completedReport.onsiteCompletedAt,
+      caseCompletedAtSet: Boolean(caseAfter.completedAt),
+      timelineMessageDelta: messagesAfter - messagesBefore
     };
   });
 
