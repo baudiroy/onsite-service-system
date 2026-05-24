@@ -49,6 +49,19 @@ class DispatchRepository extends BaseRepository {
     );
   }
 
+  async getDispatchAssignmentById(assignmentId, client) {
+    return this.queryOne(
+      `
+        ${DISPATCH_SELECT}
+        WHERE id = $1
+          AND deleted_at IS NULL
+        LIMIT 1
+      `,
+      [assignmentId],
+      client
+    );
+  }
+
   async updateDispatchAssignment(assignmentId, data, client) {
     return this.queryOne(
       `

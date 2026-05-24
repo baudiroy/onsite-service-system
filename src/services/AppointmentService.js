@@ -37,6 +37,25 @@ function validateTimeRange(input) {
   }
 }
 
+function validateActualTimeRange(input, existing = {}) {
+  const arrivalValue = input.actualArrivalAt || existing.actual_arrival_at;
+  const finishedValue = input.actualFinishedAt || existing.actual_finished_at;
+  if (!arrivalValue || !finishedValue) return;
+
+  const arrival = new Date(arrivalValue);
+  const finished = new Date(finishedValue);
+
+  if (Number.isNaN(arrival.getTime()) || Number.isNaN(finished.getTime()) || finished < arrival) {
+    throw new ValidationError('actualFinishedAt must be after or equal to actualArrivalAt.', [
+      {
+        field: 'actualFinishedAt',
+        message: 'actualFinishedAt must be after or equal to actualArrivalAt.',
+        code: 'invalid_actual_time_range'
+      }
+    ]);
+  }
+}
+
 function isAppointmentOpen(row) {
   if (!row || row.deleted_at) return false;
   if (TERMINAL_APPOINTMENT_STATUSES.has(row.appointment_status)) return false;
@@ -50,6 +69,31 @@ function buildNextAppointmentState(existing, input, nextStatus) {
     appointment_status: nextStatus || existing.appointment_status,
     visit_result: input.visitResult || existing.visit_result
   };
+}
+
+function ensureAppointmentCompletionConsistency(existing, input, nextStatus) {
+  const resultingStatus = nextStatus || existing.appointment_status;
+  const resultingVisitResult = input.visitResult || existing.visit_result;
+
+  if (resultingStatus === 'completed' && resultingVisitResult !== 'completed') {
+    throw new ValidationError('Completed appointments require visitResult to be completed.', [
+      {
+        field: 'visitResult',
+        message: 'Completed appointments require visitResult to be completed.',
+        code: 'completed_visit_result_required'
+      }
+    ]);
+  }
+
+  if (resultingVisitResult === 'completed' && resultingStatus !== 'completed') {
+    throw new ValidationError('visitResult completed requires appointmentStatus to be completed.', [
+      {
+        field: 'appointmentStatus',
+        message: 'visitResult completed requires appointmentStatus to be completed.',
+        code: 'completed_status_required'
+      }
+    ]);
+  }
 }
 
 function getAppointmentUpdateAction(updated, input) {
@@ -100,16 +144,38 @@ class AppointmentService {
     return caseRow;
   }
 
+  async ensureDispatchAssignmentForCase(dispatchAssignmentId, caseId, client) {
+    const dispatch = await this.dispatchRepository.getDispatchAssignmentById(dispatchAssignmentId, client);
+
+    if (!dispatch || dispatch.case_id !== caseId) {
+      throw new ValidationError('dispatchAssignmentId must reference a dispatch assignment for this case.', [
+        {
+          field: 'dispatchAssignmentId',
+          message: 'dispatchAssignmentId must reference a dispatch assignment for this case.',
+          code: 'invalid_reference'
+        }
+      ]);
+    }
+
+    return dispatch;
+  }
+
   async createAppointment(caseId, input, actor, req = null) {
     validateTimeRange(input);
+    validateActualTimeRange(input);
+    ensureAppointmentCompletionConsistency(
+      { appointment_status: 'scheduled', visit_result: null },
+      input,
+      'scheduled'
+    );
 
     return withTransaction(async (client) => {
       await this.ensureCase(caseId, client, actor);
       await this.assertNoOtherOpenAppointment(caseId, {}, client);
       const dispatch = input.dispatchAssignmentId
-        ? null
+        ? await this.ensureDispatchAssignmentForCase(input.dispatchAssignmentId, caseId, client)
         : await this.dispatchRepository.getDispatchAssignmentByCaseId(caseId, client);
-      const dispatchAssignmentId = input.dispatchAssignmentId || dispatch?.id || null;
+      const dispatchAssignmentId = dispatch?.id || null;
       const appointment = await this.appointmentRepository.createAppointment({
         ...input,
         caseId,
@@ -181,8 +247,12 @@ class AppointmentService {
       const existing = await this.appointmentRepository.getAppointmentById(appointmentId, client);
       if (!existing) throw new NotFoundError('Appointment not found.');
       await this.ensureCase(existing.case_id, client, actor);
+      validateActualTimeRange(input, existing);
 
-      const nextStatus = input.appointmentStatus || (input.scheduledStartAt ? 'rescheduled' : undefined);
+      const nextStatus = input.appointmentStatus ||
+        (input.visitResult === 'completed' ? 'completed' : undefined) ||
+        (input.scheduledStartAt ? 'rescheduled' : undefined);
+      ensureAppointmentCompletionConsistency(existing, input, nextStatus);
       const nextState = buildNextAppointmentState(existing, input, nextStatus);
       if (!isAppointmentOpen(existing) && isAppointmentOpen(nextState)) {
         await this.assertNoOtherOpenAppointment(
