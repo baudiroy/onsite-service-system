@@ -575,3 +575,65 @@ Task 108 browser smoke coverage:
 - verifies no final marker and no manual picker appear.
 
 Task 108 does not change backend runtime behavior, inference ordering, migrations, schema, indexes, inventory docs, or AI behavior.
+
+## Task 109 Completed Report Repeat Completion / Idempotency Note
+
+Task 109 hardens completed report repeat completion behavior with the reject-repeat-completion contract.
+
+Chosen already-completed contract:
+
+- If `service_status` is already `completed`, the completion endpoint rejects repeat completion.
+- The rejection happens before final appointment resolution / inference.
+- The rejection happens before report update, case update, timeline message creation, or audit creation.
+- The response uses the existing conflict-style error path and does not include sensitive data.
+
+Why this contract:
+
+- It avoids treating direct API retry as permission to rerun completion side effects.
+- It prevents supplied `finalAppointmentId` compatibility from becoming a post-completion override path.
+- It is simpler and safer than an idempotent read-only return until a dedicated idempotency key / retry contract exists.
+
+Stability guarantees for completed reports:
+
+- `finalAppointmentId` remains stable after first successful completion.
+- `onsiteCompletedAt` remains stable after first successful completion.
+- Case `completedAt` remains stable after first successful completion.
+- Repeat completion does not create duplicate timeline messages.
+- Repeat completion does not create a second formal Field Service Report.
+- Completed reports are not reopened or moved back to `in_progress` by the normal update endpoint.
+
+Task 109 smoke coverage:
+
+- `smoke:028` completes a report once with backend-inferred `finalAppointmentId`.
+- `smoke:028` retries completion with omitted `finalAppointmentId` and expects rejection.
+- `smoke:028` verifies report `finalAppointmentId`, report completed timestamp, case completed timestamp, case status, and timeline message count remain unchanged after rejection.
+- `smoke:028` verifies a normal update cannot reopen a completed report back to `in_progress`.
+- `smoke:028` retries completion with a different supplied same-Case completed `finalAppointmentId` on an already completed report and verifies it cannot override the stored final appointment.
+- Existing no-eligible-completed-visit and supplied-id validation coverage remains in place.
+
+Admin UI behavior remains:
+
+- completion payload omits `finalAppointmentId`,
+- no final appointment manual picker exists,
+- UI remains response / refreshed-report driven for final marker display,
+- backend rejection should be shown as a safe error instead of a second success state.
+
+Future survey compatibility:
+
+- post-completion survey should trigger only on the first successful transition to completed,
+- repeat completion must not trigger survey again,
+- final appointment context should remain stable after completion.
+
+Task 109 does not add migration, schema change, index change, manual correction UI, manual override endpoint, AI automatic decision, inventory docs expansion, or LINE-specific coupling in core Case / Report completion.
+
+## Task 110 Cross-reference
+
+Task 110 defines the future post-completion survey first-transition trigger contract in `docs/task-110-post-completion-survey-trigger-first-transition-design.md`.
+
+Task 110 keeps survey design separate from the completion API:
+
+- survey trigger source of truth is the first successful backend Case service completion transition,
+- repeat completion conflict does not trigger survey,
+- survey context uses the completed report's stable `finalAppointmentId`,
+- delivery channel resolution remains future and channel-agnostic,
+- no survey runtime, notification sending, migration, schema change, or inventory docs expansion is introduced.
