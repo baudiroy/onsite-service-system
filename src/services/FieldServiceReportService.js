@@ -10,9 +10,15 @@ const { ConflictError, InvalidStatusTransitionError, NotFoundError, ValidationEr
 const { toFieldServiceReportDTO, toServicePartDTO } = require('../mappers/fieldServiceMapper');
 
 const ONSITE_READY_STATUSES = new Set(['assigned', 'scheduled', 'on_site']);
+const FIELD_SERVICE_REPORT_CASE_UNIQUE_INDEX = 'idx_field_service_reports_case_active_unique';
+const DUPLICATE_SERVICE_REPORT_MESSAGE = 'Service report already exists for this case.';
 
 function hasOwn(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function isDuplicateServiceReportError(error) {
+  return error?.code === '23505' && error.constraint === FIELD_SERVICE_REPORT_CASE_UNIQUE_INDEX;
 }
 
 class FieldServiceReportService {
@@ -62,6 +68,18 @@ class FieldServiceReportService {
     return report;
   }
 
+  async getReportOrThrowForUpdate(reportId, client) {
+    const report = await this.fieldServiceReportRepository.getServiceReportByIdForUpdate(reportId, client);
+    if (!report) throw new NotFoundError('Service report not found.');
+    return report;
+  }
+
+  ensureReportMutable(report) {
+    if (report.service_status === 'completed') {
+      throw new ConflictError('Completed service reports cannot be modified.');
+    }
+  }
+
   async ensureFinalAppointmentBelongsToCase(finalAppointmentId, caseId, client) {
     if (!finalAppointmentId) return null;
 
@@ -87,10 +105,10 @@ class FieldServiceReportService {
     const appointment = await this.ensureFinalAppointmentBelongsToCase(finalAppointmentId, caseId, client);
 
     if (appointment.visit_result !== 'completed') {
-      throw new ValidationError('Final appointment visit result must be completed before completing the case service report.', [
+      throw new ValidationError('finalAppointmentId must reference a completed appointment for this case.', [
         {
           field: 'finalAppointmentId',
-          message: 'Final appointment visit result must be completed before completing the case service report.',
+          message: 'finalAppointmentId must reference a completed appointment for this case.',
           code: 'final_appointment_not_completed'
         }
       ]);
@@ -153,19 +171,28 @@ class FieldServiceReportService {
   async createServiceReport(caseId, input, actor, req = null) {
     return withTransaction(async (client) => {
       await this.ensureCaseReadyForService(caseId, client, actor);
-      await this.ensureFinalAppointmentBelongsToCase(input.finalAppointmentId, caseId, client);
+      await this.ensureFinalAppointmentCompletedForCase(input.finalAppointmentId, caseId, client);
 
       const existing = await this.fieldServiceReportRepository.getServiceReportByCaseId(caseId, client);
       if (existing) {
-        throw new ConflictError('Service report already exists for this case.');
+        throw new ConflictError(DUPLICATE_SERVICE_REPORT_MESSAGE);
       }
 
-      const report = await this.fieldServiceReportRepository.createServiceReport({
-        ...input,
-        caseId,
-        serviceStatus: 'in_progress',
-        actorId: actor?.id || null
-      }, client);
+      let report;
+      try {
+        report = await this.fieldServiceReportRepository.createServiceReport({
+          ...input,
+          caseId,
+          serviceStatus: 'in_progress',
+          actorId: actor?.id || null
+        }, client);
+      } catch (error) {
+        if (isDuplicateServiceReportError(error)) {
+          throw new ConflictError(DUPLICATE_SERVICE_REPORT_MESSAGE);
+        }
+
+        throw error;
+      }
 
       await this.caseRepository.updateServiceSummary(
         caseId,
@@ -235,7 +262,8 @@ class FieldServiceReportService {
     return withTransaction(async (client) => {
       const existing = await this.getReportOrThrow(reportId, client);
       await this.ensureCaseAccess(existing.case_id, client, actor);
-      await this.ensureFinalAppointmentBelongsToCase(input.finalAppointmentId, existing.case_id, client);
+      this.ensureReportMutable(existing);
+      await this.ensureFinalAppointmentCompletedForCase(input.finalAppointmentId, existing.case_id, client);
       const nextAction = action || (input.diagnosisResult
         ? 'service_report.diagnosis_updated'
         : 'service_report.repair_result_updated');
@@ -295,21 +323,27 @@ class FieldServiceReportService {
 
   async completeServiceReport(reportId, input = {}, actor, req = null) {
     return withTransaction(async (client) => {
-      const existing = await this.getReportOrThrow(reportId, client);
+      const existing = await this.getReportOrThrowForUpdate(reportId, client);
       await this.ensureCaseAccess(existing.case_id, client, actor);
+      if (existing.service_status === 'completed') {
+        throw new ConflictError('Service report is already completed.');
+      }
       const finalAppointmentId = await this.ensureCompletionFinalAppointment(existing, input, client);
       const completedAt = input.onsiteCompletedAt || new Date().toISOString();
-      const updated = await this.fieldServiceReportRepository.updateServiceReport(
+      const updated = await this.fieldServiceReportRepository.completeServiceReportFirstTransition(
         reportId,
         {
           ...input,
           finalAppointmentId,
-          serviceStatus: 'completed',
           onsiteCompletedAt: completedAt,
           actorId: actor?.id || null
         },
         client
       );
+
+      if (!updated) {
+        throw new ConflictError('Service report is already completed.');
+      }
 
       await this.caseRepository.updateServiceSummary(
         updated.case_id,
@@ -378,6 +412,7 @@ class FieldServiceReportService {
     return withTransaction(async (client) => {
       const report = await this.getReportOrThrow(reportId, client);
       await this.ensureCaseAccess(report.case_id, client, actor);
+      this.ensureReportMutable(report);
       const part = await this.servicePartRepository.createServicePart({
         ...input,
         serviceReportId: reportId,
@@ -440,6 +475,7 @@ class FieldServiceReportService {
       if (!existing) throw new NotFoundError('Service part not found.');
       const report = await this.getReportOrThrow(existing.service_report_id, client);
       await this.ensureCaseAccess(report.case_id, client, actor);
+      this.ensureReportMutable(report);
 
       const updated = await this.servicePartRepository.updateServicePart(
         partId,
@@ -485,6 +521,7 @@ class FieldServiceReportService {
       if (!existing) throw new NotFoundError('Service part not found.');
       const report = await this.getReportOrThrow(existing.service_report_id, client);
       await this.ensureCaseAccess(report.case_id, client, actor);
+      this.ensureReportMutable(report);
 
       const deleted = await this.servicePartRepository.softDeleteServicePart(partId, actor?.id || null, client);
 

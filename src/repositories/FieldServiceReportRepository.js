@@ -72,6 +72,19 @@ class FieldServiceReportRepository extends BaseRepository {
     );
   }
 
+  async getServiceReportByIdForUpdate(reportId, client) {
+    return this.queryOne(
+      `
+        ${FIELD_SERVICE_REPORT_SELECT}
+        WHERE id = $1
+          AND deleted_at IS NULL
+        FOR UPDATE
+      `,
+      [reportId],
+      client
+    );
+  }
+
   async updateServiceReport(reportId, data, client) {
     return this.queryOne(
       `
@@ -102,6 +115,44 @@ class FieldServiceReportRepository extends BaseRepository {
         data.installationChecklist || null,
         data.onsiteStartedAt || null,
         data.onsiteCompletedAt || null,
+        Object.prototype.hasOwnProperty.call(data, 'finalAppointmentId'),
+        data.finalAppointmentId || null,
+        data.actorId || null
+      ],
+      client
+    );
+  }
+
+  async completeServiceReportFirstTransition(reportId, data, client) {
+    return this.queryOne(
+      `
+        UPDATE field_service_reports
+        SET diagnosis_result = coalesce($2, diagnosis_result),
+            repair_action = coalesce($3, repair_action),
+            repair_result = coalesce($4, repair_result),
+            service_status = 'completed',
+            engineer_note = coalesce($5, engineer_note),
+            customer_note = coalesce($6, customer_note),
+            installation_checklist = coalesce($7, installation_checklist),
+            onsite_started_at = coalesce($8, onsite_started_at),
+            onsite_completed_at = $9,
+            final_appointment_id = CASE WHEN $10 THEN $11 ELSE final_appointment_id END,
+            updated_by = $12
+        WHERE id = $1
+          AND deleted_at IS NULL
+          AND service_status <> 'completed'
+        RETURNING *
+      `,
+      [
+        reportId,
+        data.diagnosisResult || null,
+        data.repairAction || null,
+        data.repairResult || null,
+        data.engineerNote || null,
+        data.customerNote || null,
+        data.installationChecklist || null,
+        data.onsiteStartedAt || null,
+        data.onsiteCompletedAt,
         Object.prototype.hasOwnProperty.call(data, 'finalAppointmentId'),
         data.finalAppointmentId || null,
         data.actorId || null
