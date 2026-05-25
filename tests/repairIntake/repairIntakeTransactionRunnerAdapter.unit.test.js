@@ -192,6 +192,35 @@ test('callback return value is propagated without exposing transaction internals
   });
 });
 
+test('safe domain callback error propagates without transaction failure wrapping', async () => {
+  const runner = createRepairIntakeTransactionRunnerAdapter({
+    dbClient: {
+      transaction: async (callback) => callback({ txId: 'tx_task954_domain_failure' }),
+    },
+  });
+  const domainError = new Error('REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED');
+  domainError.reasonCode = 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED';
+  domainError.requiredActions = ['retry_or_manual_review'];
+
+  await assert.rejects(
+    runner.runInTransaction(async () => {
+      throw domainError;
+    }),
+    (error) => {
+      assert.equal(error, domainError);
+      assert.equal(error.reasonCode, 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED');
+      assert.deepEqual(error.requiredActions, ['retry_or_manual_review']);
+      assertNoForbiddenFields({
+        message: error.message,
+        reasonCode: error.reasonCode,
+        requiredActions: error.requiredActions,
+      });
+      assertNoForbiddenFields(String(error));
+      return true;
+    },
+  );
+});
+
 test('callback throw does not leak raw error details', async () => {
   const runner = createRepairIntakeTransactionRunnerAdapter({
     dbClient: {

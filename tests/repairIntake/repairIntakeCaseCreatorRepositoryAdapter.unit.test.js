@@ -8,6 +8,9 @@ const test = require('node:test');
 const {
   createRepairIntakeCaseCreatorRepositoryAdapter,
 } = require('../../src/repairIntake/repairIntakeCaseCreatorRepositoryAdapter');
+const {
+  createRepairIntakeTransactionRunnerAdapter,
+} = require('../../src/repairIntake/repairIntakeTransactionRunnerAdapter');
 
 const SOURCE_PATH = path.join(__dirname, '../../src/repairIntake/repairIntakeCaseCreatorRepositoryAdapter.js');
 
@@ -475,6 +478,75 @@ test('case repository safe failure envelope fails safely without linking draft o
   assert.equal(calls.caseRepository.length, 1);
   assert.equal(calls.repairIntakeDraftRepository.length, 0);
   assert.equal(calls.auditWriter.length, 0);
+  assertNoForbiddenFields(result);
+});
+
+test('real transaction runner preserves downstream case repository safe failure envelope', async () => {
+  const tx = { txId: 'tx_task1594_composed' };
+  const calls = {
+    caseRepository: [],
+    repairIntakeDraftRepository: [],
+    auditWriter: [],
+    transactionRunner: [],
+  };
+  const transactionRunner = createRepairIntakeTransactionRunnerAdapter({
+    dbClient: {
+      transaction: async (callback) => {
+        calls.transactionRunner.push({ callback });
+        return callback(tx);
+      },
+    },
+  });
+  const adapter = createRepairIntakeCaseCreatorRepositoryAdapter({
+    caseRepository: {
+      createCaseFromRepairIntakeCandidate: async (input) => {
+        calls.caseRepository.push(input);
+        return {
+          ok: false,
+          status: 'failed',
+          reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED',
+          requiredActions: ['retry_or_manual_review'],
+          caseRef: null,
+          field_service_reports: 'field_service_reports',
+          finalAppointmentId: 'finalAppointmentId',
+          providerPayload: 'providerPayload',
+          token: 'token',
+          secret: 'secret',
+          phone: 'phone',
+          address: 'address',
+          lineAccessToken: 'LINE marker',
+          rows: [{ sql: 'select *' }],
+          stack: 'stack trace',
+        };
+      },
+    },
+    repairIntakeDraftRepository: {
+      markDraftLinkedToCase: async (input) => {
+        calls.repairIntakeDraftRepository.push(input);
+        return { ok: true };
+      },
+    },
+    auditWriter: {
+      recordRepairIntakeDraftToCaseCreated: async (input) => {
+        calls.auditWriter.push(input);
+        return { ok: true };
+      },
+    },
+    transactionRunner,
+  });
+
+  const result = await adapter.createCaseFromCandidate(creatorInput());
+
+  assert.equal(calls.transactionRunner.length, 1);
+  assert.equal(calls.caseRepository.length, 1);
+  assert.equal(calls.repairIntakeDraftRepository.length, 0);
+  assert.equal(calls.auditWriter.length, 0);
+  assert.deepEqual(result, {
+    ok: false,
+    reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED',
+    requiredActions: ['retry_or_manual_review'],
+    caseRef: null,
+  });
   assertNoForbiddenFields(result);
 });
 

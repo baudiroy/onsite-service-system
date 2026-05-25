@@ -17,6 +17,33 @@ function safeError(reasonCode, requiredActions) {
   return new RepairIntakeTransactionRunnerError(reasonCode, requiredActions);
 }
 
+function stringValue(value) {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function isSafeReasonCode(value) {
+  const reasonCode = stringValue(value);
+
+  return Boolean(reasonCode) && /^[A-Z0-9_]+$/.test(reasonCode);
+}
+
+function isSafeRequiredActions(value) {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every((action) => {
+      const safeAction = stringValue(action);
+
+      return Boolean(safeAction) && /^[a-z0-9_]+$/.test(safeAction);
+    });
+}
+
+function isSafeDomainError(error) {
+  return isObject(error)
+    && isSafeReasonCode(error.reasonCode)
+    && isSafeRequiredActions(error.requiredActions)
+    && error.message === error.reasonCode;
+}
+
 function resolveTransactionRunner(dbClient) {
   if (!isObject(dbClient)) {
     return undefined;
@@ -68,6 +95,10 @@ function createRepairIntakeTransactionRunnerAdapter(options = {}) {
       return await runTransaction(async (tx) => callback(tx));
     } catch (error) {
       if (error instanceof RepairIntakeTransactionRunnerError) {
+        throw error;
+      }
+
+      if (isSafeDomainError(error)) {
         throw error;
       }
 
