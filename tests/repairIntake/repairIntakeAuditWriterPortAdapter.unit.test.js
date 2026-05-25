@@ -105,6 +105,34 @@ function createAuditPort(calls, options = {}) {
         return null;
       }
 
+      if (options.downstreamFailure) {
+        return {
+          ok: false,
+          eventType: 'repair_intake_draft_to_case_decision',
+          outcome: 'failed',
+          draftId: 'draft_task1037',
+          organizationId: 'org_task1037',
+          tenantId: 'tenant_task1037',
+          caseId: 'case_task1037',
+          reasonCode: 'REPAIR_INTAKE_AUDIT_WRITE_FAILED',
+          requiredActions: ['retry_or_manual_review'],
+          metadata: {
+            safeMarker: 'synthetic_downstream_failure',
+            rawRows: [{ phone: '+886900001037' }],
+            sql: 'select * from unsafe_downstream_audit',
+          },
+          stack: 'unsafe downstream stack trace',
+          token: 'unsafe downstream token',
+          secret: 'unsafe downstream secret',
+          providerPayload: 'unsafe downstream providerPayload',
+          finalAppointmentId: 'unsafe downstream finalAppointmentId',
+          field_service_reports: 'unsafe downstream field_service_reports',
+          phone: '+886900001037',
+          address: 'unsafe downstream address',
+          lineAccessToken: 'LINE access token unsafe downstream token',
+        };
+      }
+
       return {
         eventType: 'repair_intake_draft_to_case_decision',
         outcome: 'submitted',
@@ -142,6 +170,8 @@ function assertNoUnsafeText(value) {
     'unsafe_audit_line_token',
     'LINE access token',
     'unsafe_audit_final',
+    'unsafe_downstream',
+    'unsafe downstream',
     'unsafe actor token',
     'unsafe raw audit',
     'unsafe draft stack',
@@ -161,6 +191,8 @@ function assertNoUnsafeText(value) {
     'lineUserId',
     'lineAccessToken',
     'finalAppointmentId',
+    'providerPayload',
+    'field_service_reports',
     'databaseUrl',
     'sql',
     'stack',
@@ -220,6 +252,27 @@ test('recordDraftToCaseDecision forwards only sanitized audit context and return
   assert.equal(result.outcome, 'submitted');
   assert.equal(result.caseId, 'case_task1037');
   assert.equal(result.reasonCode, 'AUDIT_RECORDED_TASK1037');
+  assertNoUnsafeText(calls);
+  assertNoUnsafeText(result);
+});
+
+test('downstream safe audit failure envelope is preserved without unsafe marker leakage', async () => {
+  const calls = [];
+  const adapter = createRepairIntakeAuditWriterPortAdapter({
+    auditPort: createAuditPort(calls, { downstreamFailure: true }),
+  });
+
+  const result = await adapter.recordDraftToCaseDecision(unsafeAuditInput());
+
+  assert.equal(calls.length, 1);
+  assert.equal(result.ok, false);
+  assert.equal(result.eventType, 'repair_intake_draft_to_case_decision');
+  assert.equal(result.outcome, 'failed');
+  assert.equal(result.draftId, 'draft_task1037');
+  assert.equal(result.organizationId, 'org_task1037');
+  assert.equal(result.caseId, 'case_task1037');
+  assert.equal(result.reasonCode, 'REPAIR_INTAKE_AUDIT_WRITE_FAILED');
+  assert.deepEqual(result.requiredActions, ['retry_or_manual_review']);
   assertNoUnsafeText(calls);
   assertNoUnsafeText(result);
 });
