@@ -75,10 +75,14 @@ function assertNoForbiddenFields(value) {
     'select *',
     'stack trace',
     'providerPayload',
+    'field_service_reports',
     'token',
     'secret',
     'lineAccessToken',
     'LINE access token',
+    'LINE marker',
+    'rows',
+    'sql',
   ]) {
     assert.equal(serialized.includes(forbidden), false, `leaked ${forbidden}`);
   }
@@ -437,6 +441,41 @@ test('case repository invalid result fails safely without linking draft or writi
   assert.equal(calls.caseRepository.length, 1);
   assert.equal(calls.repairIntakeDraftRepository.length, 0);
   assert.equal(calls.auditWriter.length, 0);
+});
+
+test('case repository safe failure envelope fails safely without linking draft or writing audit', async () => {
+  const { adapter, calls } = createHarness({
+    caseResult: {
+      ok: false,
+      status: 'failed',
+      reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED',
+      requiredActions: ['retry_or_manual_review'],
+      caseRef: null,
+      field_service_reports: 'field_service_reports',
+      finalAppointmentId: 'finalAppointmentId',
+      providerPayload: 'providerPayload',
+      token: 'token',
+      secret: 'secret',
+      phone: 'phone',
+      address: 'address',
+      lineAccessToken: 'LINE marker',
+      rows: [{ sql: 'select *' }],
+      stack: 'stack trace',
+    },
+  });
+
+  const result = await adapter.createCaseFromCandidate(creatorInput());
+
+  assert.deepEqual(result, {
+    ok: false,
+    reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED',
+    requiredActions: ['retry_or_manual_review'],
+    caseRef: null,
+  });
+  assert.equal(calls.caseRepository.length, 1);
+  assert.equal(calls.repairIntakeDraftRepository.length, 0);
+  assert.equal(calls.auditWriter.length, 0);
+  assertNoForbiddenFields(result);
 });
 
 test('draft link failure fails safely without audit success', async () => {

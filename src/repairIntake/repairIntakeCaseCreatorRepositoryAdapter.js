@@ -58,6 +58,24 @@ function failure(reasonCode, requiredActions = ['manual_review']) {
   return new AdapterFailure(reasonCode, requiredActions);
 }
 
+function safeReasonCode(value, fallback) {
+  const reasonCode = stringValue(value);
+
+  return reasonCode && /^[A-Z0-9_]+$/.test(reasonCode) ? reasonCode : fallback;
+}
+
+function safeRequiredActions(value, fallback = ['manual_review']) {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+
+  const requiredActions = value
+    .map((action) => stringValue(action))
+    .filter((action) => action && /^[a-z0-9_]+$/.test(action));
+
+  return requiredActions.length > 0 ? requiredActions : fallback;
+}
+
 function hasForbiddenInputField(value) {
   if (Array.isArray(value)) {
     return value.some((item) => hasForbiddenInputField(item));
@@ -387,6 +405,13 @@ function createRepairIntakeCaseCreatorRepositoryAdapter(options = {}) {
           });
         } catch (error) {
           throw failure('REPAIR_INTAKE_CASE_CREATOR_CASE_CREATE_FAILED', ['retry_or_manual_review']);
+        }
+
+        if (isObject(created) && created.ok === false) {
+          throw failure(
+            safeReasonCode(created.reasonCode, 'REPAIR_INTAKE_CASE_CREATOR_CASE_CREATE_FAILED'),
+            safeRequiredActions(created.requiredActions, ['manual_review']),
+          );
         }
 
         const normalizedResult = normalizeRepairIntakeDraftCaseSubmissionResult({
