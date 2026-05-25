@@ -322,6 +322,10 @@ function dbClientFor(input, baseClient) {
   return input.tx || baseClient;
 }
 
+function noRowsAffected(result) {
+  return isObject(result) && Number.isInteger(result.rowCount) && result.rowCount < 1;
+}
+
 async function createWithClient({ client, tableName, payload }) {
   if (!isObject(client)) {
     return failed({
@@ -349,6 +353,16 @@ async function createWithClient({ client, tableName, payload }) {
         sourceDraftId: payload.source_repair_intake_draft_id,
         reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_DB_CLIENT_UNSUPPORTED',
         requiredActions: ['configure_db_client'],
+      });
+    }
+
+    if (noRowsAffected(result)) {
+      return failed({
+        id: payload.id,
+        organizationId: payload.organization_id,
+        sourceDraftId: payload.source_repair_intake_draft_id,
+        reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED',
+        requiredActions: ['retry_or_manual_review'],
       });
     }
 

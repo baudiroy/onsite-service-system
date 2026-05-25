@@ -75,10 +75,12 @@ function assertNoForbiddenFields(value) {
     'select *',
     'stack trace',
     'providerPayload',
+    'field_service_reports',
     'token',
     'secret',
     'lineAccessToken',
     'LINE access token',
+    'LINE marker',
     'rows',
     'sql',
   ]) {
@@ -212,6 +214,54 @@ test('supports tx override instead of base db client', async () => {
   assert.deepEqual(result, createdResult());
   assert.equal(calls.base, 0);
   assert.equal(calls.tx, 1);
+});
+
+test('tx override no-row insert result is not reported as created', async () => {
+  const calls = { base: 0, tx: 0 };
+  const repository = createRepairIntakeCaseRepositoryAdapter({
+    dbClient: {
+      query: async () => {
+        calls.base += 1;
+        return { rowCount: 1 };
+      },
+    },
+    idGenerator: () => 'case_task953_001',
+  });
+  const tx = {
+    query: async () => {
+      calls.tx += 1;
+      return {
+        rowCount: 0,
+        rows: [{
+          field_service_reports: 'field_service_reports',
+          finalAppointmentId: 'finalAppointmentId',
+          providerPayload: 'providerPayload',
+          token: 'token',
+          secret: 'secret',
+          phone: 'phone',
+          address: 'address',
+          lineAccessToken: 'LINE marker',
+        }],
+        sql: 'select *',
+        stack: 'stack trace',
+      };
+    },
+  };
+
+  const result = await repository.createCaseFromRepairIntakeCandidate(wrappedInput({ tx }));
+
+  assert.equal(calls.tx, 1);
+  assert.equal(calls.base, 0);
+  assert.deepEqual(result, {
+    ok: false,
+    id: 'case_task953_001',
+    organizationId: 'org_task953',
+    sourceDraftId: 'draft_task953_001',
+    status: 'failed',
+    reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED',
+    requiredActions: ['retry_or_manual_review'],
+  });
+  assertNoForbiddenFields(result);
 });
 
 test('missing dbClient fails safely', async () => {
