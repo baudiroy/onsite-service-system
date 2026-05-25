@@ -232,6 +232,9 @@ function assertNoUnsafeText(value) {
     'rawRows',
     'stack',
     'token',
+    'secret',
+    'providerPayload',
+    'field_service_reports',
   ]) {
     assert.equal(serialized.includes(forbiddenText), false, `leaked ${forbiddenText}`);
   }
@@ -346,6 +349,39 @@ test('route composition mounts only on explicit synthetic target', async () => {
   assert.equal(submitResponse.body.reasonCode, 'CASE_CREATED_TASK1056');
   assertNoUnsafeText(submitResponse);
   assertNoUnsafeText(submitCalls.map((call) => call.payload));
+});
+
+test('route composition submit permission failure stops before fake repository ports', async () => {
+  const calls = [];
+  const mountTarget = createSyntheticMountTarget();
+  const summary = createRepairIntakeDraftToCaseInjectedRouteComposition({
+    runtimePorts: createRuntimePorts(calls),
+    mountTarget,
+    basePath: '/route-composer',
+  });
+  const deniedRequest = requestLike();
+  deniedRequest.body.permissionContext = {
+    canCreateCaseFromRepairIntakeDraft: false,
+  };
+  deniedRequest.body.sql = 'select * from field_service_reports where token = secret';
+  deniedRequest.body.providerPayload = {
+    lineAccessToken: 'unsafe_provider_token_task1614',
+  };
+
+  assert.equal(summary.ok, true);
+  assert.equal(summary.mounted, 2);
+
+  const response = await mountTarget.dispatch(
+    'POST',
+    '/route-composer/repair-intake/drafts/:draftId/case/submit',
+    deniedRequest,
+  );
+
+  assert.equal(response.ok, false);
+  assert.equal(response.body.reasonCode, 'REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_PERMISSION_REQUIRED');
+  assert.deepEqual(response.body.requiredActions, ['provide_case_creation_permission']);
+  assert.deepEqual(calls, []);
+  assertNoUnsafeText(response);
 });
 
 test('route composition source only imports the runtime composer', () => {
