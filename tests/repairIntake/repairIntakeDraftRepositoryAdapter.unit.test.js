@@ -50,10 +50,12 @@ function assertNoForbiddenFields(value) {
     'select *',
     'stack trace',
     'providerPayload',
+    'field_service_reports',
     'token',
     'secret',
     'lineAccessToken',
     'LINE access token',
+    'LINE marker',
     'rows',
     'sql',
   ]) {
@@ -204,6 +206,79 @@ test('tx override is used instead of base db client', async () => {
   assert.deepEqual(result, linkedResult());
   assert.equal(calls.base, 0);
   assert.equal(calls.tx, 1);
+});
+
+test('tx override zero affected rows returns safe blocked envelope without base fallback', async () => {
+  const calls = {
+    base: 0,
+    tx: 0,
+  };
+  let txCall;
+  const dbClient = {
+    query: async () => {
+      calls.base += 1;
+      return { rowCount: 1 };
+    },
+  };
+  const tx = {
+    query: async (sqlText, values) => {
+      calls.tx += 1;
+      txCall = { sqlText, values };
+      return {
+        rowCount: 0,
+        rows: [{
+          providerPayload: 'providerPayload',
+          field_service_reports: 'field_service_reports',
+          finalAppointmentId: 'finalAppointmentId',
+          token: 'token',
+          secret: 'secret',
+          phone: 'phone',
+          address: 'address',
+          lineAccessToken: 'LINE marker',
+        }],
+        sql: 'select *',
+        stack: 'stack trace',
+      };
+    },
+  };
+  const repository = createRepairIntakeDraftRepositoryAdapter({ dbClient });
+
+  const result = await repository.markDraftLinkedToCase(linkInput({
+    tx,
+    providerPayload: 'providerPayload',
+    field_service_reports: 'field_service_reports',
+    finalAppointmentId: 'finalAppointmentId',
+    token: 'token',
+    secret: 'secret',
+    phone: 'phone',
+    address: 'address',
+    lineAccessToken: 'LINE marker',
+  }));
+
+  assert.deepEqual(result, {
+    ok: false,
+    draftId: 'draft_task952_001',
+    organizationId: 'org_task952',
+    caseId: 'case_task952_001',
+    status: 'blocked',
+    reasonCode: 'REPAIR_INTAKE_DRAFT_LINK_NOT_APPLIED',
+    requiredActions: ['manual_review'],
+  });
+  assert.equal(calls.base, 0);
+  assert.equal(calls.tx, 1);
+  assert.equal(txCall.sqlText.includes('providerPayload'), false);
+  assert.equal(txCall.sqlText.includes('field_service_reports'), false);
+  assert.equal(txCall.sqlText.includes('finalAppointmentId'), false);
+  assert.deepEqual(txCall.values, [
+    'case_task952_001',
+    null,
+    'actor_task952',
+    'request_task952',
+    'idem_task952',
+    'draft_task952_001',
+    'org_task952',
+  ]);
+  assertNoForbiddenFields(result);
 });
 
 test('missing dbClient fails safely', async () => {
