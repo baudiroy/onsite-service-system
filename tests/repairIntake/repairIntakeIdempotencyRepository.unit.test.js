@@ -36,6 +36,8 @@ function assertNoUnsafeText(value) {
     'unsafe_line_user',
     'unsafe_line_token',
     'unsafe_final_appointment',
+    'providerPayload',
+    'field_service_reports',
     'rawRow',
     'rawRows',
     'rawSql',
@@ -387,6 +389,98 @@ test('recordDraftToCaseResult valid input calls parameterized idempotent writer 
     },
     metadata: {
       recordId: 'idem_record_1191',
+    },
+    warnings: [],
+  });
+  assertNoUnsafeText(result);
+});
+
+test('recordDraftToCaseResult no-row insert returns sanitized fallback without unsafe leakage', async () => {
+  const { client, calls } = createDbClient({ noRecordRow: true });
+  const repository = createRepairIntakeIdempotencyRepository({ dbClient: client });
+
+  const result = await repository.recordDraftToCaseResult({
+    idempotencyKey: 'idem_1178',
+    organizationId: 'org_1178',
+    tenantId: 'tenant_1178',
+    operationType: 'draft_to_case',
+    draftId: 'draft_1178',
+    requestId: 'req_1178',
+    actorId: 'actor_1178',
+    safeRequestFingerprint: 'fingerprint_1178',
+    providerPayload: { token: 'unsafe provider token' },
+    field_service_reports: [{ id: 'unsafe_fsr_1178' }],
+    token: 'unsafe token',
+    secret: 'unsafe secret',
+    phone: 'unsafe phone',
+    address: 'unsafe address',
+    lineUserId: 'unsafe_line_user',
+    result: {
+      caseId: 'case_1178',
+      status: 'submitted',
+      safeValue: 'safe fallback',
+    },
+    caseRef: {
+      caseRef: 'case_ref_1178',
+      caseId: 'case_1178',
+    },
+  });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /^INSERT INTO repair_intake_idempotency_records/);
+  assert.match(calls[0].sql, /ON CONFLICT/);
+  assert.match(calls[0].sql, /DO NOTHING/);
+  assert.match(calls[0].sql, /RETURNING/);
+
+  for (const forbiddenInterpolation of [
+    'idem_1178',
+    'org_1178',
+    'fingerprint_1178',
+    'unsafe provider token',
+    'field_service_reports',
+    'unsafe token',
+    'unsafe secret',
+    'unsafe phone',
+    'unsafe address',
+    'unsafe_line_user',
+  ]) {
+    assert.equal(calls[0].sql.includes(forbiddenInterpolation), false);
+  }
+
+  assert.deepEqual(result, {
+    action: 'draft_to_case',
+    idempotencyKey: 'idem_1178',
+    draftId: 'draft_1178',
+    caseId: 'case_1178',
+    caseRef: {
+      caseRef: 'case_ref_1178',
+      caseId: 'case_1178',
+    },
+    organizationId: 'org_1178',
+    tenantId: 'tenant_1178',
+    requestId: 'req_1178',
+    actorId: 'actor_1178',
+    status: 'submitted',
+    submitted: true,
+    reasonCode: 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_RECORDED',
+    requiredActions: [],
+    result: {
+      caseId: 'case_1178',
+      status: 'submitted',
+      safeValue: 'safe fallback',
+      caseRef: {
+        caseRef: 'case_ref_1178',
+        caseId: 'case_1178',
+      },
+      draftId: 'draft_1178',
+      organizationId: 'org_1178',
+      tenantId: 'tenant_1178',
+      requestId: 'req_1178',
+      actorId: 'actor_1178',
+      submitted: true,
+    },
+    metadata: {
+      recordId: null,
     },
     warnings: [],
   });
