@@ -73,6 +73,7 @@ function assertNoForbiddenFields(value) {
     'secret',
     'lineAccessToken',
     'LINE access token',
+    'field_service_reports',
     'rows',
     'sql',
   ]) {
@@ -160,6 +161,66 @@ test('supports wrapped auditEvent and tx input with insert style client', async 
       created_at: '2026-05-23T12:00:00.000Z',
     },
   }]);
+});
+
+test('tx query path uses transaction client and keeps SQL parameterized', async () => {
+  const baseCalls = [];
+  const txCalls = [];
+  const tx = {
+    query: async (sqlText, values) => {
+      txCalls.push({ sqlText, values });
+      return {
+        rowCount: 1,
+        rows: [{
+          rawRows: [{ phone: 'phone', address: 'address' }],
+          stack: 'stack trace',
+          token: 'token',
+          secret: 'secret',
+          providerPayload: 'providerPayload',
+          field_service_reports: 'field_service_reports',
+          finalAppointmentId: 'finalAppointmentId',
+          lineAccessToken: 'LINE access token',
+        }],
+      };
+    },
+  };
+  const repository = createRepairIntakeDraftCaseAuditWriterAdapter({
+    dbClient: {
+      query: async (...args) => {
+        baseCalls.push(args);
+        throw new Error('base client should not be called');
+      },
+    },
+    idGenerator: () => 'audit_task955_001',
+    clock: () => '2026-05-23T12:00:00.000Z',
+  });
+  const rawRequestId = "request_task1602'; select * from field_service_reports; --";
+  const rawCaseId = 'case_task1602_providerPayload_token_secret_phone_address_LINE access token';
+
+  const result = await repository.recordRepairIntakeDraftToCaseCreated(wrappedInput({
+    tx,
+    auditEvent: auditEvent({
+      requestId: rawRequestId,
+      caseRef: {
+        id: rawCaseId,
+        organizationId: 'org_task955',
+        sourceDraftId: 'draft_task955_001',
+        status: 'created',
+      },
+    }),
+  }));
+
+  assert.deepEqual(result, recordedResult());
+  assert.deepEqual(baseCalls, []);
+  assert.equal(txCalls.length, 1);
+  assert.equal(txCalls[0].sqlText.includes('$1'), true);
+  assert.equal(txCalls[0].sqlText.includes('$13'), true);
+  assert.equal(txCalls[0].sqlText.includes(rawRequestId), false);
+  assert.equal(txCalls[0].sqlText.includes(rawCaseId), false);
+  assert.equal(txCalls[0].sqlText.includes('field_service_reports'), false);
+  assert.equal(txCalls[0].values.includes(rawRequestId), true);
+  assert.equal(txCalls[0].values.includes(rawCaseId), true);
+  assertNoForbiddenFields(result);
 });
 
 test('supports direct audit event input', async () => {
