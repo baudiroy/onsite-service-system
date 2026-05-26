@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('node:crypto');
+
 const { app: defaultApp, createApp } = require('./app');
 const { env } = require('./config/env');
 const customerAccessAppBootstrapAdapter = require('./customerAccess/customerAccessAppBootstrapAdapter');
@@ -17,6 +19,13 @@ const CUSTOMER_ACCESS_SAFE_ENV_FLAG_KEYS = [
   'CUSTOMER_ACCESS_READ_ONLY_ENABLED',
   'CUSTOMER_ACCESS_DB_ENABLED',
 ];
+
+const DRAFT_TO_CASE_OPTION_KEY = ['repair', 'Intake', 'Draft', 'To', 'Case'].join('');
+const DRAFT_TO_CASE_ROUTES_ENABLED_OPTION_KEY = `${DRAFT_TO_CASE_OPTION_KEY}RoutesEnabled`;
+const DRAFT_TO_CASE_DB_CLIENT_OPTION_KEY = `${DRAFT_TO_CASE_OPTION_KEY}DbClient`;
+const DRAFT_TO_CASE_ID_GENERATOR_OPTION_KEY = `${DRAFT_TO_CASE_OPTION_KEY}IdGenerator`;
+const DRAFT_TO_CASE_CASE_NUMBER_GENERATOR_OPTION_KEY = `${DRAFT_TO_CASE_OPTION_KEY}CaseNumberGenerator`;
+const DRAFT_TO_CASE_ENV_FLAG_KEY = 'REPAIR_INTAKE_DRAFT_TO_CASE_ROUTES_ENABLED';
 
 function getCustomerAccessSafeEnvFlags(envLike = process.env) {
   if (!envLike || typeof envLike !== 'object' || Array.isArray(envLike)) {
@@ -223,6 +232,127 @@ function firstOwnOption(options, keys) {
   return undefined;
 }
 
+function isPlainServerObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function booleanFromEnvFlag(value) {
+  if (value === true || value === false) {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
+function draftToCaseNestedOptions(options = {}) {
+  const nested = options[DRAFT_TO_CASE_OPTION_KEY];
+
+  return isPlainServerObject(nested) ? nested : {};
+}
+
+function draftToCaseRoutesEnabled(options = {}) {
+  const nested = draftToCaseNestedOptions(options);
+
+  if (hasOwnOption(options, DRAFT_TO_CASE_ROUTES_ENABLED_OPTION_KEY)) {
+    return options[DRAFT_TO_CASE_ROUTES_ENABLED_OPTION_KEY] === true;
+  }
+
+  if (hasOwnOption(nested, 'routesEnabled')) {
+    return nested.routesEnabled === true;
+  }
+
+  if (options.env && typeof options.env === 'object') {
+    if (hasOwnOption(options.env, DRAFT_TO_CASE_ROUTES_ENABLED_OPTION_KEY)) {
+      return options.env[DRAFT_TO_CASE_ROUTES_ENABLED_OPTION_KEY] === true;
+    }
+
+    if (hasOwnOption(options.env, DRAFT_TO_CASE_ENV_FLAG_KEY)) {
+      return booleanFromEnvFlag(options.env[DRAFT_TO_CASE_ENV_FLAG_KEY]);
+    }
+  }
+
+  return env[DRAFT_TO_CASE_ROUTES_ENABLED_OPTION_KEY] === true;
+}
+
+function createDefaultDraftToCaseIdGenerator() {
+  return function generateDraftToCaseId(scope = {}) {
+    const kind = typeof scope.kind === 'string' && scope.kind.trim()
+      ? scope.kind.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase()
+      : 'record';
+
+    return `ri_${kind}_${crypto.randomUUID()}`;
+  };
+}
+
+function createDefaultDraftToCaseCaseNumberGenerator() {
+  return function generateDraftToCaseCaseNumber() {
+    const timestamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+    const suffix = crypto.randomUUID().replace(/-/g, '').slice(0, 8).toUpperCase();
+
+    return `RI-${timestamp}-${suffix}`;
+  };
+}
+
+function draftToCaseDbClient(options = {}) {
+  const nested = draftToCaseNestedOptions(options);
+
+  return firstOwnOption(options, [
+    DRAFT_TO_CASE_DB_CLIENT_OPTION_KEY,
+    'pool',
+  ]) || nested.dbClient;
+}
+
+function buildDraftToCaseServerOptions(options = {}) {
+  const enabled = draftToCaseRoutesEnabled(options);
+  const nested = draftToCaseNestedOptions(options);
+
+  if (!enabled) {
+    return undefined;
+  }
+
+  const dbClient = draftToCaseDbClient(options) || loadDefaultPool();
+  const idGenerator = firstOwnOption(options, [
+    DRAFT_TO_CASE_ID_GENERATOR_OPTION_KEY,
+  ]) || nested.idGenerator || createDefaultDraftToCaseIdGenerator();
+  const caseNumberGenerator = firstOwnOption(options, [
+    DRAFT_TO_CASE_CASE_NUMBER_GENERATOR_OPTION_KEY,
+  ]) || nested.caseNumberGenerator || createDefaultDraftToCaseCaseNumberGenerator();
+
+  return {
+    [DRAFT_TO_CASE_ROUTES_ENABLED_OPTION_KEY]: true,
+    [DRAFT_TO_CASE_OPTION_KEY]: {
+      ...nested,
+      routesEnabled: true,
+      dbClient,
+      idGenerator,
+      caseNumberGenerator,
+    },
+  };
+}
+
+function hasDraftToCaseServerOptions(options = {}) {
+  return draftToCaseRoutesEnabled(options)
+    || hasOwnOption(options, DRAFT_TO_CASE_OPTION_KEY)
+    || hasOwnOption(options, DRAFT_TO_CASE_ROUTES_ENABLED_OPTION_KEY);
+}
+
+function withDraftToCaseServerOptions(appFactoryOptions = {}, options = {}) {
+  const draftToCaseOptions = buildDraftToCaseServerOptions(options);
+
+  if (!draftToCaseOptions) {
+    return appFactoryOptions;
+  }
+
+  return {
+    ...appFactoryOptions,
+    ...draftToCaseOptions,
+  };
+}
+
 function hasEngineerMobileReadExecutorOptions(options = {}) {
   return ENGINEER_MOBILE_READ_EXECUTOR_OPTION_KEYS.some((key) => hasOwnOption(options, key));
 }
@@ -375,9 +505,12 @@ function withEngineerMobileWorkbenchOptions(appFactoryOptions = {}, options = {}
 }
 
 function withServerAppOptions(appFactoryOptions = {}, options = {}) {
-  return withEngineerMobileWorkbenchOptions(
-    withEngineerMobileOptions(
-      withDataCorrectionOptions(appFactoryOptions, options),
+  return withDraftToCaseServerOptions(
+    withEngineerMobileWorkbenchOptions(
+      withEngineerMobileOptions(
+        withDataCorrectionOptions(appFactoryOptions, options),
+        options,
+      ),
       options,
     ),
     options,
@@ -416,6 +549,7 @@ function resolveServerApp(options = {}) {
     || hasEngineerMobileWorkbenchShortcutOptions(options)
     || hasEngineerMobileReadRepositoryOptions(options)
     || hasEngineerMobileReadExecutorOptions(options)
+    || hasDraftToCaseServerOptions(options)
   ) {
     return createApp(withServerAppOptions({}, options));
   }
