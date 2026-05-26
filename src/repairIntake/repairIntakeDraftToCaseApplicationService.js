@@ -148,6 +148,33 @@ function draftReadFailureEnvelope(input, draft, action) {
   });
 }
 
+function draftAlreadyConverted(draft) {
+  const status = safeString(draft && draft.status);
+
+  return status === 'converted'
+    || status === 'already_converted'
+    || status === 'linked'
+    || status === 'already_linked';
+}
+
+function draftAlreadyConvertedFailureEnvelope(input, draft) {
+  const inputPayload = createInputPayload(input);
+
+  return sanitizeValue({
+    ok: false,
+    action: 'repair_intake_draft_to_case_submit',
+    draftId: safeString(inputPayload.draftId) || safeString(draft && (draft.draftId || draft.id)) || null,
+    organizationId: safeString(inputPayload.organizationId) || safeString(draft && draft.organizationId) || null,
+    status: 'blocked',
+    submitted: false,
+    reasonCode: 'REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_DRAFT_ALREADY_CONVERTED',
+    requiredActions: ['do_not_create_duplicate_case'],
+    plan: null,
+    caseRef: null,
+    auditEvent: null,
+  });
+}
+
 function submitPreconditionFailure(input) {
   const body = isObject(input.body) ? input.body : {};
 
@@ -441,6 +468,10 @@ function createRepairIntakeDraftToCaseApplicationService(options = {}) {
 
       if (draftReadFailed(draft)) {
         return draftReadFailureEnvelope(safeInput, draft, 'repair_intake_draft_to_case_submit');
+      }
+
+      if (draftAlreadyConverted(draft)) {
+        return draftAlreadyConvertedFailureEnvelope(safeInput, draft);
       }
 
       const plan = sanitizeValue(await casePlanner.planCaseFromDraft(createPlanPayload(safeInput, draft)));

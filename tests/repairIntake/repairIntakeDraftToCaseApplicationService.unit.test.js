@@ -433,6 +433,97 @@ test('submit stops at safe draft-read not-found failure without case/audit/idemp
   assertNoUnsafeText(result);
 });
 
+test('submit blocks already converted draft before case/audit/idempotency writes', async () => {
+  const calls = [];
+  const service = createRepairIntakeDraftToCaseApplicationService({
+    idempotencyPort: {
+      async findExistingDraftToCaseResult(input) {
+        calls.push({ method: 'idempotency_find', input });
+
+        return null;
+      },
+      async recordDraftToCaseResult(input) {
+        calls.push({ method: 'idempotency_record', input });
+
+        return { ok: true };
+      },
+    },
+    draftReader: {
+      async getDraftForConversion(input) {
+        calls.push({ method: 'draft_read', input });
+
+        return {
+          ok: true,
+          id: input.draftId,
+          draftId: input.draftId,
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          status: 'converted',
+          reasonCode: 'REPAIR_INTAKE_DRAFT_READER_PORT_ADAPTER_DRAFT_READY',
+          requiredActions: [],
+        };
+      },
+    },
+    casePlanner: {
+      async planCaseFromDraft(input) {
+        calls.push({ method: 'case_plan', input });
+
+        return { status: 'planned' };
+      },
+    },
+    caseCreator: {
+      async createCaseFromDraft(input) {
+        calls.push({ method: 'case_create', input });
+
+        return { status: 'created' };
+      },
+    },
+    auditWriter: {
+      async recordDraftToCaseDecision(input) {
+        calls.push({ method: 'audit_write', input });
+
+        return { ok: true };
+      },
+    },
+  });
+
+  const result = await service.submitDraftToCase({
+    params: { draftId: 'draft-converted-task1663' },
+    context: {
+      actorId: 'actor-task1663',
+      organizationId: 'org-task1663',
+      requestId: 'request-task1663',
+      tenantId: 'tenant-task1663',
+    },
+    body: {
+      approvalContext: { accepted: true },
+      idempotencyKey: 'idem-task1663-b',
+      permissionContext: {
+        canCreateCaseFromRepairIntakeDraft: true,
+      },
+      tenantId: 'tenant-task1663',
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.action, 'repair_intake_draft_to_case_submit');
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.submitted, false);
+  assert.equal(result.draftId, 'draft-converted-task1663');
+  assert.equal(result.organizationId, 'org-task1663');
+  assert.equal(
+    result.reasonCode,
+    'REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_DRAFT_ALREADY_CONVERTED',
+  );
+  assert.deepEqual(result.requiredActions, ['do_not_create_duplicate_case']);
+  assert.equal(result.plan, null);
+  assert.equal(result.caseRef, null);
+  assert.equal(result.auditEvent, null);
+  assert.deepEqual(calls.map((call) => call.method), ['idempotency_find', 'draft_read']);
+  assertNoUnsafeText(calls);
+  assertNoUnsafeText(result);
+});
+
 test('submit forwards sanitized caseRef to injected idempotency store record path', async () => {
   const idempotencyCalls = [];
   const idempotencyPort = createRepairIntakeIdempotencyPortAdapter({
