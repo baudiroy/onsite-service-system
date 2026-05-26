@@ -167,6 +167,7 @@ function buildEngineerMobileOptions(options = {}) {
 }
 
 const ENGINEER_MOBILE_WORKBENCH_OPTION_KEYS = [
+  'engineerMobileWorkbenchDbClient',
   'engineerMobileWorkbenchContextProvider',
   'engineerMobileWorkbenchCurrentContext',
   'engineerMobileWorkbenchTaskStatusProvider',
@@ -180,6 +181,47 @@ const ENGINEER_MOBILE_WORKBENCH_OPTION_KEYS = [
   'engineerMobileWorkbenchTaskListProvider',
   'engineerMobileWorkbenchTaskDetailProvider',
 ];
+
+function buildEngineerMobileWorkbenchDbReadOptions(options = {}) {
+  const dbClient = firstOwnOption(options, [
+    'engineerMobileWorkbenchDbClient',
+    'dbClient',
+  ]);
+
+  if (!dbClient) {
+    return undefined;
+  }
+
+  const factory = require(['.', 'engineerMobileWorkbench', 'engineerMobileWorkbenchDbReadProviderFactory'].join('/'));
+  const providerFactory = factory.createEngineerMobileWorkbenchDbReadProviderFactory({
+    dbClient,
+  });
+
+  return {
+    contextProvider: providerFactory.contextProvider,
+    taskProvider: providerFactory.taskProvider,
+  };
+}
+
+function omitEngineerMobileWorkbenchDbReadOptions(options = {}) {
+  if (!isPlainObject(options)) {
+    return options;
+  }
+
+  const {
+    dbClient,
+    engineerMobileWorkbenchDbClient,
+    ...safeOptions
+  } = options;
+
+  return safeOptions;
+}
+
+function compactEngineerMobileWorkbenchOptions(options = {}) {
+  return Object.fromEntries(
+    Object.entries(options).filter((entry) => entry[1] !== undefined)
+  );
+}
 
 const DATA_CORRECTION_APP_SHORTCUT_OPTION_KEY_MAP = Object.freeze({
   CORRECTION_REPOSITORY: 'dataCorrectionRepository',
@@ -290,14 +332,27 @@ function buildDataCorrectionOptions(options = {}) {
 
 function buildEngineerMobileWorkbenchOptions(options = {}) {
   if (options.engineerMobileWorkbench) {
-    return options.engineerMobileWorkbench;
+    const dbReadOptions = buildEngineerMobileWorkbenchDbReadOptions(options.engineerMobileWorkbench);
+
+    if (!dbReadOptions) {
+      return options.engineerMobileWorkbench;
+    }
+
+    return {
+      ...dbReadOptions,
+      ...omitEngineerMobileWorkbenchDbReadOptions(options.engineerMobileWorkbench),
+    };
   }
 
-  if (!hasEngineerMobileWorkbenchShortcutOptions(options)) {
+  const dbReadOptions = buildEngineerMobileWorkbenchDbReadOptions(options);
+
+  if (!hasEngineerMobileWorkbenchShortcutOptions(options) && !dbReadOptions) {
     return options.engineerMobileWorkbench;
   }
 
   return {
+    ...dbReadOptions,
+    ...compactEngineerMobileWorkbenchOptions({
     arrivedProvider: options.engineerMobileWorkbenchArrivedProvider,
     completionSubmissionProvider: options.engineerMobileWorkbenchCompletionSubmissionProvider,
     contextProvider: firstOwnOption(options, [
@@ -309,6 +364,7 @@ function buildEngineerMobileWorkbenchOptions(options = {}) {
     statusOperationProvider: options.engineerMobileWorkbenchStatusOperationProvider,
     taskProvider: buildEngineerMobileWorkbenchTaskProvider(options),
     taskStatusProvider: options.engineerMobileWorkbenchTaskStatusProvider,
+    }),
   };
 }
 

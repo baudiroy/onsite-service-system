@@ -413,6 +413,7 @@ function withEngineerMobileOptions(appFactoryOptions = {}, options = {}) {
 }
 
 const ENGINEER_MOBILE_WORKBENCH_OPTION_KEYS = [
+  'engineerMobileWorkbenchDbClient',
   'engineerMobileWorkbenchContextProvider',
   'engineerMobileWorkbenchCurrentContext',
   'engineerMobileWorkbenchTaskStatusProvider',
@@ -426,6 +427,47 @@ const ENGINEER_MOBILE_WORKBENCH_OPTION_KEYS = [
   'engineerMobileWorkbenchTaskListProvider',
   'engineerMobileWorkbenchTaskDetailProvider',
 ];
+
+function buildEngineerMobileWorkbenchDbReadOptions(options = {}) {
+  const dbClient = firstOwnOption(options, [
+    'engineerMobileWorkbenchDbClient',
+    'dbClient',
+  ]);
+
+  if (!dbClient) {
+    return undefined;
+  }
+
+  const factory = require(['.', 'engineerMobileWorkbench', 'engineerMobileWorkbenchDbReadProviderFactory'].join('/'));
+  const providerFactory = factory.createEngineerMobileWorkbenchDbReadProviderFactory({
+    dbClient,
+  });
+
+  return {
+    contextProvider: providerFactory.contextProvider,
+    taskProvider: providerFactory.taskProvider,
+  };
+}
+
+function omitEngineerMobileWorkbenchDbReadOptions(options = {}) {
+  if (!isPlainServerObject(options)) {
+    return options;
+  }
+
+  const {
+    dbClient,
+    engineerMobileWorkbenchDbClient,
+    ...safeOptions
+  } = options;
+
+  return safeOptions;
+}
+
+function compactEngineerMobileWorkbenchOptions(options = {}) {
+  return Object.fromEntries(
+    Object.entries(options).filter((entry) => entry[1] !== undefined)
+  );
+}
 
 function hasEngineerMobileWorkbenchShortcutOptions(options = {}) {
   return ENGINEER_MOBILE_WORKBENCH_OPTION_KEYS.some((key) => hasOwnOption(options, key));
@@ -465,11 +507,15 @@ function buildEngineerMobileWorkbenchTaskProvider(options = {}) {
 }
 
 function buildEngineerMobileWorkbenchOptionsFromShortcutOptions(options = {}) {
-  if (!hasEngineerMobileWorkbenchShortcutOptions(options)) {
+  const dbReadOptions = buildEngineerMobileWorkbenchDbReadOptions(options);
+
+  if (!hasEngineerMobileWorkbenchShortcutOptions(options) && !dbReadOptions) {
     return undefined;
   }
 
   return {
+    ...dbReadOptions,
+    ...compactEngineerMobileWorkbenchOptions({
     arrivedProvider: options.engineerMobileWorkbenchArrivedProvider,
     completionSubmissionProvider: options.engineerMobileWorkbenchCompletionSubmissionProvider,
     contextProvider: firstOwnOption(options, [
@@ -481,11 +527,24 @@ function buildEngineerMobileWorkbenchOptionsFromShortcutOptions(options = {}) {
     statusOperationProvider: options.engineerMobileWorkbenchStatusOperationProvider,
     taskProvider: buildEngineerMobileWorkbenchTaskProvider(options),
     taskStatusProvider: options.engineerMobileWorkbenchTaskStatusProvider,
+    }),
   };
 }
 
 function withEngineerMobileWorkbenchOptions(appFactoryOptions = {}, options = {}) {
   if (hasOwnOption(options, 'engineerMobileWorkbench')) {
+    const dbReadOptions = buildEngineerMobileWorkbenchDbReadOptions(options.engineerMobileWorkbench);
+
+    if (dbReadOptions) {
+      return {
+        ...appFactoryOptions,
+        engineerMobileWorkbench: {
+          ...dbReadOptions,
+          ...omitEngineerMobileWorkbenchDbReadOptions(options.engineerMobileWorkbench),
+        },
+      };
+    }
+
     return {
       ...appFactoryOptions,
       engineerMobileWorkbench: options.engineerMobileWorkbench,
