@@ -312,7 +312,94 @@ function buildEngineerMobileWorkbenchOptions(options = {}) {
   };
 }
 
+function isPlainObject(value) {
+  return Boolean(value)
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function loadRepairIntakeDraftToCaseRuntimePortsFactory() {
+  return require(['.', 'repairIntake', 'repairIntakeDraftToCaseRuntimePortsFactory'].join('/'));
+}
+
+function repairIntakeDraftToCaseRoutesEnabled(options = {}) {
+  return options.repairIntakeDraftToCaseRoutesEnabled === true
+    || (
+      isPlainObject(options.repairIntakeDraftToCase)
+      && options.repairIntakeDraftToCase.routesEnabled === true
+    )
+    || env.repairIntakeDraftToCaseRoutesEnabled === true;
+}
+
+function repairIntakeDraftToCaseDependencyOptions(options = {}) {
+  const nested = isPlainObject(options.repairIntakeDraftToCase)
+    ? options.repairIntakeDraftToCase
+    : {};
+
+  return {
+    ...nested,
+    dbClient: options.repairIntakeDraftToCaseDbClient || nested.dbClient,
+    idGenerator: options.repairIntakeDraftToCaseIdGenerator || nested.idGenerator,
+    caseNumberGenerator: options.repairIntakeDraftToCaseCaseNumberGenerator || nested.caseNumberGenerator,
+    clock: options.repairIntakeDraftToCaseClock || nested.clock,
+    planningPolicy: options.repairIntakeDraftToCasePlanningPolicy || nested.planningPolicy,
+  };
+}
+
+function hasRepairIntakeDraftToCaseFactoryDependencies(dependencies = {}) {
+  return Boolean(dependencies.dbClient && dependencies.idGenerator);
+}
+
+function buildRepairIntakeDraftToCaseOptions(options = {}) {
+  const nested = isPlainObject(options.repairIntakeDraftToCase)
+    ? options.repairIntakeDraftToCase
+    : undefined;
+  const routesEnabled = repairIntakeDraftToCaseRoutesEnabled(options);
+
+  if (options.repairIntakeDraftToCaseRuntimePorts) {
+    return {
+      ...(nested || {}),
+      routesEnabled,
+      runtimePorts: options.repairIntakeDraftToCaseRuntimePorts,
+    };
+  }
+
+  if (!routesEnabled) {
+    return nested;
+  }
+
+  const dependencies = repairIntakeDraftToCaseDependencyOptions(options);
+
+  if (!hasRepairIntakeDraftToCaseFactoryDependencies(dependencies)) {
+    return {
+      ...(nested || {}),
+      routesEnabled,
+    };
+  }
+
+  const factory = loadRepairIntakeDraftToCaseRuntimePortsFactory();
+  const factoryMethod = ['create', 'RepairIntake', 'DraftToCase', 'RuntimePorts'].join('');
+
+  return {
+    ...dependencies,
+    routesEnabled,
+    runtimePorts: factory[factoryMethod](dependencies),
+  };
+}
+
 function createApp(options = {}) {
+  const repairIntakeDraftToCaseOptions = buildRepairIntakeDraftToCaseOptions(options);
+
+  if (repairIntakeDraftToCaseOptions) {
+    options = {
+      ...options,
+      repairIntakeDraftToCaseRuntimePorts: repairIntakeDraftToCaseOptions.runtimePorts
+        || options.repairIntakeDraftToCaseRuntimePorts,
+      repairIntakeDraftToCase: repairIntakeDraftToCaseOptions,
+    };
+  }
+
   const app = express();
 
   app.disable('x-powered-by');
