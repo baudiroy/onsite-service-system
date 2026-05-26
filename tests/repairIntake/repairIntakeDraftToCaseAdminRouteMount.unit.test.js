@@ -319,10 +319,12 @@ test('protected admin route derives permission context and actor from authentica
   assert.ok(calls.some((call) => call.name === 'audit.record'));
 
   const draftReadCall = calls.find((call) => call.name === 'draft.find');
+  assert.equal(draftReadCall.input.draftId, 'draft_admin_mount_runtime_001');
   assert.equal(draftReadCall.input.organizationId, 'org_admin_mount_runtime_001');
   assert.equal(draftReadCall.input.actorId, 'user_admin_mount_runtime_001');
 
   const caseCreateCall = calls.find((call) => call.name === 'case.create');
+  assert.equal(caseCreateCall.input.draftId, 'draft_admin_mount_runtime_001');
   assert.equal(caseCreateCall.input.organizationId, 'org_admin_mount_runtime_001');
   assert.equal(caseCreateCall.input.actor.actorId, 'user_admin_mount_runtime_001');
 });
@@ -392,6 +394,11 @@ test('route registrar can be called directly and returns bounded mount summary',
 test('admin request builder ignores body actor and grants permission from route middleware', () => {
   const requestLike = buildAdminRequestLike(request());
 
+  assert.equal(requestLike.repairIntakeDraftId, 'draft_admin_mount_runtime_001');
+  assert.equal(requestLike.draftId, 'draft_admin_mount_runtime_001');
+  assert.equal(requestLike.params.draftId, 'draft_admin_mount_runtime_001');
+  assert.equal(requestLike.body.draftId, 'draft_admin_mount_runtime_001');
+  assert.equal(requestLike.body.repairIntakeDraftId, 'draft_admin_mount_runtime_001');
   assert.equal(requestLike.organizationId, 'org_admin_mount_runtime_001');
   assert.equal(requestLike.context.organizationId, 'org_admin_mount_runtime_001');
   assert.equal(requestLike.context.actorId, 'user_admin_mount_runtime_001');
@@ -399,4 +406,21 @@ test('admin request builder ignores body actor and grants permission from route 
   assert.equal(requestLike.body.actorId, 'actor_body_should_not_win_001');
   assert.equal(requestLike.body.permissionContext.canCreateCaseFromRepairIntakeDraft, true);
   assert.equal(requestLike.context.permissionContext.permission, REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION);
+});
+
+test('admin request builder mirrors body draft id into params for downstream adapters', () => {
+  const baseRequest = request();
+  const requestLike = buildAdminRequestLike(request({
+    params: {},
+    body: {
+      ...baseRequest.body,
+      draftId: 'draft_admin_mount_body_fallback_001',
+    },
+  }));
+
+  assert.equal(requestLike.repairIntakeDraftId, 'draft_admin_mount_body_fallback_001');
+  assert.equal(requestLike.draftId, 'draft_admin_mount_body_fallback_001');
+  assert.equal(requestLike.params.draftId, 'draft_admin_mount_body_fallback_001');
+  assert.equal(requestLike.body.draftId, 'draft_admin_mount_body_fallback_001');
+  assert.equal(requestLike.body.repairIntakeDraftId, 'draft_admin_mount_body_fallback_001');
 });

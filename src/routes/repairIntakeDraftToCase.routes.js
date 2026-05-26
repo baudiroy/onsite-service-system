@@ -70,20 +70,38 @@ function requestId(req, body) {
   );
 }
 
+function draftId(params, body) {
+  return firstString(
+    params.draftId,
+    body.draftId,
+    body.repairIntakeDraftId,
+  );
+}
+
 function buildAdminRequestLike(req = {}) {
   const user = isObject(req.user) ? req.user : {};
   const body = isObject(req.body) ? req.body : {};
   const context = isObject(req.context) ? req.context : {};
+  const params = isObject(req.params) ? req.params : {};
   const resolvedOrganizationId = organizationId(req, body, user);
   const resolvedTenantId = tenantId(req, body, user);
   const resolvedRequestId = requestId(req, body);
   const resolvedActorId = userId(user);
+  const resolvedDraftId = draftId(params, body);
+  const normalizedParams = {
+    ...params,
+    ...(resolvedDraftId ? { draftId: resolvedDraftId } : {}),
+  };
 
   return {
-    params: isObject(req.params) ? req.params : {},
+    params: normalizedParams,
     query: isObject(req.query) ? req.query : {},
     body: {
       ...body,
+      ...(resolvedDraftId ? {
+        draftId: resolvedDraftId,
+        repairIntakeDraftId: resolvedDraftId,
+      } : {}),
       permissionContext: {
         ...(isObject(body.permissionContext) ? body.permissionContext : {}),
         canCreateCaseFromRepairIntakeDraft: true,
@@ -108,6 +126,8 @@ function buildAdminRequestLike(req = {}) {
     organizationId: resolvedOrganizationId,
     tenantId: resolvedTenantId,
     requestId: resolvedRequestId,
+    repairIntakeDraftId: resolvedDraftId,
+    draftId: resolvedDraftId,
   };
 }
 
