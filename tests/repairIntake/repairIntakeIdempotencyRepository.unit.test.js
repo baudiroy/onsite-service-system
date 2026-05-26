@@ -312,6 +312,61 @@ test('found row returns sanitized replay-like object', async () => {
   assertNoUnsafeText(result);
 });
 
+test('pg-style query result object maps replay rows even when result prototype is not plain', async () => {
+  const calls = [];
+  const repository = createRepairIntakeIdempotencyRepository({
+    dbClient: {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+
+        const result = Object.create({ command: 'SELECT' });
+        result.rows = [{
+          id: 'idem_record_pg_1703',
+          organization_id: 'org_1703',
+          tenant_id: 'tenant_1703',
+          idempotency_key: 'idem_1703',
+          operation_type: 'draft_to_case',
+          draft_id: 'draft_1703',
+          replay_case_id: 'case_1703',
+          replay_case_ref: 'case_ref_1703',
+          replay_result_safe: {
+            caseId: 'case_1703',
+            status: 'submitted',
+            safeValue: 'safe pg replay',
+            rawRequestBody: 'unsafe raw body',
+          },
+          record_status: 'completed',
+        }];
+
+        return result;
+      },
+    },
+  });
+
+  const result = await repository.findExistingDraftToCaseResult({
+    idempotencyKey: 'idem_1703',
+    organizationId: 'org_1703',
+    tenantId: 'tenant_1703',
+    requestId: 'req_1703',
+    actorId: 'actor_1703',
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(result.submitted, true);
+  assert.equal(result.caseId, 'case_1703');
+  assert.deepEqual(result.caseRef, {
+    caseRef: 'case_ref_1703',
+    caseId: 'case_1703',
+  });
+  assert.equal(result.reasonCode, 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_REPLAY_READY');
+  assert.deepEqual(result.result, {
+    caseId: 'case_1703',
+    status: 'submitted',
+    safeValue: 'safe pg replay',
+  });
+  assertNoUnsafeText(result);
+});
+
 test('rejected query throws sanitized repository error', async () => {
   const { client } = createDbClient({ reject: true });
   const repository = createRepairIntakeIdempotencyRepository({ dbClient: client });
