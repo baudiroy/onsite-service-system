@@ -199,6 +199,79 @@ test('case creation port writes case conversion and draft converted update throu
   assert.ok(dbClient.calls.some((call) => call.text.includes('UPDATE repair_intake_drafts')));
 });
 
+test('server-style prefixed runtime ids are normalized to DB-compatible UUIDs without changing case number', async () => {
+  const dbClient = createFakeDbClient();
+  const caseId = '11111111-1111-4111-8111-111111111111';
+  const conversionId = '22222222-2222-4222-8222-222222222222';
+  const auditEventId = '33333333-3333-4333-8333-333333333333';
+  const idGenerator = ({ kind } = {}) => {
+    if (kind === 'repair_intake_draft_case_conversion') {
+      return `ri_repair_intake_draft_case_conversion_${conversionId}`;
+    }
+
+    if (kind === 'repair_intake_audit_event') {
+      return `ri_repair_intake_audit_event_${auditEventId}`;
+    }
+
+    return `ri_record_${caseId}`;
+  };
+  const ports = createRepairIntakeDraftToCaseRuntimePorts(createFactoryOptions({
+    dbClient,
+    idGenerator,
+  }));
+  const draft = await ports.draftRepository.findDraftForConversion({
+    draftId: 'draft_runtime_ports_001',
+    organizationId: 'org_runtime_ports_001',
+    tenantId: 'tenant_runtime_ports_001',
+  });
+  const plan = await ports.planningPolicy.planCaseFromDraft({
+    draft,
+    draftId: draft.draftId,
+    organizationId: draft.organizationId,
+    tenantId: draft.tenantId,
+  });
+
+  const created = await ports.caseCreationPort.createCaseFromDraft({
+    draft,
+    plan,
+    draftId: draft.draftId,
+    organizationId: draft.organizationId,
+    tenantId: draft.tenantId,
+    actorId: 'actor_runtime_ports_001',
+    requestId: 'req_runtime_ports_001',
+    idempotencyKey: 'idem_runtime_ports_001',
+  });
+  const audit = await ports.auditPort.recordDraftToCaseDecision({
+    draftId: draft.draftId,
+    organizationId: draft.organizationId,
+    tenantId: draft.tenantId,
+    actorId: 'actor_runtime_ports_001',
+    requestId: 'req_runtime_ports_001',
+    draft,
+    caseRef: created,
+  });
+
+  const caseInsert = dbClient.calls.find((call) => call.text.includes('insert into cases'));
+  const conversionInsert = dbClient.calls.find((call) => call.text.includes('INSERT INTO repair_intake_draft_case_conversions'));
+  const auditInsert = dbClient.calls.find((call) => call.text.includes('INSERT INTO repair_intake_audit_events'));
+
+  assert.equal(created.id, caseId);
+  assert.equal(created.caseRef, 'CASE_RUNTIME_PORTS_001');
+  assert.equal(audit.caseId, caseId);
+  assert.equal(caseInsert.params[0], caseId);
+  assert.equal(caseInsert.params[1], 'CASE_RUNTIME_PORTS_001');
+  assert.equal(conversionInsert.params[0], conversionId);
+  assert.equal(conversionInsert.params[4], caseId);
+  assert.equal(auditInsert.params[0], auditEventId);
+  assert.equal(auditInsert.params[5], caseId);
+  assert.equal(
+    dbClient.calls.flatMap((call) => call.params || []).some((param) => (
+      typeof param === 'string' && param.startsWith('ri_record_')
+    )),
+    false,
+  );
+});
+
 test('audit and idempotency ports write safe rows through injected client', async () => {
   const dbClient = createFakeDbClient();
   const ports = createRepairIntakeDraftToCaseRuntimePorts(createFactoryOptions({ dbClient }));

@@ -212,6 +212,62 @@ test('organization and tenant scope are optional but included when provided', as
   assert.deepEqual(calls[0].params, ['draft_1166', 'org_1166']);
 });
 
+test('pg-style query result object maps rows even when result prototype is not plain', async () => {
+  const resultPrototype = { command: 'SELECT' };
+  const pgStyleResult = Object.create(resultPrototype);
+  pgStyleResult.rows = [{
+    id: 'draft_pg_result_1698',
+    organization_id: 'org_pg_result_1698',
+    tenant_id: 'tenant_pg_result_1698',
+    draft_status: 'ready_for_conversion',
+    source: 'repair_intake',
+    source_ref: 'source_pg_result_1698',
+    intake_source: 'manual',
+    safe_summary: {
+      title: 'safe pg result summary',
+    },
+    safe_metadata: {
+      safeKey: 'safe pg result metadata',
+    },
+    validation_errors_safe: ['safe pg result warning'],
+  }];
+
+  const calls = [];
+  const repository = createRepairIntakeDraftRepository({
+    dbClient: {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        return pgStyleResult;
+      },
+    },
+  });
+
+  const result = await repository.findDraftForConversion({
+    draftId: 'draft_pg_result_1698',
+    organizationId: 'org_pg_result_1698',
+    tenantId: 'tenant_pg_result_1698',
+  });
+
+  assert.deepEqual(result, {
+    draftId: 'draft_pg_result_1698',
+    organizationId: 'org_pg_result_1698',
+    tenantId: 'tenant_pg_result_1698',
+    status: 'ready_for_conversion',
+    source: 'repair_intake',
+    sourceRef: 'source_pg_result_1698',
+    intakeSource: 'manual',
+    summary: {
+      title: 'safe pg result summary',
+    },
+    metadata: {
+      safeKey: 'safe pg result metadata',
+    },
+    warnings: ['safe pg result warning'],
+  });
+  assert.equal(calls.length, 1);
+  assertNoUnsafeText(result);
+});
+
 test('no row returns null', async () => {
   const { client } = createDbClient({ noRow: true });
   const repository = createRepairIntakeDraftRepository({ dbClient: client });

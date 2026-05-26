@@ -166,7 +166,12 @@ function resolveRows(result) {
     return result;
   }
 
-  if (isPlainObject(result) && Array.isArray(result.rows)) {
+  if (
+    result
+    && typeof result === 'object'
+    && !Array.isArray(result)
+    && Array.isArray(result.rows)
+  ) {
     return result.rows;
   }
 

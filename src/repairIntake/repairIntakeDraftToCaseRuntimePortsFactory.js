@@ -15,6 +15,8 @@ const {
 const DEFAULT_AUDIT_EVENT_TYPE = 'repair_intake_draft_to_case_submission';
 const DEFAULT_CONVERSION_STATUS = 'converted';
 const DEFAULT_IDEMPOTENCY_RECORD_STATUS = 'completed';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DEFAULT_PREFIXED_UUID_PATTERN = /^ri_[a-z0-9_]+_([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
 
 class RepairIntakeDraftToCaseRuntimePortsFactoryError extends Error {
   constructor(reasonCode, requiredActions = ['configure_runtime_ports_factory']) {
@@ -116,6 +118,28 @@ function timestamp(now) {
   return safeString(value) || new Date().toISOString();
 }
 
+function dbCompatibleGeneratedId(id) {
+  if (UUID_PATTERN.test(id)) {
+    return id;
+  }
+
+  const prefixedUuid = id.match(DEFAULT_PREFIXED_UUID_PATTERN);
+
+  if (prefixedUuid) {
+    return prefixedUuid[1];
+  }
+
+  return id;
+}
+
+function createDbCompatibleIdGenerator(generate) {
+  return async function generateDbCompatibleId(scope) {
+    const id = safeString(await generate(scope));
+
+    return id ? dbCompatibleGeneratedId(id) : id;
+  };
+}
+
 async function generateId(generate, scope) {
   const id = safeString(await generate(scope));
 
@@ -126,7 +150,7 @@ async function generateId(generate, scope) {
     );
   }
 
-  return id;
+  return dbCompatibleGeneratedId(id);
 }
 
 function pick(source, ...keys) {
@@ -440,9 +464,10 @@ function createRepairIntakeDraftToCaseRuntimePorts(options = {}) {
   const now = resolveClock(safeOptions.clock);
   const draftRepository = createRepairIntakeDraftRepository({ dbClient });
   const idempotencyRepository = createRepairIntakeIdempotencyRepository({ dbClient });
+  const generateDbCompatibleId = createDbCompatibleIdGenerator(generate);
   const caseRepository = createRepairIntakeCaseRepositoryAdapter({
     dbClient,
-    idGenerator: generate,
+    idGenerator: generateDbCompatibleId,
     caseNumberGenerator: generateCaseNo || safeOptions.caseNumberGenerator,
     clock: now,
   });
