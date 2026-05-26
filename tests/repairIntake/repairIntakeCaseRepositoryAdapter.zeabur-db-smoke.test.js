@@ -9,21 +9,37 @@ const {
   createRepairIntakeCaseRepositoryAdapter,
 } = require('../../src/repairIntake/repairIntakeCaseRepositoryAdapter');
 
-const REQUIRED_CASE_COLUMNS = [
-  'id',
-  'organization_id',
-  'source_repair_intake_draft_id',
-  'brand_id',
-  'service_provider_id',
-  'intake_source',
-  'service_type',
-  'priority',
-  'status',
-  'created_by_actor_id',
-  'created_at',
-  'request_id',
-  'idempotency_key',
-];
+const REQUIRED_TABLE_COLUMNS = {
+  cases: [
+    'id',
+    'case_no',
+    'customer_id',
+    'organization_id',
+    'status',
+    'priority',
+    'source',
+    'brand',
+    'case_type',
+    'product_type',
+    'model_no',
+    'problem_description',
+    'created_at',
+  ],
+  customers: [
+    'id',
+    'customer_name',
+    'mobile',
+    'city',
+    'address',
+    'source',
+    'organization_id',
+  ],
+  organizations: [
+    'id',
+    'organization_code',
+    'organization_name',
+  ],
+};
 
 function requireDatabaseUrl() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -52,94 +68,106 @@ function uniqueText(prefix) {
   return `${prefix}_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 }
 
-async function introspectCasesSchema(pool) {
-  const table = await pool.query(
-    `
-      SELECT EXISTS (
-        SELECT 1
-        FROM information_schema.tables
-        WHERE table_schema = current_schema()
-          AND table_name = 'cases'
-      ) AS exists
-    `,
-  );
-
-  if (!table.rows[0].exists) {
-    return {
-      ok: false,
-      reason: 'cases_table_missing',
-      missingColumns: REQUIRED_CASE_COLUMNS,
-    };
-  }
-
-  const columns = await pool.query(
+async function columnSet(pool, tableName) {
+  const result = await pool.query(
     `
       SELECT column_name
       FROM information_schema.columns
       WHERE table_schema = current_schema()
-        AND table_name = 'cases'
+        AND table_name = $1
       ORDER BY column_name
     `,
+    [tableName],
   );
-  const columnNames = new Set(columns.rows.map((row) => row.column_name));
-  const missingColumns = REQUIRED_CASE_COLUMNS.filter((columnName) => !columnNames.has(columnName));
 
-  if (missingColumns.length > 0) {
-    return {
-      ok: false,
-      reason: 'cases_required_columns_missing',
-      missingColumns,
-    };
-  }
+  return new Set(result.rows.map((row) => row.column_name));
+}
 
-  const constraints = await pool.query(
-    `
-      SELECT pg_get_constraintdef(c.oid) AS definition
-      FROM pg_constraint c
-      JOIN pg_class r ON r.oid = c.conrelid
-      JOIN pg_namespace n ON n.oid = r.relnamespace
-      WHERE n.nspname = current_schema()
-        AND r.relname = 'cases'
-        AND c.contype = 'c'
-    `,
-  );
-  const statusConstraints = constraints.rows
-    .map((row) => row.definition)
-    .filter((definition) => /\bstatus\b/.test(definition));
-  const statusSupportsCreated = statusConstraints.length === 0
-    || statusConstraints.some((definition) => definition.includes("'created'"));
+async function introspectRequiredSchema(pool) {
+  const missing = [];
 
-  if (!statusSupportsCreated) {
-    return {
-      ok: false,
-      reason: 'cases_status_created_not_supported',
-      missingColumns: [],
-    };
+  for (const [tableName, requiredColumns] of Object.entries(REQUIRED_TABLE_COLUMNS)) {
+    const columns = await columnSet(pool, tableName);
+
+    if (columns.size === 0) {
+      missing.push(`${tableName}.*`);
+      continue;
+    }
+
+    for (const columnName of requiredColumns) {
+      if (!columns.has(columnName)) {
+        missing.push(`${tableName}.${columnName}`);
+      }
+    }
   }
 
   return {
-    ok: true,
-    missingColumns: [],
+    ok: missing.length === 0,
+    missing,
   };
 }
 
-test('Zeabur DB smoke safely creates reads and cleans repair intake case when schema supports it', async (t) => {
+test('Zeabur DB smoke creates reads and cleans formal case through Repair Intake adapter', async (t) => {
   const pool = new Pool({
     connectionString: requireDatabaseUrl(),
     max: 1,
   });
 
-  const caseId = crypto.randomUUID();
   const organizationId = crypto.randomUUID();
+  const customerId = crypto.randomUUID();
+  const caseId = crypto.randomUUID();
   const sourceDraftId = crypto.randomUUID();
+  const caseNo = uniqueText('TASK1645_CASE');
 
   try {
-    const schema = await introspectCasesSchema(pool);
+    const schema = await introspectRequiredSchema(pool);
 
     if (!schema.ok) {
-      t.skip(`safe block: ${schema.reason}; missing=${schema.missingColumns.join(',') || 'none'}`);
+      t.skip(`safe block: required_schema_missing; missing=${schema.missing.join(',')}`);
       return;
     }
+
+    await pool.query(
+      [
+        'INSERT INTO organizations (id, organization_code, organization_name)',
+        'VALUES ($1, $2, $3)',
+      ].join('\n'),
+      [organizationId, uniqueText('task1645_org'), 'Task1645 Test Organization'],
+    );
+
+    await pool.query(
+      [
+        'INSERT INTO customers (',
+        '    id,',
+        '    organization_id,',
+        '    customer_name,',
+        '    mobile,',
+        '    city,',
+        '    address,',
+        '    source,',
+        '    metadata',
+        ') VALUES (',
+        '    $1,',
+        '    $2,',
+        '    $3,',
+        '    $4,',
+        '    $5,',
+        '    $6,',
+        '    $7,',
+        '    $8::jsonb',
+        ')',
+      ].join('\n'),
+      [
+        customerId,
+        organizationId,
+        'Task1645 Test Customer',
+        uniqueText('task1645_mobile'),
+        'Task1645 City',
+        'Task1645 Test Address',
+        'website',
+        JSON.stringify({ testScope: 'task1645' }),
+      ],
+    );
 
     const repository = createRepairIntakeCaseRepositoryAdapter({
       clock: () => '2026-05-26T00:00:00.000Z',
@@ -150,16 +178,26 @@ test('Zeabur DB smoke safely creates reads and cleans repair intake case when sc
     const result = await repository.createCaseFromRepairIntakeCandidate({
       command: {
         draftId: sourceDraftId,
-        idempotencyKey: uniqueText('task1640_idem'),
+        idempotencyKey: uniqueText('task1645_idem'),
         organizationId,
-        requestId: uniqueText('task1640_req'),
+        requestId: uniqueText('task1645_req'),
       },
       caseCandidate: {
         sourceDraftId,
         organizationId,
-        intakeSource: 'web',
+        caseNo,
+        customerId,
+        source: 'web',
+        brand: 'Task1645 Brand',
+        productType: 'Task1645 Product',
+        modelNo: 'Task1645 Model',
+        problemDescription: 'Task1645 safe issue summary',
         serviceType: 'onsite',
         priority: 'normal',
+        serviceRegion: 'Task1645 Region',
+        metadata: {
+          testScope: 'task1645',
+        },
       },
     });
 
@@ -172,7 +210,8 @@ test('Zeabur DB smoke safely creates reads and cleans repair intake case when sc
 
     const inserted = await pool.query(
       [
-        'SELECT id, organization_id, source_repair_intake_draft_id, status',
+        'SELECT id, case_no, customer_id, organization_id, status, source, brand,',
+        '       case_type, product_type, model_no, problem_description, service_region, metadata',
         'FROM cases',
         'WHERE id = $1',
         '  AND organization_id = $2',
@@ -182,18 +221,22 @@ test('Zeabur DB smoke safely creates reads and cleans repair intake case when sc
 
     assert.equal(inserted.rowCount, 1);
     assert.equal(inserted.rows[0].id, caseId);
+    assert.equal(inserted.rows[0].case_no, caseNo);
+    assert.equal(inserted.rows[0].customer_id, customerId);
     assert.equal(inserted.rows[0].organization_id, organizationId);
-    assert.equal(inserted.rows[0].source_repair_intake_draft_id, sourceDraftId);
-    assert.equal(inserted.rows[0].status, 'created');
+    assert.equal(inserted.rows[0].status, 'draft');
+    assert.equal(inserted.rows[0].source, 'website');
+    assert.equal(inserted.rows[0].brand, 'Task1645 Brand');
+    assert.equal(inserted.rows[0].case_type, 'repair');
+    assert.equal(inserted.rows[0].product_type, 'Task1645 Product');
+    assert.equal(inserted.rows[0].model_no, 'Task1645 Model');
+    assert.equal(inserted.rows[0].problem_description, 'Task1645 safe issue summary');
+    assert.equal(inserted.rows[0].service_region, 'Task1645 Region');
+    assert.equal(inserted.rows[0].metadata.testScope, 'task1645');
   } finally {
-    await pool.query(
-      [
-        'DELETE FROM cases',
-        'WHERE id = $1',
-        '  AND organization_id = $2',
-      ].join('\n'),
-      [caseId, organizationId],
-    ).catch(() => {});
+    await pool.query('DELETE FROM cases WHERE id = $1 AND organization_id = $2', [caseId, organizationId]).catch(() => {});
+    await pool.query('DELETE FROM customers WHERE id = $1 AND organization_id = $2', [customerId, organizationId]).catch(() => {});
+    await pool.query('DELETE FROM organizations WHERE id = $1', [organizationId]).catch(() => {});
     await pool.end();
   }
 });

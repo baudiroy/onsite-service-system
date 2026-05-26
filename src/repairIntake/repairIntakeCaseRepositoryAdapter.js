@@ -138,6 +138,69 @@ function sanitizeRef(value) {
   return Object.keys(sanitized).length > 0 ? sanitized : null;
 }
 
+function sanitizeSafeObject(value) {
+  if (!isObject(value) || hasForbiddenInputField(value)) {
+    return null;
+  }
+
+  return { ...value };
+}
+
+function normalizeSource(value) {
+  const source = stringValue(value);
+
+  if (!source) {
+    return null;
+  }
+
+  const normalized = source.toLowerCase();
+  const sourceMap = new Map([
+    ['web', 'website'],
+    ['website', 'website'],
+    ['open_web', 'website'],
+    ['api', 'api'],
+    ['brand_api', 'api'],
+    ['partner_api', 'api'],
+    ['phone', 'phone'],
+    ['call', 'phone'],
+    ['ai_call', 'phone'],
+    ['line', 'line'],
+    ['official_line', 'line'],
+    ['admin', 'admin'],
+    ['manual', 'admin'],
+    ['agent_assisted', 'admin'],
+    ['email', 'email'],
+    ['whatsapp', 'whatsapp'],
+    ['facebook', 'facebook'],
+    ['instagram', 'instagram'],
+  ]);
+
+  return sourceMap.get(normalized) || null;
+}
+
+function normalizeCaseType(value) {
+  const caseType = stringValue(value);
+
+  if (!caseType) {
+    return 'repair';
+  }
+
+  const normalized = caseType.toLowerCase();
+  const caseTypeMap = new Map([
+    ['onsite', 'repair'],
+    ['field_service', 'repair'],
+    ['repair', 'repair'],
+    ['installation', 'installation'],
+    ['maintenance', 'maintenance'],
+    ['inspection', 'inspection'],
+    ['return', 'return'],
+    ['warranty', 'warranty'],
+    ['other', 'other'],
+  ]);
+
+  return caseTypeMap.get(normalized) || null;
+}
+
 function sanitizeCandidate(candidate) {
   if (!isObject(candidate)) {
     return null;
@@ -145,26 +208,38 @@ function sanitizeCandidate(candidate) {
 
   const sourceDraftId = stringValue(candidate.sourceDraftId);
   const organizationId = stringValue(candidate.organizationId);
-  const intakeSource = stringValue(candidate.intakeSource);
+  const customerId = stringValue(candidate.customerId || candidate.customer_id);
+  const brand = stringValue(candidate.brand);
+  const productType = stringValue(candidate.productType || candidate.product_type);
+  const modelNo = stringValue(candidate.modelNo || candidate.model_no);
+  const problemDescription = stringValue(candidate.problemDescription || candidate.problem_description);
+  const source = normalizeSource(candidate.source || candidate.intakeSource);
 
-  if (!sourceDraftId || !organizationId || !intakeSource) {
+  if (!sourceDraftId || !organizationId) {
     return null;
   }
 
   return {
     sourceDraftId,
     organizationId,
-    brandId: stringValue(candidate.brandId) || null,
-    serviceProviderId: stringValue(candidate.serviceProviderId) || null,
-    intakeSource,
-    serviceType: stringValue(candidate.serviceType) || null,
-    priority: stringValue(candidate.priority) || null,
+    brand,
+    caseNo: stringValue(candidate.caseNo || candidate.case_no) || null,
+    caseType: normalizeCaseType(candidate.caseType || candidate.case_type || candidate.serviceType),
+    customerId,
+    customerSnapshot: sanitizeSafeObject(candidate.customerSnapshot || candidate.customer_snapshot),
+    metadata: sanitizeSafeObject(candidate.metadata),
+    modelNo,
+    problemDescription,
+    productType,
+    priority: stringValue(candidate.priority) || 'normal',
+    serviceRegion: stringValue(candidate.serviceRegion || candidate.service_region) || null,
+    source,
     reporterRef: sanitizeRef(candidate.reporterRef),
     customerRef: sanitizeRef(candidate.customerRef),
     billingContactRef: sanitizeRef(candidate.billingContactRef),
     siteRef: sanitizeRef(candidate.siteRef),
     issueSummaryRef: sanitizeRef(candidate.issueSummaryRef),
-    createdByActorId: stringValue(candidate.createdByActorId) || null,
+    createdBy: stringValue(candidate.createdBy || candidate.created_by || candidate.createdByUserId) || null,
   };
 }
 
@@ -194,6 +269,25 @@ function normalizeInput(input) {
       reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CANDIDATE_MISSING',
       requiredActions: ['provide_sanitized_case_candidate'],
     });
+  }
+
+  for (const [fieldName, reasonCode, requiredActions] of [
+    ['customerId', 'REPAIR_INTAKE_CASE_REPOSITORY_CUSTOMER_ID_MISSING', ['provide_resolved_customer_id']],
+    ['source', 'REPAIR_INTAKE_CASE_REPOSITORY_SOURCE_UNSUPPORTED', ['provide_supported_case_source']],
+    ['brand', 'REPAIR_INTAKE_CASE_REPOSITORY_BRAND_MISSING', ['provide_case_brand']],
+    ['productType', 'REPAIR_INTAKE_CASE_REPOSITORY_PRODUCT_TYPE_MISSING', ['provide_product_type']],
+    ['modelNo', 'REPAIR_INTAKE_CASE_REPOSITORY_MODEL_NO_MISSING', ['provide_model_no']],
+    ['problemDescription', 'REPAIR_INTAKE_CASE_REPOSITORY_PROBLEM_DESCRIPTION_MISSING', ['provide_problem_description']],
+    ['caseType', 'REPAIR_INTAKE_CASE_REPOSITORY_CASE_TYPE_UNSUPPORTED', ['provide_supported_case_type']],
+  ]) {
+    if (!candidate[fieldName]) {
+      return blocked({
+        organizationId: candidate.organizationId,
+        sourceDraftId: candidate.sourceDraftId,
+        reasonCode,
+        requiredActions,
+      });
+    }
   }
 
   const command = sanitizeCommand(input.command);
@@ -272,49 +366,74 @@ function resolveIdGenerator(idGenerator) {
   return undefined;
 }
 
+function resolveCaseNumberGenerator(caseNumberGenerator) {
+  if (typeof caseNumberGenerator === 'function') {
+    return caseNumberGenerator;
+  }
+
+  if (isObject(caseNumberGenerator) && typeof caseNumberGenerator.next === 'function') {
+    return caseNumberGenerator.next.bind(caseNumberGenerator);
+  }
+
+  if (isObject(caseNumberGenerator) && typeof caseNumberGenerator.generate === 'function') {
+    return caseNumberGenerator.generate.bind(caseNumberGenerator);
+  }
+
+  return undefined;
+}
+
 function payloadFor({ id, candidate, command, createdAt }) {
   return {
     id,
+    sourceDraftId: candidate.sourceDraftId,
+    case_no: candidate.caseNo,
+    customer_id: candidate.customerId,
     organization_id: candidate.organizationId,
-    source_repair_intake_draft_id: candidate.sourceDraftId,
-    brand_id: candidate.brandId,
-    service_provider_id: candidate.serviceProviderId,
-    intake_source: candidate.intakeSource,
-    service_type: candidate.serviceType,
+    status: 'draft',
     priority: candidate.priority,
-    status: 'created',
-    created_by_actor_id: candidate.createdByActorId || (command && command.actorId) || null,
+    source: candidate.source,
+    brand: candidate.brand,
+    case_type: candidate.caseType,
+    product_type: candidate.productType,
+    model_no: candidate.modelNo,
+    problem_description: candidate.problemDescription,
+    service_region: candidate.serviceRegion,
+    customer_snapshot: candidate.customerSnapshot,
+    metadata: candidate.metadata,
     created_at: createdAt,
-    request_id: command ? command.requestId : null,
-    idempotency_key: command ? command.idempotencyKey : null,
+    created_by: candidate.createdBy,
   };
 }
 
 function queryText(tableName) {
   return [
     `insert into ${tableName} (`,
-    'id, organization_id, source_repair_intake_draft_id, brand_id, service_provider_id,',
-    'intake_source, service_type, priority, status, created_by_actor_id,',
-    'created_at, request_id, idempotency_key',
-    ') values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
+    'id, case_no, customer_id, organization_id, status, priority,',
+    'source, brand, case_type, product_type, model_no, problem_description,',
+    'service_region, customer_snapshot, metadata, created_at, created_by',
+    ') values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb, $16, $17)',
   ].join(' ');
 }
 
 function queryValues(payload) {
   return [
     payload.id,
+    payload.case_no,
+    payload.customer_id,
     payload.organization_id,
-    payload.source_repair_intake_draft_id,
-    payload.brand_id,
-    payload.service_provider_id,
-    payload.intake_source,
-    payload.service_type,
-    payload.priority,
     payload.status,
-    payload.created_by_actor_id,
+    payload.priority,
+    payload.source,
+    payload.brand,
+    payload.case_type,
+    payload.product_type,
+    payload.model_no,
+    payload.problem_description,
+    payload.service_region,
+    payload.customer_snapshot ? JSON.stringify(payload.customer_snapshot) : null,
+    payload.metadata ? JSON.stringify(payload.metadata) : null,
     payload.created_at,
-    payload.request_id,
-    payload.idempotency_key,
+    payload.created_by,
   ];
 }
 
@@ -331,7 +450,7 @@ async function createWithClient({ client, tableName, payload }) {
     return failed({
       id: payload.id,
       organizationId: payload.organization_id,
-      sourceDraftId: payload.source_repair_intake_draft_id,
+      sourceDraftId: payload.sourceDraftId,
       reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_DB_CLIENT_NOT_CONFIGURED',
       requiredActions: ['configure_db_client'],
     });
@@ -350,7 +469,7 @@ async function createWithClient({ client, tableName, payload }) {
       return failed({
         id: payload.id,
         organizationId: payload.organization_id,
-        sourceDraftId: payload.source_repair_intake_draft_id,
+        sourceDraftId: payload.sourceDraftId,
         reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_DB_CLIENT_UNSUPPORTED',
         requiredActions: ['configure_db_client'],
       });
@@ -360,7 +479,7 @@ async function createWithClient({ client, tableName, payload }) {
       return failed({
         id: payload.id,
         organizationId: payload.organization_id,
-        sourceDraftId: payload.source_repair_intake_draft_id,
+        sourceDraftId: payload.sourceDraftId,
         reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED',
         requiredActions: ['retry_or_manual_review'],
       });
@@ -370,7 +489,7 @@ async function createWithClient({ client, tableName, payload }) {
       return failed({
         id: payload.id,
         organizationId: payload.organization_id,
-        sourceDraftId: payload.source_repair_intake_draft_id,
+        sourceDraftId: payload.sourceDraftId,
         reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED',
         requiredActions: ['retry_or_manual_review'],
       });
@@ -379,13 +498,13 @@ async function createWithClient({ client, tableName, payload }) {
     return created({
       id: payload.id,
       organizationId: payload.organization_id,
-      sourceDraftId: payload.source_repair_intake_draft_id,
+      sourceDraftId: payload.sourceDraftId,
     });
   } catch (error) {
     return failed({
       id: payload.id,
       organizationId: payload.organization_id,
-      sourceDraftId: payload.source_repair_intake_draft_id,
+      sourceDraftId: payload.sourceDraftId,
       reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CREATE_FAILED',
       requiredActions: ['retry_or_manual_review'],
     });
@@ -398,6 +517,7 @@ function createRepairIntakeCaseRepositoryAdapter(options = {}) {
   const tableName = safeTableName(safeOptions.tableName);
   const now = resolveClock(safeOptions.clock);
   const generateId = resolveIdGenerator(safeOptions.idGenerator);
+  const generateCaseNo = resolveCaseNumberGenerator(safeOptions.caseNumberGenerator);
 
   async function createCaseFromRepairIntakeCandidate(input = {}) {
     const normalizedInput = normalizeInput(input);
@@ -460,11 +580,49 @@ function createRepairIntakeCaseRepositoryAdapter(options = {}) {
       });
     }
 
+    if (!caseCandidate.caseNo) {
+      if (!generateCaseNo) {
+        return failed({
+          id,
+          organizationId: caseCandidate.organizationId,
+          sourceDraftId: caseCandidate.sourceDraftId,
+          reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CASE_NO_GENERATOR_NOT_CONFIGURED',
+          requiredActions: ['configure_case_no_generator'],
+        });
+      }
+
+      try {
+        caseCandidate.caseNo = stringValue(await generateCaseNo({
+          organizationId: caseCandidate.organizationId,
+          source: caseCandidate.source,
+          sourceDraftId: caseCandidate.sourceDraftId,
+        })) || null;
+      } catch (error) {
+        return failed({
+          id,
+          organizationId: caseCandidate.organizationId,
+          sourceDraftId: caseCandidate.sourceDraftId,
+          reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CASE_NO_GENERATION_FAILED',
+          requiredActions: ['retry_or_manual_review'],
+        });
+      }
+
+      if (!caseCandidate.caseNo) {
+        return blocked({
+          id,
+          organizationId: caseCandidate.organizationId,
+          sourceDraftId: caseCandidate.sourceDraftId,
+          reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CASE_NO_MISSING',
+          requiredActions: ['provide_case_no'],
+        });
+      }
+    }
+
     const payload = payloadFor({
       id,
       candidate: caseCandidate,
       command,
-      createdAt: timestamp(now),
+      createdAt: timestamp(now) || new Date().toISOString(),
     });
 
     return createWithClient({

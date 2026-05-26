@@ -26,17 +26,23 @@ function caseCandidate(overrides = {}) {
   return {
     sourceDraftId: 'draft_task953_001',
     organizationId: 'org_task953',
+    caseNo: 'CASE-TASK953-001',
+    customerId: 'customer_task953',
+    source: 'web',
+    brand: 'brand safe task953',
     brandId: 'brand_task953',
     serviceProviderId: 'provider_task953',
     intakeSource: 'web',
     serviceType: 'onsite',
+    productType: 'appliance',
+    modelNo: 'model_task953',
+    problemDescription: 'task953 safe issue summary',
     priority: 'normal',
     reporterRef: { refId: 'reporter_ref_task953', type: 'reporter' },
     customerRef: { refId: 'customer_ref_task953', type: 'customer' },
     billingContactRef: { refId: 'billing_ref_task953', type: 'billing_contact' },
     siteRef: { refId: 'site_ref_task953', type: 'service_site' },
     issueSummaryRef: { refId: 'issue_ref_task953', type: 'issue_summary' },
-    createdByActorId: 'actor_task953',
     ...overrides,
   };
 }
@@ -117,18 +123,22 @@ test('happy path creates Case using synthetic query db client and injected idGen
   assert.equal(calls[0].sqlText.includes('insert into cases'), true);
   assert.deepEqual(calls[0].values, [
     'case_task953_001',
+    'CASE-TASK953-001',
+    'customer_task953',
     'org_task953',
-    'draft_task953_001',
-    'brand_task953',
-    'provider_task953',
-    'web',
-    'onsite',
+    'draft',
     'normal',
-    'created',
-    'actor_task953',
+    'website',
+    'brand safe task953',
+    'repair',
+    'appliance',
+    'model_task953',
+    'task953 safe issue summary',
+    null,
+    null,
+    null,
     '2026-05-23T12:00:00.000Z',
-    'request_task953',
-    'idem_task953',
+    null,
   ]);
   assertNoForbiddenFields(result);
 });
@@ -155,18 +165,23 @@ test('supports wrapped creator input with command and caseCandidate', async () =
     tableName: 'cases',
     payload: {
       id: 'case_task953_001',
+      sourceDraftId: 'draft_task953_001',
+      case_no: 'CASE-TASK953-001',
+      customer_id: 'customer_task953',
       organization_id: 'org_task953',
-      source_repair_intake_draft_id: 'draft_task953_001',
-      brand_id: 'brand_task953',
-      service_provider_id: 'provider_task953',
-      intake_source: 'web',
-      service_type: 'onsite',
+      status: 'draft',
       priority: 'normal',
-      status: 'created',
-      created_by_actor_id: 'actor_task953',
+      source: 'website',
+      brand: 'brand safe task953',
+      case_type: 'repair',
+      product_type: 'appliance',
+      model_no: 'model_task953',
+      problem_description: 'task953 safe issue summary',
+      service_region: null,
+      customer_snapshot: null,
+      metadata: null,
       created_at: '2026-05-23T12:00:00.000Z',
-      request_id: 'request_task953',
-      idempotency_key: 'idem_task953',
+      created_by: null,
     },
   }]);
 });
@@ -187,8 +202,8 @@ test('supports direct caseCandidate input', async () => {
 
   assert.deepEqual(result, createdResult());
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].payload.request_id, null);
-  assert.equal(calls[0].payload.idempotency_key, null);
+  assert.equal(calls[0].payload.case_no, 'CASE-TASK953-001');
+  assert.equal(calls[0].payload.source, 'website');
 });
 
 test('supports tx override instead of base db client', async () => {
@@ -305,6 +320,81 @@ test('missing idGenerator fails safely', async () => {
     requiredActions: ['configure_id_generator'],
   });
   assert.equal(called, false);
+});
+
+test('missing caseNo without generator fails safely before DB call', async () => {
+  let called = false;
+  const repository = createRepairIntakeCaseRepositoryAdapter({
+    dbClient: {
+      query: async () => {
+        called = true;
+        return { rowCount: 1 };
+      },
+    },
+    idGenerator: () => 'case_task953_001',
+  });
+
+  const result = await repository.createCaseFromRepairIntakeCandidate(caseCandidate({ caseNo: '' }));
+
+  assert.deepEqual(result, {
+    ok: false,
+    id: 'case_task953_001',
+    organizationId: 'org_task953',
+    sourceDraftId: 'draft_task953_001',
+    status: 'failed',
+    reasonCode: 'REPAIR_INTAKE_CASE_REPOSITORY_CASE_NO_GENERATOR_NOT_CONFIGURED',
+    requiredActions: ['configure_case_no_generator'],
+  });
+  assert.equal(called, false);
+});
+
+test('caseNumberGenerator supplies missing caseNo', async () => {
+  const calls = [];
+  const repository = createRepairIntakeCaseRepositoryAdapter({
+    dbClient: {
+      query: async (sqlText, values) => {
+        calls.push({ sqlText, values });
+        return { rowCount: 1 };
+      },
+    },
+    idGenerator: () => 'case_task953_001',
+    caseNumberGenerator: {
+      next: () => 'CASE-GENERATED-953',
+    },
+  });
+
+  const result = await repository.createCaseFromRepairIntakeCandidate(caseCandidate({ caseNo: '' }));
+
+  assert.deepEqual(result, createdResult());
+  assert.equal(calls[0].values[1], 'CASE-GENERATED-953');
+});
+
+test('missing formal case fields fail before DB call', async () => {
+  for (const [overrides, reasonCode] of [
+    [{ customerId: '' }, 'REPAIR_INTAKE_CASE_REPOSITORY_CUSTOMER_ID_MISSING'],
+    [{ brand: '' }, 'REPAIR_INTAKE_CASE_REPOSITORY_BRAND_MISSING'],
+    [{ productType: '' }, 'REPAIR_INTAKE_CASE_REPOSITORY_PRODUCT_TYPE_MISSING'],
+    [{ modelNo: '' }, 'REPAIR_INTAKE_CASE_REPOSITORY_MODEL_NO_MISSING'],
+    [{ problemDescription: '' }, 'REPAIR_INTAKE_CASE_REPOSITORY_PROBLEM_DESCRIPTION_MISSING'],
+    [{ source: '', intakeSource: '' }, 'REPAIR_INTAKE_CASE_REPOSITORY_SOURCE_UNSUPPORTED'],
+  ]) {
+    let called = false;
+    const repository = createRepairIntakeCaseRepositoryAdapter({
+      dbClient: {
+        query: async () => {
+          called = true;
+          return { rowCount: 1 };
+        },
+      },
+      idGenerator: () => 'case_task953_001',
+    });
+
+    const result = await repository.createCaseFromRepairIntakeCandidate(caseCandidate(overrides));
+
+    assert.equal(result.reasonCode, reasonCode);
+    assert.equal(result.status, 'blocked');
+    assert.equal(called, false);
+  }
 });
 
 test('missing sourceDraftId fails before DB call', async () => {
@@ -566,19 +656,19 @@ test('execute style passes parameter values separately and does not interpolate 
     idGenerator: () => 'case_task953_001',
   });
   const rawSourceDraftId = "draft_task953_002'; drop table repair_intake_drafts; --";
-  const rawBrandId = "brand_task953_002'; unsafe marker; --";
+  const rawBrandText = "brand_task953_002'; unsafe marker; --";
 
   const result = await repository.createCaseFromRepairIntakeCandidate(caseCandidate({
     sourceDraftId: rawSourceDraftId,
-    brandId: rawBrandId,
+    brand: rawBrandText,
   }));
 
   assert.equal(result.ok, undefined);
   assert.equal(result.id, 'case_task953_001');
   assert.equal(observed.sqlText.includes(rawSourceDraftId), false);
-  assert.equal(observed.sqlText.includes(rawBrandId), false);
-  assert.equal(observed.values.includes(rawSourceDraftId), true);
-  assert.equal(observed.values.includes(rawBrandId), true);
+  assert.equal(observed.sqlText.includes(rawBrandText), false);
+  assert.equal(observed.values.includes(rawSourceDraftId), false);
+  assert.equal(observed.values.includes(rawBrandText), true);
   assertNoForbiddenFields(result);
 });
 
@@ -603,7 +693,8 @@ test('insert style db client receives sanitized payload without SQL text', async
   assert.deepEqual(result, createdResult());
   assert.equal(calls[0].tableName, 'cases');
   assert.equal(calls[0].payload.id, 'case_task953_001');
-  assert.equal(calls[0].payload.source_repair_intake_draft_id, 'draft_task953_001');
+  assert.equal(calls[0].payload.sourceDraftId, 'draft_task953_001');
+  assert.equal(calls[0].payload.source_repair_intake_draft_id, undefined);
   assert.equal(calls[0].payload.phone, undefined);
   assertNoForbiddenFields(result);
 });
@@ -701,7 +792,7 @@ test('clock failure does not block DB call or leak raw error', async () => {
   const result = await repository.createCaseFromRepairIntakeCandidate(wrappedInput());
 
   assert.deepEqual(result, createdResult());
-  assert.equal(calls[0].values[10], null);
+  assert.equal(typeof calls[0].values[15], 'string');
   assertNoForbiddenFields(result);
 });
 
