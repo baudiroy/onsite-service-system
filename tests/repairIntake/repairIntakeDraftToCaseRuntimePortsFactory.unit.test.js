@@ -256,7 +256,11 @@ test('server-style prefixed runtime ids are normalized to DB-compatible UUIDs wi
   const auditInsert = dbClient.calls.find((call) => call.text.includes('INSERT INTO repair_intake_audit_events'));
 
   assert.equal(created.id, caseId);
+  assert.equal(created.caseId, caseId);
   assert.equal(created.caseRef, 'CASE_RUNTIME_PORTS_001');
+  assert.equal(created.caseNo, 'CASE_RUNTIME_PORTS_001');
+  assert.equal(created.summary.caseRef, 'CASE_RUNTIME_PORTS_001');
+  assert.equal(created.summary.caseNo, 'CASE_RUNTIME_PORTS_001');
   assert.equal(audit.caseId, caseId);
   assert.equal(caseInsert.params[0], caseId);
   assert.equal(caseInsert.params[1], 'CASE_RUNTIME_PORTS_001');
@@ -270,6 +274,67 @@ test('server-style prefixed runtime ids are normalized to DB-compatible UUIDs wi
     )),
     false,
   );
+});
+
+test('idempotency replay preserves UUID caseRef id and separate case number', async () => {
+  const caseId = '11111111-1111-4111-8111-111111111111';
+  const dbClient = {
+    calls: [],
+    async query(text, params) {
+      this.calls.push({ text, params });
+
+      if (text.includes('FROM repair_intake_idempotency_records')) {
+        return {
+          rowCount: 1,
+          rows: [{
+            id: 'idem_record_runtime_ports_001',
+            organization_id: 'org_runtime_ports_001',
+            tenant_id: 'tenant_runtime_ports_001',
+            idempotency_key: 'idem_runtime_ports_001',
+            operation_type: 'draft_to_case',
+            draft_id: 'draft_runtime_ports_001',
+            replay_case_id: caseId,
+            replay_case_ref: 'CASE_RUNTIME_PORTS_001',
+            replay_result_safe: {
+              ok: true,
+              submitted: true,
+              status: 'created',
+              caseRef: {
+                id: caseId,
+                caseId,
+                summary: {
+                  caseRef: 'CASE_RUNTIME_PORTS_001',
+                },
+              },
+            },
+            record_status: 'completed',
+          }],
+        };
+      }
+
+      return {
+        rowCount: 1,
+        rows: [],
+      };
+    },
+  };
+  const ports = createRepairIntakeDraftToCaseRuntimePorts(createFactoryOptions({ dbClient }));
+  const replay = await ports.idempotencyStore.findExistingDraftToCaseResult({
+    draftId: 'draft_runtime_ports_001',
+    organizationId: 'org_runtime_ports_001',
+    tenantId: 'tenant_runtime_ports_001',
+    actorId: 'actor_runtime_ports_001',
+    requestId: 'req_runtime_ports_001',
+    idempotencyKey: 'idem_runtime_ports_001',
+  });
+
+  assert.equal(replay.caseId, caseId);
+  assert.equal(replay.caseRef.id, caseId);
+  assert.equal(replay.caseRef.caseId, caseId);
+  assert.equal(replay.caseRef.caseRef, 'CASE_RUNTIME_PORTS_001');
+  assert.equal(replay.caseRef.caseNo, 'CASE_RUNTIME_PORTS_001');
+  assert.equal(replay.caseRef.summary.caseRef, 'CASE_RUNTIME_PORTS_001');
+  assert.notEqual(replay.caseRef.id, replay.caseRef.caseRef);
 });
 
 test('audit and idempotency ports write safe rows through injected client', async () => {

@@ -241,6 +241,31 @@ function caseNoFromResult(result) {
   );
 }
 
+function normalizeCreatedCaseRef(created, plan) {
+  const candidate = safeObject(plan && plan.candidate);
+  const rawCaseId = firstString(created.caseId, created.id);
+  const caseId = rawCaseId ? dbCompatibleGeneratedId(rawCaseId) : null;
+  const caseNo = firstString(
+    created.caseNo,
+    created.case_no,
+    caseNoFromResult(created),
+    candidate.caseNo,
+  );
+
+  return {
+    ...created,
+    id: caseId || created.id,
+    caseId: caseId || created.caseId || created.id,
+    caseNo,
+    caseRef: caseNo,
+    summary: {
+      ...(isObject(created.summary) ? created.summary : {}),
+      caseNo,
+      caseRef: caseNo,
+    },
+  };
+}
+
 function createConversionWriter({ dbClient, generateId: generate, now }) {
   return async function recordConversion(input, caseRef) {
     const plan = safeObject(input.plan);
@@ -328,15 +353,17 @@ function createCaseCreationPort({ caseRepository, recordConversion }) {
         return created;
       }
 
-      const conversion = await recordConversion(input, created);
-      const caseRef = firstString(conversion.caseRef, caseNoFromResult(created), created.id);
+      const normalizedCreated = normalizeCreatedCaseRef(created, plan);
+      const conversion = await recordConversion(input, normalizedCreated);
+      const caseRef = firstString(conversion.caseRef, caseNoFromResult(normalizedCreated), normalizedCreated.id);
 
       return {
-        ...created,
+        ...normalizedCreated,
         caseRef,
         summary: {
-          ...(isObject(created.summary) ? created.summary : {}),
+          ...(isObject(normalizedCreated.summary) ? normalizedCreated.summary : {}),
           caseRef,
+          caseNo: firstString(normalizedCreated.caseNo, caseRef),
           conversionId: conversion.conversionId,
         },
       };
@@ -421,9 +448,67 @@ function fingerprint(input) {
   return crypto.createHash('sha256').update(source).digest('hex');
 }
 
+function normalizeExistingDraftToCaseResult(result) {
+  if (!isObject(result)) {
+    return result;
+  }
+
+  const replayResult = safeObject(result.result);
+  const caseRef = safeObject(result.caseRef);
+  const replayCaseRef = safeObject(replayResult.caseRef);
+  const replaySummary = safeObject(replayCaseRef.summary);
+  const caseId = firstString(
+    result.caseId,
+    caseRef.caseId,
+    caseRef.id,
+    replayCaseRef.caseId,
+    replayCaseRef.id,
+    replayResult.caseId,
+  );
+  const caseNo = firstString(
+    caseRef.caseRef,
+    caseRef.caseNo,
+    replayCaseRef.caseRef,
+    replayCaseRef.caseNo,
+    replaySummary.caseRef,
+    replaySummary.caseNo,
+  );
+  const normalizedSummary = {
+    ...replaySummary,
+    ...safeObject(caseRef.summary),
+    ...(caseNo ? {
+      caseRef: caseNo,
+      caseNo,
+    } : {}),
+  };
+  const normalizedCaseRef = {
+    ...replayCaseRef,
+    ...caseRef,
+    ...(caseId ? {
+      id: caseId,
+      caseId,
+    } : {}),
+    ...(caseNo ? {
+      caseRef: caseNo,
+      caseNo,
+    } : {}),
+    ...(Object.keys(normalizedSummary).length > 0 ? { summary: normalizedSummary } : {}),
+  };
+
+  return {
+    ...result,
+    ...(caseId ? { caseId } : {}),
+    ...(Object.keys(normalizedCaseRef).length > 0 ? { caseRef: normalizedCaseRef } : {}),
+  };
+}
+
 function createIdempotencyStore(idempotencyRepository) {
   return {
-    findExistingDraftToCaseResult: (input) => idempotencyRepository.findExistingDraftToCaseResult(input),
+    findExistingDraftToCaseResult: async (input) => (
+      normalizeExistingDraftToCaseResult(
+        await idempotencyRepository.findExistingDraftToCaseResult(input),
+      )
+    ),
     recordDraftToCaseResult: (input) => {
       const caseRef = safeObject(input.caseRef);
       const resultCaseRef = safeObject(input.result && input.result.caseRef);

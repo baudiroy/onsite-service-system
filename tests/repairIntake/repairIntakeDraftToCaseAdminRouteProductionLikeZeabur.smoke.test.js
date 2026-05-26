@@ -232,14 +232,14 @@ function createServerResolvedApp(pool, ids) {
     },
     [idGeneratorOptionKey]: (scope = {}) => {
       if (scope.kind === 'repair_intake_draft_case_conversion') {
-        return ids.conversionId;
+        return `ri_repair_intake_draft_case_conversion_${ids.conversionId}`;
       }
 
       if (scope.kind === 'repair_intake_audit_event') {
-        return ids.auditEventId;
+        return `ri_repair_intake_audit_event_${ids.auditEventId}`;
       }
 
-      return ids.caseId;
+      return `ri_record_${ids.caseId}`;
     },
     [caseNumberGeneratorOptionKey]: () => ids.caseNo,
     [optionRootKey]: {
@@ -312,6 +312,9 @@ test('Zeabur production-like admin route covers happy denied and not-found paths
     assert.equal(happy.res.jsonCalls[0].ok, true);
     assert.equal(happy.res.jsonCalls[0].submitted, true);
     assert.equal(happy.res.jsonCalls[0].caseRef.id, ids.caseId);
+    assert.equal(happy.res.jsonCalls[0].caseRef.caseId, ids.caseId);
+    assert.notEqual(happy.res.jsonCalls[0].caseRef.id, ids.caseNo);
+    assert.equal(happy.res.jsonCalls[0].caseRef.summary.caseRef, ids.caseNo);
 
     assert.equal(
       await rowCount(pool, 'SELECT COUNT(*)::int AS count FROM cases WHERE id = $1 AND organization_id = $2', [ids.caseId, ids.organizationId]),
