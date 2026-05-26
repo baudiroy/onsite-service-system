@@ -74,8 +74,8 @@ function requireSpecifiers(source) {
   return specifiers;
 }
 
-function gitStatusFor(files) {
-  return execFileSync('git', ['status', '--short', '--', ...files], {
+function gitTrackedFilesFor(files) {
+  return execFileSync('git', ['ls-files', '--', ...files], {
     cwd: repoRoot,
     encoding: 'utf8',
   })
@@ -196,22 +196,20 @@ test('no production route registration exists for assigned appointments branch',
   }
 });
 
-test('Task924 evidence doc lists Task921 through Task924 final patch candidates and status', () => {
+test('Task924 evidence doc lists Task921 through Task924 candidates as tracked historical checkpoint files', () => {
   const doc = read(TASK924_DOC);
-  const statusLines = gitStatusFor(ALL_PATCH_FILES);
+  const trackedFiles = gitTrackedFilesFor(ALL_PATCH_FILES);
 
-  assert.equal(statusLines.length, ALL_PATCH_FILES.length);
+  assert.equal(trackedFiles.length, ALL_PATCH_FILES.length);
 
   for (const file of ALL_PATCH_FILES) {
+    assert.equal(trackedFiles.includes(file), true, `${file} should be tracked`);
     assert.match(doc, new RegExp(escaped(file)), `${file} should be listed in Task924 doc`);
   }
 
-  for (const line of statusLines) {
-    assert.match(doc, new RegExp(escaped(line)), `Task924 doc should record ${line}`);
-  }
-
   assert.match(doc, /final patch candidate/i);
-  assert.match(doc, /local \/ uncommitted \/ untracked/i);
+  assert.match(doc, /historical checkpoint now tracked-clean/i);
+  assert.match(doc, /retained as historical note/i);
   assert.match(doc, /No production source change/);
   assert.match(doc, /No runtime behavior change/);
   assert.match(doc, /No production route/);

@@ -23,11 +23,13 @@ No runtime behavior change. No production route. No public/mobile API rollout. N
 
 `git status --short` was run. The working tree has broad pre-existing dirty/untracked content outside this Engineer Mobile assigned appointment detail closure checkpoint. Those unrelated dirty files are not claimed as Task928 work.
 
-For the Task925 through Task928 final patch candidates below, `git status --short -- <targets>` reports local / uncommitted / untracked (`??`) status for each file.
+Task1712 status alignment: this is a historical checkpoint now tracked-clean in the current branch. The original local / uncommitted / untracked (`??`) status evidence below is retained as historical note only; it is no longer a current `git status` expectation.
 
 No staging/commit is authorized by this task. Staging or committing requires a separate explicit user instruction.
 
 ## Final Patch Candidate Files
+
+The `??` prefixes in this section are preserved from the original Task928 historical checkpoint. Current Task1712 static guards verify that these target files are tracked, not currently untracked.
 
 ### Task925
 
@@ -136,7 +138,7 @@ git diff --check -- src/engineerMobile tests/engineerMobile docs/task-928-engine
 
 Current results:
 
-- `git status --short`: PASS / observed broad pre-existing dirty and untracked working tree; Task925 through Task928 final patch candidates are local, uncommitted, and untracked (`??`).
+- `git status --short`: historical checkpoint now tracked-clean for Task925 through Task928 targets; retained `??` lines above are historical note only.
 - `node --test tests/engineerMobile/engineerAssignedAppointmentDetailBranchClosure.static.test.js`: PASS, 8/8.
 - `node --test tests/engineerMobile/engineerAssignedAppointmentDetailAppAdapter.unit.test.js`: PASS, 7/7.
 - `node --test tests/engineerMobile/engineerAssignedAppointmentDetailProjectionHandler.http-behavior.unit.test.js`: PASS, 9/9.

@@ -95,8 +95,8 @@ function escaped(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function gitStatusFor(files) {
-  return execFileSync('git', ['status', '--short', '--', ...files], {
+function gitTrackedFilesFor(files) {
+  return execFileSync('git', ['ls-files', '--', ...files], {
     cwd: repoRoot,
     encoding: 'utf8',
   })
@@ -111,19 +111,19 @@ test('Task921 through Task929 read-only branch target files are present', () => 
   }
 });
 
-test('Task929 checkpoint doc lists every target file and current git status line', () => {
+test('Task929 checkpoint doc lists every target file as tracked historical checkpoint files', () => {
   const doc = read(TASK929_DOC);
-  const statusLines = gitStatusFor(ALL_TARGET_FILES);
+  const trackedFiles = gitTrackedFilesFor(ALL_TARGET_FILES);
 
-  assert.equal(statusLines.length, ALL_TARGET_FILES.length);
+  assert.equal(trackedFiles.length, ALL_TARGET_FILES.length);
 
   for (const file of ALL_TARGET_FILES) {
+    assert.equal(trackedFiles.includes(file), true, `${file} should be tracked`);
     assert.match(doc, new RegExp(escaped(file)), `${file} should be listed`);
   }
 
-  for (const line of statusLines) {
-    assert.match(doc, new RegExp(escaped(line)), `${line} should be recorded`);
-  }
+  assert.match(doc, /historical checkpoint now tracked-clean/i);
+  assert.match(doc, /retained as historical note/i);
 });
 
 test('Task929 checkpoint doc preserves no-runtime no-staging branch closure boundary', () => {
