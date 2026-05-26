@@ -4,8 +4,12 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  createRepairIntakeDraftToCaseApplicationService,
   createRepairIntakeDraftToCaseInjectedConsumerApplicationService,
 } = require('../../src/repairIntake/repairIntakeDraftToCaseApplicationService');
+const {
+  createRepairIntakeIdempotencyPortAdapter,
+} = require('../../src/repairIntake/repairIntakeIdempotencyPortAdapter');
 
 const UNSAFE_ERROR_TEXT = [
   'unsafe infrastructure detail',
@@ -342,5 +346,111 @@ test('service does not mutate consumer result object', async () => {
 
   assert.equal(result.ok, true);
   assert.deepEqual(consumerResult, before);
+  assertNoUnsafeText(result);
+});
+
+test('submit forwards sanitized caseRef to injected idempotency store record path', async () => {
+  const idempotencyCalls = [];
+  const idempotencyPort = createRepairIntakeIdempotencyPortAdapter({
+    idempotencyStore: {
+      async findExistingDraftToCaseResult(input) {
+        idempotencyCalls.push({ method: 'find', input });
+
+        return null;
+      },
+      async recordDraftToCaseResult(input) {
+        idempotencyCalls.push({ method: 'record', input });
+
+        return {
+          ok: true,
+          draftId: input.draftId,
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          status: 'recorded',
+          submitted: true,
+          reasonCode: 'TASK1651_IDEMPOTENCY_RECORDED',
+          caseRef: input.caseRef,
+        };
+      },
+    },
+  });
+  const service = createRepairIntakeDraftToCaseApplicationService({
+    idempotencyPort,
+    draftReader: {
+      async getDraftForConversion(input) {
+        return {
+          id: input.draftId,
+          draftId: input.draftId,
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          status: 'ready',
+          summary: { title: 'safe draft task1651' },
+        };
+      },
+    },
+    casePlanner: {
+      async planCaseFromDraft(input) {
+        return {
+          status: 'planned',
+          candidate: {
+            sourceDraftId: input.draftId,
+            organizationId: input.organizationId,
+            tenantId: input.tenantId,
+          },
+        };
+      },
+    },
+    caseCreator: {
+      async createCaseFromDraft(input) {
+        return {
+          id: 'case-task1651',
+          caseId: 'case-task1651',
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          sourceDraftId: input.draftId,
+          status: 'created',
+        };
+      },
+    },
+    auditWriter: {
+      async recordDraftToCaseDecision(input) {
+        return {
+          eventType: 'repair_intake_draft_to_case_submission',
+          outcome: 'submitted',
+          draftId: input.draftId,
+          organizationId: input.organizationId,
+          caseId: 'case-task1651',
+        };
+      },
+    },
+  });
+
+  const result = await service.submitDraftToCase({
+    params: { draftId: 'draft-task1651' },
+    context: {
+      actorId: 'actor-task1651',
+      organizationId: 'org-task1651',
+      requestId: 'request-task1651',
+      tenantId: 'tenant-task1651',
+    },
+    body: {
+      approvalContext: { accepted: true },
+      idempotencyKey: 'idem-task1651',
+      permissionContext: {
+        canCreateCaseFromRepairIntakeDraft: true,
+      },
+      tenantId: 'tenant-task1651',
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(idempotencyCalls.map((call) => call.method), ['find', 'record']);
+  assert.equal(idempotencyCalls[1].input.idempotencyKey, 'idem-task1651');
+  assert.equal(idempotencyCalls[1].input.draftId, 'draft-task1651');
+  assert.equal(idempotencyCalls[1].input.organizationId, 'org-task1651');
+  assert.equal(idempotencyCalls[1].input.tenantId, 'tenant-task1651');
+  assert.equal(idempotencyCalls[1].input.result.caseRef.id, 'case-task1651');
+  assert.equal(idempotencyCalls[1].input.caseRef.id, 'case-task1651');
+  assertNoUnsafeText(idempotencyCalls);
   assertNoUnsafeText(result);
 });

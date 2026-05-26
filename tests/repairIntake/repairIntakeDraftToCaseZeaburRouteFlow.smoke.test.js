@@ -512,28 +512,6 @@ test('Zeabur DB smoke dispatches injected route Draft to Case flow and cleans te
             ],
           );
 
-          recordedIdempotencyResult = await idempotencyRepository.recordDraftToCaseResult({
-            actorId,
-            caseId,
-            caseRef: caseNo,
-            draftId,
-            idempotencyKey,
-            operationType: 'draft_to_case',
-            organizationId,
-            recordStatus: 'completed',
-            requestId,
-            result: {
-              caseId,
-              caseRef: caseNo,
-              draftId,
-              organizationId,
-              safeValue: 'task1649 safe replay',
-              status: 'submitted',
-            },
-            safeRequestFingerprint,
-            tenantId,
-          });
-
           return {
             ok: true,
             eventType: 'repair_intake_draft_to_case_submission',
@@ -556,13 +534,22 @@ test('Zeabur DB smoke dispatches injected route Draft to Case flow and cleans te
           return idempotencyRepository.findExistingDraftToCaseResult(input);
         },
         recordDraftToCaseResult: async (input) => {
-          recordedIdempotencyResult = await idempotencyRepository.recordDraftToCaseResult({
-            ...input,
-            actorId,
-            caseId,
-            caseRef: caseNo,
-            safeRequestFingerprint,
-          });
+          try {
+            recordedIdempotencyResult = await idempotencyRepository.recordDraftToCaseResult({
+              ...input,
+              actorId,
+              caseId,
+              caseRef: caseNo,
+              recordStatus: 'completed',
+              safeRequestFingerprint,
+            });
+          } catch (error) {
+            recordedIdempotencyResult = {
+              ok: false,
+              reasonCode: error && error.reasonCode,
+              requiredActions: error && error.requiredActions,
+            };
+          }
 
           return recordedIdempotencyResult;
         },

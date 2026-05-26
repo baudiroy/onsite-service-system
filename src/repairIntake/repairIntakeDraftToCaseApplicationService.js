@@ -312,6 +312,7 @@ function createAuditPayload(input, draft, plan, caseRef) {
 function createIdempotencyRecordPayload(input, result) {
   return sanitizeValue({
     ...createInputPayload(input),
+    caseRef: isObject(result && result.caseRef) ? result.caseRef : undefined,
     result,
   });
 }
