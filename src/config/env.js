@@ -17,6 +17,7 @@ const OPTIONAL_ENV = [
   'SEED_SMOKE_USER_EMAIL',
   'SEED_SMOKE_USER_PASSWORD',
   'SEED_SMOKE_USER_DISPLAY_NAME',
+  'REPAIR_INTAKE_DRAFT_TO_CASE_ROUTES_ENABLED',
   'LINE_CHANNEL_SECRET',
   'LINE_CHANNEL_ACCESS_TOKEN',
   'OPENAI_API_KEY',
@@ -58,6 +59,26 @@ function readString(name, defaultValue = '') {
   return rawValue === undefined || rawValue === '' ? defaultValue : rawValue;
 }
 
+function readBoolean(name, defaultValue = false) {
+  const rawValue = process.env[name];
+
+  if (rawValue === undefined || rawValue === '') {
+    return defaultValue;
+  }
+
+  const normalizedValue = rawValue.trim().toLowerCase();
+
+  if (['1', 'true', 'yes', 'on'].includes(normalizedValue)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalizedValue)) {
+    return false;
+  }
+
+  throw new Error(`Invalid boolean environment variable: ${name}`);
+}
+
 function validateNodeEnv(nodeEnv) {
   if (!ALLOWED_NODE_ENV.includes(nodeEnv)) {
     throw new Error(`Invalid NODE_ENV. Expected one of: ${ALLOWED_NODE_ENV.join(', ')}`);
@@ -87,6 +108,7 @@ const env = {
   seedSmokeUserEmail: readString('SEED_SMOKE_USER_EMAIL'),
   seedSmokeUserPassword: readString('SEED_SMOKE_USER_PASSWORD'),
   seedSmokeUserDisplayName: readString('SEED_SMOKE_USER_DISPLAY_NAME', 'Smoke Regular User'),
+  repairIntakeDraftToCaseRoutesEnabled: readBoolean('REPAIR_INTAKE_DRAFT_TO_CASE_ROUTES_ENABLED', false),
   r2AccountId: readString('R2_ACCOUNT_ID'),
   r2AccessKeyId: readString('R2_ACCESS_KEY_ID'),
   r2SecretAccessKey: readString('R2_SECRET_ACCESS_KEY'),

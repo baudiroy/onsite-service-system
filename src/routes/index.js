@@ -24,6 +24,7 @@ const { registerEngineerMobileTaskDetailRoutes } = require('./engineerMobileTask
 const { registerCustomerAccessRoutes } = require('./customerAccessRoutes');
 const { registerCustomerAccessModuleRoutes } = require('../customerAccess/customerAccessRouteRegistry');
 const { registerDataCorrectionRoutes } = require('./dataCorrectionRoutes');
+const { registerRepairIntakeDraftToCaseAdminRoutes } = require('./repairIntakeDraftToCase.routes');
 
 function registerCustomerAccessRoutesWithOptions(appRouter, customerAccessOptions) {
   if (customerAccessOptions === undefined) {
@@ -34,7 +35,20 @@ function registerCustomerAccessRoutesWithOptions(appRouter, customerAccessOption
 }
 
 function createAppRouter(options = {}) {
+  const originalOptions = options;
   const appRouter = express.Router();
+  const repairIntakeDraftToCaseAdminRoutesEnabled = options.repairIntakeDraftToCaseRoutesEnabled === true
+    || (
+      options.repairIntakeDraftToCase
+      && options.repairIntakeDraftToCase.routesEnabled === true
+    );
+  options = repairIntakeDraftToCaseAdminRoutesEnabled
+    ? {
+      ...options,
+      repairIntakeDraftToCaseRuntimePorts: undefined,
+      repairIntakeDraftToCase: undefined,
+    }
+    : options;
   const publicRouter = createPublicRouter({
     repairIntakeDraftToCaseRuntimePorts: options.repairIntakeDraftToCaseRuntimePorts,
     repairIntakeDraftToCase: options.repairIntakeDraftToCase
@@ -78,6 +92,10 @@ function createAppRouter(options = {}) {
   registerEngineerMobileTaskDetailRoutes(appRouter, options.engineerMobile);
   registerCustomerAccessRoutesWithOptions(appRouter, options.customerAccess);
   registerDataCorrectionRoutes(appRouter, options.dataCorrection);
+  registerRepairIntakeDraftToCaseAdminRoutes(appRouter, {
+    ...originalOptions,
+    routesEnabled: repairIntakeDraftToCaseAdminRoutesEnabled,
+  });
 
   appRouter.get('/healthz', (req, res) => {
     res.json({
