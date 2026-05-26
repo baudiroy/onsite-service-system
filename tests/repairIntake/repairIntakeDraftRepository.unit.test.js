@@ -131,6 +131,28 @@ test('factory rejects missing or invalid dbClient', () => {
   }
 });
 
+test('factory accepts query-capable dbClient instances', async () => {
+  class QueryCapableClient {
+    constructor() {
+      this.calls = [];
+    }
+
+    async query(sql, params) {
+      this.calls.push({ sql, params });
+      return { rows: [] };
+    }
+  }
+
+  const client = new QueryCapableClient();
+  const repository = createRepairIntakeDraftRepository({ dbClient: client });
+
+  const result = await repository.findDraftForConversion({ draftId: 'draft_instance_client' });
+
+  assert.equal(result, null);
+  assert.equal(client.calls.length, 1);
+  assert.match(client.calls[0].sql, /FROM repair_intake_drafts/);
+});
+
 test('invalid input fails closed before dbClient query', async () => {
   const { client, calls } = createDbClient();
   const repository = createRepairIntakeDraftRepository({ dbClient: client });

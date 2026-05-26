@@ -376,7 +376,7 @@ function mapRecordedRow(row, record) {
 }
 
 function assertDbClient(dbClient) {
-  if (!isPlainObject(dbClient) || typeof dbClient.query !== 'function') {
+  if (!dbClient || typeof dbClient !== 'object' || typeof dbClient.query !== 'function') {
     throw new RepairIntakeIdempotencyRepositoryError(
       'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_DB_CLIENT_REQUIRED',
       ['provide_injected_query_client'],

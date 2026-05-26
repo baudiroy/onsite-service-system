@@ -19,6 +19,8 @@ admin/build/
 .vite/
 uploads/
 storage/
+!src/integrations/storage/
+!src/integrations/storage/**
 .local/
 .zeabur/
 *.pem

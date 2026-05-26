@@ -193,7 +193,7 @@ function mapDraftRow(row) {
 }
 
 function assertDbClient(dbClient) {
-  if (!isPlainObject(dbClient) || typeof dbClient.query !== 'function') {
+  if (!dbClient || typeof dbClient !== 'object' || typeof dbClient.query !== 'function') {
     throw new RepairIntakeDraftRepositoryError(
       'REPAIR_INTAKE_DRAFT_REPOSITORY_DB_CLIENT_REQUIRED',
       ['provide_injected_query_client'],
