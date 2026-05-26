@@ -123,6 +123,31 @@ function safeFailure(reasonCode, requiredActions = ['retry_or_manual_review']) {
   };
 }
 
+function draftReadFailed(draft) {
+  return !isObject(draft) || draft.ok === false || safeString(draft.status) === 'failed';
+}
+
+function draftReadFailureEnvelope(input, draft, action) {
+  const inputPayload = createInputPayload(input);
+
+  return sanitizeValue({
+    ok: false,
+    action,
+    draftId: safeString(inputPayload.draftId) || safeString(draft && (draft.draftId || draft.id)) || null,
+    organizationId: safeString(inputPayload.organizationId) || safeString(draft && draft.organizationId) || null,
+    status: safeString(draft && draft.status) || 'failed',
+    submitted: false,
+    reasonCode: safeString(draft && draft.reasonCode)
+      || 'REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_DRAFT_READ_FAILED',
+    requiredActions: safeArray(draft && draft.requiredActions).length > 0
+      ? safeArray(draft.requiredActions)
+      : ['retry_or_manual_review'],
+    plan: null,
+    caseRef: null,
+    auditEvent: null,
+  });
+}
+
 function submitPreconditionFailure(input) {
   const body = isObject(input.body) ? input.body : {};
 
@@ -372,6 +397,11 @@ function createRepairIntakeDraftToCaseApplicationService(options = {}) {
 
     try {
       const draft = sanitizeValue(await draftReader.getDraftForConversion(createInputPayload(safeInput)));
+
+      if (draftReadFailed(draft)) {
+        return draftReadFailureEnvelope(safeInput, draft, 'repair_intake_draft_to_case_plan');
+      }
+
       const plan = sanitizeValue(await casePlanner.planCaseFromDraft(createPlanPayload(safeInput, draft)));
 
       return planEnvelope(safeInput, draft, plan);
@@ -408,6 +438,11 @@ function createRepairIntakeDraftToCaseApplicationService(options = {}) {
       }
 
       const draft = sanitizeValue(await draftReader.getDraftForConversion(createInputPayload(safeInput)));
+
+      if (draftReadFailed(draft)) {
+        return draftReadFailureEnvelope(safeInput, draft, 'repair_intake_draft_to_case_submit');
+      }
+
       const plan = sanitizeValue(await casePlanner.planCaseFromDraft(createPlanPayload(safeInput, draft)));
       const caseRef = sanitizeValue(await caseCreator.createCaseFromDraft(createCasePayload(safeInput, draft, plan)));
       const auditEvent = sanitizeValue(

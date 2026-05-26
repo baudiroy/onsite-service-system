@@ -187,18 +187,8 @@ test('Zeabur DB route not-found smoke performs no persistence writes', async (t)
           dbClient,
         }),
         planningPolicy: {
-          async planCaseFromDraft(input) {
+          async planCaseFromDraft() {
             planningCalls += 1;
-
-            if (
-              input.draft
-              && (
-                input.draft.status === 'failed'
-                || input.draft.reasonCode === 'REPAIR_INTAKE_DRAFT_READER_PORT_ADAPTER_DRAFT_NOT_FOUND'
-              )
-            ) {
-              throw new Error('TASK1658_DRAFT_NOT_FOUND');
-            }
 
             return {
               status: 'planned',
@@ -283,18 +273,18 @@ test('Zeabur DB route not-found smoke performs no persistence writes', async (t)
       },
     );
 
-    assert.equal(response.ok, true);
-    assert.equal(response.body.ok, true);
+    assert.equal(response.ok, false);
+    assert.equal(response.body.ok, false);
     assert.equal(
       response.body.reasonCode,
-      'REPAIR_INTAKE_CASE_CREATOR_PORT_ADAPTER_CREATE_FAILED',
+      'REPAIR_INTAKE_DRAFT_READER_PORT_ADAPTER_DRAFT_NOT_FOUND',
     );
     assert.equal(response.body.status, 'failed');
     assert.equal(idempotencyFindCalls, 1);
-    assert.equal(planningCalls, 1);
-    assert.equal(caseCreationCalls, 1);
-    assert.equal(auditCalls, 1);
-    assert.equal(idempotencyRecordCalls, 1);
+    assert.equal(planningCalls, 0);
+    assert.equal(caseCreationCalls, 0);
+    assert.equal(auditCalls, 0);
+    assert.equal(idempotencyRecordCalls, 0);
 
     const draftCount = await pool.query(
       [

@@ -349,6 +349,90 @@ test('service does not mutate consumer result object', async () => {
   assertNoUnsafeText(result);
 });
 
+test('submit stops at safe draft-read not-found failure without case/audit/idempotency writes', async () => {
+  const calls = [];
+  const service = createRepairIntakeDraftToCaseApplicationService({
+    idempotencyPort: {
+      async findExistingDraftToCaseResult(input) {
+        calls.push({ method: 'idempotency_find', input });
+
+        return null;
+      },
+      async recordDraftToCaseResult(input) {
+        calls.push({ method: 'idempotency_record', input });
+
+        return { ok: true };
+      },
+    },
+    draftReader: {
+      async getDraftForConversion(input) {
+        calls.push({ method: 'draft_read', input });
+
+        return {
+          ok: false,
+          status: 'failed',
+          reasonCode: 'REPAIR_INTAKE_DRAFT_READER_PORT_ADAPTER_DRAFT_NOT_FOUND',
+          requiredActions: ['verify_draft_exists'],
+        };
+      },
+    },
+    casePlanner: {
+      async planCaseFromDraft(input) {
+        calls.push({ method: 'case_plan', input });
+
+        return { status: 'planned' };
+      },
+    },
+    caseCreator: {
+      async createCaseFromDraft(input) {
+        calls.push({ method: 'case_create', input });
+
+        return { status: 'created' };
+      },
+    },
+    auditWriter: {
+      async recordDraftToCaseDecision(input) {
+        calls.push({ method: 'audit_write', input });
+
+        return { ok: true };
+      },
+    },
+  });
+
+  const result = await service.submitDraftToCase({
+    params: { draftId: 'draft-not-found-task1660' },
+    context: {
+      actorId: 'actor-task1660',
+      organizationId: 'org-task1660',
+      requestId: 'request-task1660',
+      tenantId: 'tenant-task1660',
+    },
+    body: {
+      approvalContext: { accepted: true },
+      idempotencyKey: 'idem-task1660',
+      permissionContext: {
+        canCreateCaseFromRepairIntakeDraft: true,
+      },
+      tenantId: 'tenant-task1660',
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.action, 'repair_intake_draft_to_case_submit');
+  assert.equal(result.status, 'failed');
+  assert.equal(result.submitted, false);
+  assert.equal(result.draftId, 'draft-not-found-task1660');
+  assert.equal(result.organizationId, 'org-task1660');
+  assert.equal(result.reasonCode, 'REPAIR_INTAKE_DRAFT_READER_PORT_ADAPTER_DRAFT_NOT_FOUND');
+  assert.deepEqual(result.requiredActions, ['verify_draft_exists']);
+  assert.equal(result.plan, null);
+  assert.equal(result.caseRef, null);
+  assert.equal(result.auditEvent, null);
+  assert.deepEqual(calls.map((call) => call.method), ['idempotency_find', 'draft_read']);
+  assertNoUnsafeText(calls);
+  assertNoUnsafeText(result);
+});
+
 test('submit forwards sanitized caseRef to injected idempotency store record path', async () => {
   const idempotencyCalls = [];
   const idempotencyPort = createRepairIntakeIdempotencyPortAdapter({
