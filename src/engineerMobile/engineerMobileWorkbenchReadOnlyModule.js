@@ -10,6 +10,9 @@ const {
   createEngineerMobileAssignedAppointmentRepositoryGuard,
 } = require('./engineerMobileAssignedAppointmentRepositoryGuard');
 const {
+  createEngineerMobileAssignedAppointmentDbRepository,
+} = require('./engineerMobileAssignedAppointmentDbRepository');
+const {
   createEngineerMobileWorkbenchReadOnlyHttpAdapter,
 } = require('./engineerMobileWorkbenchReadOnlyHttpAdapter');
 const {
@@ -121,14 +124,55 @@ function routeOptionsFrom(source) {
 }
 
 function assignedAppointmentRepositoryFrom(options) {
+  const assignedAppointmentRepository = hasAssignedAppointmentRepositoryReader(options.assignedAppointmentRepository)
+    ? options.assignedAppointmentRepository
+    : undefined;
+  const delegateAssignedAppointmentRepository = hasAssignedAppointmentRepositoryReader(
+    options.delegateAssignedAppointmentRepository,
+  )
+    ? options.delegateAssignedAppointmentRepository
+    : undefined;
+  const assignedAppointmentDbRepository = assignedAppointmentDbRepositoryFrom(options);
+
   if (options.useRepositoryGuard !== true && options.repositoryGuardEnabled !== true) {
-    return options.assignedAppointmentRepository;
+    return assignedAppointmentRepository || assignedAppointmentDbRepository;
   }
 
   return createEngineerMobileAssignedAppointmentRepositoryGuard({
     auditLogger: options.repositoryGuardAuditLogger || options.auditLogger,
-    delegateRepository: options.delegateAssignedAppointmentRepository
-      || options.assignedAppointmentRepository,
+    delegateRepository: delegateAssignedAppointmentRepository
+      || assignedAppointmentRepository
+      || assignedAppointmentDbRepository,
+  });
+}
+
+function assignedAppointmentQueryExecutorFrom(options) {
+  for (const key of [
+    'assignedAppointmentQueryExecutor',
+    'assignedAppointmentDbQueryExecutor',
+    'queryExecutor',
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(options, key)) {
+      return options[key];
+    }
+  }
+
+  return undefined;
+}
+
+function assignedAppointmentDbRepositoryFrom(options) {
+  const queryExecutor = assignedAppointmentQueryExecutorFrom(options);
+
+  if (!queryExecutor) {
+    return undefined;
+  }
+
+  return createEngineerMobileAssignedAppointmentDbRepository({
+    auditLogger: options.assignedAppointmentDbRepositoryAuditLogger
+      || options.dbRepositoryAuditLogger
+      || options.auditLogger,
+    queryBuilder: options.assignedAppointmentQueryBuilder,
+    queryExecutor,
   });
 }
 
