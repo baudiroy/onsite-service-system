@@ -10,6 +10,9 @@ const {
   createEngineerMobileAssignedAppointmentRepositoryGuard,
 } = require('./engineerMobileAssignedAppointmentRepositoryGuard');
 const {
+  createEngineerMobileAssignedAppointmentQueryExecutorGuard,
+} = require('./engineerMobileAssignedAppointmentQueryExecutorGuard');
+const {
   createEngineerMobileAssignedAppointmentDbRepository,
 } = require('./engineerMobileAssignedAppointmentDbRepository');
 const {
@@ -160,8 +163,27 @@ function assignedAppointmentQueryExecutorFrom(options) {
   return undefined;
 }
 
-function assignedAppointmentDbRepositoryFrom(options) {
+function guardedAssignedAppointmentQueryExecutorFrom(options) {
   const queryExecutor = assignedAppointmentQueryExecutorFrom(options);
+
+  if (!queryExecutor) {
+    return undefined;
+  }
+
+  if (options.useQueryExecutorGuard !== true && options.queryExecutorGuardEnabled !== true) {
+    return queryExecutor;
+  }
+
+  return createEngineerMobileAssignedAppointmentQueryExecutorGuard({
+    auditLogger: options.queryExecutorGuardAuditLogger
+      || options.assignedAppointmentQueryExecutorGuardAuditLogger
+      || options.auditLogger,
+    delegateExecutor: queryExecutor,
+  });
+}
+
+function assignedAppointmentDbRepositoryFrom(options) {
+  const queryExecutor = guardedAssignedAppointmentQueryExecutorFrom(options);
 
   if (!queryExecutor) {
     return undefined;

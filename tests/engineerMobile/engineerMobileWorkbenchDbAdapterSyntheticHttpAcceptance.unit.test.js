@@ -262,6 +262,7 @@ function assertSafeQuerySpec(querySpec) {
   assert.equal(Object.isFrozen(querySpec), true);
   assert.equal(Object.isFrozen(querySpec.params), true);
   assert.equal(Object.isFrozen(querySpec.values), true);
+  assert.match(querySpec.intent, /^engineerMobileAssignedAppointments\.readOnly/);
   assert.deepEqual(querySpec.fields, [
     'appointment_id',
     'case_reference',
@@ -287,10 +288,13 @@ test('synthetic HTTP acceptance covers canonical list and detail DB adapter path
   const app = createSyntheticApp();
   const queryExecutor = createSyntheticQueryExecutor();
   const guardAuditEvents = [];
+  const queryExecutorGuardAuditEvents = [];
   const module = createEngineerMobileWorkbenchReadOnlyModule({
     assignedAppointmentQueryExecutor: queryExecutor,
+    queryExecutorGuardAuditLogger: queryExecutorGuardAuditEvents.push.bind(queryExecutorGuardAuditEvents),
     requestContextResolver: true,
     repositoryGuardAuditLogger: guardAuditEvents.push.bind(guardAuditEvents),
+    useQueryExecutorGuard: true,
     useRepositoryGuard: true,
   });
   const registration = module.register({ app, includeInternalAliases: false });
@@ -380,6 +384,22 @@ test('synthetic HTTP acceptance covers canonical list and detail DB adapter path
   ]);
   queryExecutor.calls.forEach(assertSafeQuerySpec);
   assert.deepEqual(queryExecutor.mutationCalls, []);
+  assert.deepEqual(queryExecutorGuardAuditEvents, [
+    {
+      event: 'engineerMobile.assignedAppointmentQueryExecutorGuard.read',
+      intent: 'engineerMobileAssignedAppointments.readOnlyList',
+      name: ASSIGNED_APPOINTMENT_LIST_QUERY_NAME,
+      outcome: 'allow',
+      rowCount: 1,
+    },
+    {
+      event: 'engineerMobile.assignedAppointmentQueryExecutorGuard.read',
+      intent: 'engineerMobileAssignedAppointments.readOnlyDetail',
+      name: ASSIGNED_APPOINTMENT_DETAIL_QUERY_NAME,
+      outcome: 'allow',
+      rowCount: 1,
+    },
+  ]);
   assert.deepEqual(guardAuditEvents, [
     {
       engineerUserId: 'eng_user_1764',
@@ -398,6 +418,7 @@ test('synthetic HTTP acceptance covers canonical list and detail DB adapter path
     },
   ]);
   assertNoForbiddenLeak(queryExecutor.calls);
+  assertNoForbiddenLeak(queryExecutorGuardAuditEvents);
   assertNoForbiddenLeak(guardAuditEvents);
   assertNoForbiddenLeak(listResponse.body);
   assertNoForbiddenLeak(detailResponse.body);

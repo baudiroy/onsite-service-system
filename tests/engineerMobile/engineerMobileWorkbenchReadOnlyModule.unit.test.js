@@ -689,11 +689,131 @@ test('DB repository adapter path can be wrapped by repository guard', async () =
   assertNoForbiddenLeak(guardAuditEvents);
 });
 
+test('DB repository adapter path can opt into query executor guard with repository guard', async () => {
+  const queryExecutor = createSyntheticDbQueryExecutor();
+  const queryExecutorGuardAuditEvents = [];
+  const repositoryGuardAuditEvents = [];
+  const app = syntheticApp();
+  const module = createEngineerMobileWorkbenchReadOnlyModule({
+    assignedAppointmentQueryExecutor: queryExecutor,
+    getContext: async () => engineerContext(),
+    queryExecutorGuardAuditLogger: queryExecutorGuardAuditEvents.push.bind(queryExecutorGuardAuditEvents),
+    repositoryGuardAuditLogger: repositoryGuardAuditEvents.push.bind(repositoryGuardAuditEvents),
+    useQueryExecutorGuard: true,
+    useRepositoryGuard: true,
+  });
+  module.register({ app, includeInternalAliases: false });
+
+  const routes = registeredRoutes(app);
+  const listResponse = createResponseRecorder();
+  const detailResponse = createResponseRecorder();
+
+  await routes['/engineer-mobile/appointments']({
+    query: {
+      from: '2026-06-02T00:00:00.000Z',
+      status: 'confirmed',
+      to: '2026-06-02T23:59:59.999Z',
+      token: 'token_should_not_leak',
+      rawSql: 'raw sql should_not_leak',
+    },
+  }, listResponse);
+  await routes['/engineer-mobile/appointments/:appointmentId']({
+    params: {
+      appointmentId: 'apt_1762_detail_guarded_executor_001',
+      finalAppointmentId: 'finalAppointmentId_should_not_leak',
+      token: 'token_should_not_leak',
+    },
+  }, detailResponse);
+
+  assert.equal(module.configured, true);
+  assert.equal(listResponse.statusCode, 200);
+  assert.equal(listResponse.body.status, 'allow');
+  assert.equal(detailResponse.statusCode, 200);
+  assert.equal(detailResponse.body.status, 'allow');
+  assert.deepEqual(queryExecutor.calls.map((querySpec) => querySpec.name), [
+    ASSIGNED_APPOINTMENT_LIST_QUERY_NAME,
+    ASSIGNED_APPOINTMENT_DETAIL_QUERY_NAME,
+  ]);
+  assert.deepEqual(queryExecutor.calls.map((querySpec) => querySpec.intent), [
+    'engineerMobileAssignedAppointments.readOnlyList',
+    'engineerMobileAssignedAppointments.readOnlyDetail',
+  ]);
+  assert.deepEqual(queryExecutor.calls[0].params, {
+    engineerUserId: 'eng_user_1742',
+    from: '2026-06-02T00:00:00.000Z',
+    organizationId: 'org_engineer_mobile_1742',
+    status: 'confirmed',
+    to: '2026-06-02T23:59:59.999Z',
+  });
+  assert.deepEqual(queryExecutor.calls[1].params, {
+    appointmentId: 'apt_1762_detail_guarded_executor_001',
+    engineerUserId: 'eng_user_1742',
+    organizationId: 'org_engineer_mobile_1742',
+  });
+  assert.equal(JSON.stringify(queryExecutor.calls).includes('token_should_not_leak'), false);
+  assert.equal(JSON.stringify(queryExecutor.calls).includes('raw sql should_not_leak'), false);
+  assert.deepEqual(queryExecutorGuardAuditEvents, [
+    {
+      event: 'engineerMobile.assignedAppointmentQueryExecutorGuard.read',
+      intent: 'engineerMobileAssignedAppointments.readOnlyList',
+      name: ASSIGNED_APPOINTMENT_LIST_QUERY_NAME,
+      outcome: 'allow',
+      rowCount: 1,
+    },
+    {
+      event: 'engineerMobile.assignedAppointmentQueryExecutorGuard.read',
+      intent: 'engineerMobileAssignedAppointments.readOnlyDetail',
+      name: ASSIGNED_APPOINTMENT_DETAIL_QUERY_NAME,
+      outcome: 'allow',
+      rowCount: 1,
+    },
+  ]);
+  assert.deepEqual(repositoryGuardAuditEvents, [
+    {
+      event: 'engineerMobile.assignedAppointmentRepositoryGuard.read',
+      method: 'findAssignedAppointments',
+      outcome: 'allow',
+      organizationId: 'org_engineer_mobile_1742',
+      engineerUserId: 'eng_user_1742',
+    },
+    {
+      event: 'engineerMobile.assignedAppointmentRepositoryGuard.read',
+      method: 'findAssignedAppointmentDetail',
+      outcome: 'allow',
+      organizationId: 'org_engineer_mobile_1742',
+      engineerUserId: 'eng_user_1742',
+      appointmentId: 'apt_1762_detail_guarded_executor_001',
+    },
+  ]);
+  assertNoForbiddenLeak(queryExecutor.calls);
+  assertNoForbiddenLeak(queryExecutorGuardAuditEvents);
+  assertNoForbiddenLeak(repositoryGuardAuditEvents);
+  assertNoForbiddenLeak(listResponse.body);
+  assertNoForbiddenLeak(detailResponse.body);
+});
+
 test('missing queryExecutor safe rejects DB repository adapter path', () => {
   const app = syntheticApp();
   const module = createEngineerMobileWorkbenchReadOnlyModule({
     getContext: async () => engineerContext(),
     useAssignedAppointmentDbRepository: true,
+  });
+
+  const result = module.register({ app, includeInternalAliases: false });
+
+  assert.equal(module.configured, false);
+  assert.equal(result.registered, false);
+  assert.equal(result.messageKey, 'engineerMobile.workbenchReadOnly.unavailable');
+  assert.equal(result.engineerMobileVisible, false);
+  assert.deepEqual(app.calls.get, []);
+  assert.deepEqual(app.calls.listen, []);
+});
+
+test('query executor guard opt-in safely rejects missing delegate executor', () => {
+  const app = syntheticApp();
+  const module = createEngineerMobileWorkbenchReadOnlyModule({
+    getContext: async () => engineerContext(),
+    useQueryExecutorGuard: true,
   });
 
   const result = module.register({ app, includeInternalAliases: false });
@@ -736,6 +856,45 @@ test('DB repository adapter executor throw fails closed without raw error leak',
   ]);
   assertNoForbiddenLeak(listResponse.body);
   assertNoForbiddenLeak(detailResponse.body);
+});
+
+test('guarded DB repository adapter delegate throw fails closed without raw error leak', async () => {
+  const queryExecutor = createSyntheticDbQueryExecutor({ throwExecutor: true });
+  const queryExecutorGuardAuditEvents = [];
+  const app = syntheticApp();
+  const module = createEngineerMobileWorkbenchReadOnlyModule({
+    assignedAppointmentQueryExecutor: queryExecutor,
+    getContext: async () => engineerContext(),
+    queryExecutorGuardAuditLogger: queryExecutorGuardAuditEvents.push.bind(queryExecutorGuardAuditEvents),
+    useQueryExecutorGuard: true,
+  });
+  module.register({ app, includeInternalAliases: false });
+
+  const routes = registeredRoutes(app);
+  const response = createResponseRecorder();
+
+  await routes['/engineer-mobile/appointments/:appointmentId']({
+    params: {
+      appointmentId: 'apt_1762_guarded_delegate_throw_001',
+    },
+  }, response);
+
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.body.status, 'deny');
+  assert.deepEqual(queryExecutor.calls.map((querySpec) => querySpec.name), [
+    ASSIGNED_APPOINTMENT_DETAIL_QUERY_NAME,
+  ]);
+  assert.deepEqual(queryExecutorGuardAuditEvents, [
+    {
+      event: 'engineerMobile.assignedAppointmentQueryExecutorGuard.read',
+      intent: 'engineerMobileAssignedAppointments.readOnlyDetail',
+      name: ASSIGNED_APPOINTMENT_DETAIL_QUERY_NAME,
+      outcome: 'deny',
+      reason: 'delegate_executor_unavailable',
+    },
+  ]);
+  assertNoForbiddenLeak(response.body);
+  assertNoForbiddenLeak(queryExecutorGuardAuditEvents);
 });
 
 test('canonical detail route works through resolver-backed request context', async () => {
