@@ -3,6 +3,10 @@
 const {
   projectEngineerMobileAssignedAppointmentListItem,
 } = require('./engineerMobileAssignedAppointmentProjection');
+const {
+  createEngineerMobileWorkbenchDenyEnvelope,
+  createEngineerMobileWorkbenchSuccessEnvelope,
+} = require('./engineerMobileWorkbenchSafeEnvelope');
 
 const SAFE_DENY_MESSAGE_KEY = 'engineerMobile.assignedAppointments.unavailable';
 const ALLOW_MESSAGE_KEY = 'engineerMobile.assignedAppointments.available';
@@ -139,28 +143,21 @@ function normalizeFilters(filters) {
 }
 
 function buildSafeDenyEnvelope() {
-  return {
-    status: 'deny',
+  return createEngineerMobileWorkbenchDenyEnvelope({
     messageKey: SAFE_DENY_MESSAGE_KEY,
-    engineerMobileVisible: false,
     data: {
       appointments: [],
     },
-    error: {
-      messageKey: SAFE_DENY_MESSAGE_KEY,
-    },
-  };
+  });
 }
 
 function buildAllowEnvelope(appointments) {
-  return {
-    status: 'allow',
+  return createEngineerMobileWorkbenchSuccessEnvelope({
     messageKey: ALLOW_MESSAGE_KEY,
-    engineerMobileVisible: true,
     data: {
       appointments,
     },
-  };
+  });
 }
 
 function rowsFromRepositoryResult(result) {
