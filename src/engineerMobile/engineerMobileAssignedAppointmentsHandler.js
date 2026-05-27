@@ -1,5 +1,9 @@
 'use strict';
 
+const {
+  projectEngineerMobileAssignedAppointmentListItem,
+} = require('./engineerMobileAssignedAppointmentProjection');
+
 const SAFE_DENY_MESSAGE_KEY = 'engineerMobile.assignedAppointments.unavailable';
 const ALLOW_MESSAGE_KEY = 'engineerMobile.assignedAppointments.available';
 const READ_PERMISSION = 'engineer_mobile.assigned_appointments.read';
@@ -214,63 +218,6 @@ function rowMatchesScope(row, { organizationId, engineerUserId }) {
   return true;
 }
 
-function mapAssignedAppointment(row) {
-  if (!isObject(row)) {
-    return undefined;
-  }
-
-  const appointmentId = rowValue(row, 'appointmentId', 'appointment_id');
-
-  if (!appointmentId) {
-    return undefined;
-  }
-
-  const appointment = {
-    appointmentId,
-  };
-  const caseReference = rowValue(row, 'caseReference', 'case_reference', 'caseDisplayId');
-  const appointmentWindow = rowValue(row, 'appointmentWindow', 'appointment_window');
-  const scheduledStart = rowValue(row, 'scheduledStart', 'scheduled_start');
-  const scheduledEnd = rowValue(row, 'scheduledEnd', 'scheduled_end');
-  const serviceType = rowValue(row, 'serviceType', 'service_type');
-  const customerDisplayName = rowValue(row, 'customerDisplayName', 'customer_display_name');
-  const locationLabel = rowValue(row, 'locationLabel', 'location_label');
-  const status = rowValue(row, 'status', 'appointmentStatus', 'appointment_status');
-  const priorityLabel = rowValue(row, 'priorityLabel', 'priority_label');
-
-  if (caseReference) {
-    appointment.caseReference = caseReference;
-  }
-  if (appointmentWindow) {
-    appointment.appointmentWindow = appointmentWindow;
-  }
-  if (scheduledStart) {
-    appointment.scheduledStart = scheduledStart;
-  }
-  if (scheduledEnd) {
-    appointment.scheduledEnd = scheduledEnd;
-  }
-  if (serviceType) {
-    appointment.serviceType = serviceType;
-  }
-  if (customerDisplayName) {
-    appointment.customerDisplayName = customerDisplayName;
-  }
-  if (locationLabel) {
-    appointment.locationLabel = locationLabel;
-  }
-  if (status) {
-    appointment.status = status;
-  }
-  if (priorityLabel) {
-    appointment.priorityLabel = priorityLabel;
-  }
-
-  appointment.canOpenDetails = true;
-
-  return appointment;
-}
-
 function sortAppointment(a, b) {
   const aStart = a.scheduledStart || '';
   const bStart = b.scheduledStart || '';
@@ -380,7 +327,7 @@ async function getEngineerMobileAssignedAppointments(options = {}) {
     const rows = rowsFromRepositoryResult(await read(query));
     const appointments = rows
       .filter((row) => rowMatchesScope(row, { organizationId, engineerUserId }))
-      .map(mapAssignedAppointment)
+      .map(projectEngineerMobileAssignedAppointmentListItem)
       .filter(Boolean)
       .sort(sortAppointment);
 

@@ -393,6 +393,9 @@ test('created handler accepts injected repository and synthetic request context'
 test('handler source has no DB app server route mount listen provider sending or mutation surface', () => {
   const source = fs.readFileSync(HANDLER_SOURCE, 'utf8');
 
+  assert.equal(source.includes('engineerMobileAssignedAppointmentProjection'), true);
+  assert.equal(source.includes('function mapAssignedAppointmentDetail'), false);
+
   for (const forbidden of [
     'require(\'pg\')',
     'require("pg")',
