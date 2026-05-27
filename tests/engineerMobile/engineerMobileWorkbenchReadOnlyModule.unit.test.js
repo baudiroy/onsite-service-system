@@ -378,6 +378,82 @@ test('module can use Task1744 resolver as request-backed context source', async 
   assertNoForbiddenLeak(response.body);
 });
 
+test('module can opt into repository guard with a synthetic delegate repository', async () => {
+  const repository = createRepository();
+  const guardAuditEvents = [];
+  const app = syntheticApp();
+  const module = createEngineerMobileWorkbenchReadOnlyModule({
+    delegateAssignedAppointmentRepository: repository,
+    getContext: async () => engineerContext(),
+    repositoryGuardAuditLogger: guardAuditEvents.push.bind(guardAuditEvents),
+    useRepositoryGuard: true,
+  });
+  module.register({ app, includeInternalAliases: false });
+
+  const routes = registeredRoutes(app);
+  const listResponse = createResponseRecorder();
+  const detailResponse = createResponseRecorder();
+
+  await routes['/engineer-mobile/appointments']({
+    query: {
+      status: 'confirmed',
+      finalAppointmentId: 'finalAppointmentId_should_not_leak',
+      rawSql: 'raw sql should_not_leak',
+      token: 'token_should_not_leak',
+    },
+  }, listResponse);
+  await routes['/engineer-mobile/appointments/:appointmentId']({
+    params: {
+      appointmentId: 'apt_1742_detail_001',
+      finalAppointmentId: 'finalAppointmentId_should_not_leak',
+      token: 'token_should_not_leak',
+    },
+  }, detailResponse);
+
+  assert.equal(module.configured, true);
+  assert.equal(listResponse.statusCode, 200);
+  assert.equal(listResponse.body.status, 'allow');
+  assert.equal(detailResponse.statusCode, 200);
+  assert.equal(detailResponse.body.status, 'allow');
+  assert.deepEqual(repository.calls.list, [
+    {
+      organizationId: 'org_engineer_mobile_1742',
+      engineerUserId: 'eng_user_1742',
+      filters: {
+        status: 'confirmed',
+      },
+    },
+  ]);
+  assert.deepEqual(repository.calls.detail, [
+    {
+      organizationId: 'org_engineer_mobile_1742',
+      engineerUserId: 'eng_user_1742',
+      appointmentId: 'apt_1742_detail_001',
+    },
+  ]);
+  assert.deepEqual(repository.calls.mutate, []);
+  assert.deepEqual(guardAuditEvents, [
+    {
+      event: 'engineerMobile.assignedAppointmentRepositoryGuard.read',
+      method: 'findAssignedAppointments',
+      outcome: 'allow',
+      organizationId: 'org_engineer_mobile_1742',
+      engineerUserId: 'eng_user_1742',
+    },
+    {
+      event: 'engineerMobile.assignedAppointmentRepositoryGuard.read',
+      method: 'findAssignedAppointmentDetail',
+      outcome: 'allow',
+      organizationId: 'org_engineer_mobile_1742',
+      engineerUserId: 'eng_user_1742',
+      appointmentId: 'apt_1742_detail_001',
+    },
+  ]);
+  assertNoForbiddenLeak(listResponse.body);
+  assertNoForbiddenLeak(detailResponse.body);
+  assertNoForbiddenLeak(guardAuditEvents);
+});
+
 test('canonical detail route works through resolver-backed request context', async () => {
   const repository = createRepository();
   const app = syntheticApp();

@@ -7,6 +7,9 @@ const {
   createEngineerMobileAssignedAppointmentsHandler,
 } = require('./engineerMobileAssignedAppointmentsHandler');
 const {
+  createEngineerMobileAssignedAppointmentRepositoryGuard,
+} = require('./engineerMobileAssignedAppointmentRepositoryGuard');
+const {
   createEngineerMobileWorkbenchReadOnlyHttpAdapter,
 } = require('./engineerMobileWorkbenchReadOnlyHttpAdapter');
 const {
@@ -117,15 +120,27 @@ function routeOptionsFrom(source) {
   return routeOptions;
 }
 
+function assignedAppointmentRepositoryFrom(options) {
+  if (options.useRepositoryGuard !== true && options.repositoryGuardEnabled !== true) {
+    return options.assignedAppointmentRepository;
+  }
+
+  return createEngineerMobileAssignedAppointmentRepositoryGuard({
+    auditLogger: options.repositoryGuardAuditLogger || options.auditLogger,
+    delegateRepository: options.delegateAssignedAppointmentRepository
+      || options.assignedAppointmentRepository,
+  });
+}
+
 function createEngineerMobileWorkbenchReadOnlyModule(options = {}) {
   if (!isObject(options)) {
     return createUnavailableWorkbenchModule('invalid_options');
   }
 
   const {
-    assignedAppointmentRepository,
     auditLogger,
   } = options;
+  const assignedAppointmentRepository = assignedAppointmentRepositoryFrom(options);
 
   if (!hasAssignedAppointmentRepositoryReader(assignedAppointmentRepository)) {
     return createUnavailableWorkbenchModule('missing_assigned_appointment_repository');
