@@ -4,6 +4,10 @@ const {
   buildEngineerMobileAssignedAppointmentDetailQuerySpec,
   buildEngineerMobileAssignedAppointmentListQuerySpec,
 } = require('./engineerMobileAssignedAppointmentSqlQueryBuilder');
+const {
+  mapAssignedAppointmentDetailDbRow,
+  mapAssignedAppointmentListDbRow,
+} = require('./engineerMobileAssignedAppointmentDbRowMapper');
 
 const SAFE_REPOSITORY_ADAPTER_ERROR_MESSAGE = 'engineerMobile.assignedAppointmentDbRepository.unavailable';
 
@@ -73,6 +77,12 @@ function normalizeRows(result) {
   }
 
   return [];
+}
+
+function mapRowsForRepository(rows, detail) {
+  const mapper = detail ? mapAssignedAppointmentDetailDbRow : mapAssignedAppointmentListDbRow;
+
+  return rows.map(mapper).filter(Boolean);
 }
 
 function normalizeListInput(input) {
@@ -227,7 +237,7 @@ function createEngineerMobileAssignedAppointmentDbRepository(options = {}) {
     }
 
     try {
-      const rows = normalizeRows(await execute(spec));
+      const rows = mapRowsForRepository(normalizeRows(await execute(spec)), detail);
 
       await emitSafeAudit(auditLogger, buildAuditMetadata({
         appointmentId: query.appointmentId,

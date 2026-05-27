@@ -72,6 +72,27 @@ function appointmentRow(overrides = {}) {
   };
 }
 
+function mappedAppointmentRow(overrides = {}) {
+  return {
+    appointmentId: 'apt_task1760',
+    appointmentWindow: '2026-05-27 09:00-11:00',
+    caseReference: 'CASE-1760-001',
+    checklistPreview: [{ label: 'confirm parts' }],
+    customerDisplayName: 'Task1760 masked customer',
+    engineerUserId: 'eng_task1760',
+    locationLabel: 'Taipei Zhongshan',
+    organizationId: 'org_task1760',
+    priorityLabel: 'normal',
+    publicCustomerNotes: 'safe public note',
+    scheduledEnd: '2026-05-27T03:00:00.000Z',
+    scheduledStart: '2026-05-27T01:00:00.000Z',
+    serviceSummary: 'safe summary',
+    serviceType: 'onsite',
+    status: 'confirmed',
+    ...overrides,
+  };
+}
+
 async function assertRejectsSafely(promise) {
   await assert.rejects(
     promise,
@@ -89,8 +110,16 @@ function assertNoForbiddenLeak(value) {
   for (const forbidden of [
     'auth_header_should_not_pass_to_executor',
     'cookie_should_not_pass_to_executor',
+    'final_appointment_id_should_not_leak',
+    'finalAppointmentId_should_not_leak',
+    'internal_notes_should_not_leak',
     'password_should_not_pass_to_executor',
+    'provider_payload_should_not_leak',
+    'raw_address_should_not_leak',
+    'raw_db_row_should_not_leak',
     'raw_executor_error_should_not_leak',
+    'raw_phone_should_not_leak',
+    'raw_sql_should_not_leak',
     'secret_should_not_pass_to_executor',
     'session_should_not_pass_to_executor',
     'stack_trace_should_not_leak',
@@ -162,7 +191,7 @@ test('valid list call builds query spec and calls synthetic executor', async () 
 
   const result = await repository.findAssignedAppointments(listInput());
 
-  assert.deepEqual(result, [appointmentRow()]);
+  assert.deepEqual(result, [mappedAppointmentRow()]);
   assert.equal(executorCalls.length, 1);
   assert.equal(executorCalls[0].ok, true);
   assert.equal(executorCalls[0].executable, false);
@@ -191,7 +220,7 @@ test('valid detail call builds query spec and calls synthetic executor', async (
 
   const result = await repository.findAssignedAppointmentDetail(detailInput());
 
-  assert.deepEqual(result, appointmentRow());
+  assert.deepEqual(result, mappedAppointmentRow());
   assert.equal(executorCalls.length, 1);
   assert.equal(executorCalls[0].ok, true);
   assert.equal(executorCalls[0].executable, false);
@@ -287,11 +316,42 @@ test('executor array and rows results are normalized', async () => {
   });
 
   assert.deepEqual(await arrayRepository.findAssignedAppointments(listInput()), [
-    appointmentRow({ appointment_id: 'apt_array' }),
+    mappedAppointmentRow({ appointmentId: 'apt_array' }),
   ]);
   assert.deepEqual(await rowsRepository.findAssignedAppointments(listInput()), [
-    appointmentRow({ appointment_id: 'apt_rows' }),
+    mappedAppointmentRow({ appointmentId: 'apt_rows' }),
   ]);
+});
+
+test('repository adapter maps executor rows and strips forbidden fields before returning', async () => {
+  const repository = createEngineerMobileAssignedAppointmentDbRepository({
+    queryExecutor: async () => ({
+      rows: [appointmentRow({
+        authorization: 'auth_header_should_not_pass_to_executor',
+        cookie: 'cookie_should_not_pass_to_executor',
+        final_appointment_id: 'final_appointment_id_should_not_leak',
+        finalAppointmentId: 'finalAppointmentId_should_not_leak',
+        internal_notes: 'internal_notes_should_not_leak',
+        password: 'password_should_not_pass_to_executor',
+        provider_payload: 'provider_payload_should_not_leak',
+        raw_address: 'raw_address_should_not_leak',
+        raw_db_row: 'raw_db_row_should_not_leak',
+        raw_phone: 'raw_phone_should_not_leak',
+        raw_sql: 'raw_sql_should_not_leak',
+        secret: 'secret_should_not_pass_to_executor',
+        stack: 'stack_trace_should_not_leak',
+        token: 'token_should_not_pass_to_executor',
+      })],
+    }),
+  });
+
+  const listResult = await repository.findAssignedAppointments(listInput());
+  const detailResult = await repository.findAssignedAppointmentDetail(detailInput());
+
+  assert.deepEqual(listResult, [mappedAppointmentRow()]);
+  assert.deepEqual(detailResult, mappedAppointmentRow());
+  assertNoForbiddenLeak(listResult);
+  assertNoForbiddenLeak(detailResult);
 });
 
 test('invalid executor result normalizes to empty safely', async () => {
@@ -362,7 +422,10 @@ test('source has no DB client import env DB URL app server route provider or mut
   const source = fs.readFileSync(REPOSITORY_SOURCE, 'utf8');
   const requireSpecifiers = Array.from(source.matchAll(/require\(['"]([^'"]+)['"]\)/g), (match) => match[1]);
 
-  assert.deepEqual(requireSpecifiers, ['./engineerMobileAssignedAppointmentSqlQueryBuilder']);
+  assert.deepEqual(requireSpecifiers, [
+    './engineerMobileAssignedAppointmentSqlQueryBuilder',
+    './engineerMobileAssignedAppointmentDbRowMapper',
+  ]);
   assertNoForbiddenSource(source);
 });
 
@@ -402,5 +465,5 @@ test('adapter can be used behind Task1750 repository guard with synthetic execut
 
   const result = await guarded.findAssignedAppointments(listInput());
 
-  assert.deepEqual(result, [appointmentRow()]);
+  assert.deepEqual(result, [mappedAppointmentRow()]);
 });

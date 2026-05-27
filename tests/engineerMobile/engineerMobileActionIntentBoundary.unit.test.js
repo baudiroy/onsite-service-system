@@ -391,7 +391,10 @@ test('provider throw and malformed results do not leak action intent', async () 
 
 test('Engineer Mobile source does not import completion report writer DB provider sending or AI modules', () => {
   const sourceFiles = listSourceFiles(sourceDir);
-  const task1762AllowedDbAdapterImport = './engineerMobileAssignedAppointmentDbRepository';
+  const allowedDbAdapterImports = new Set([
+    './engineerMobileAssignedAppointmentDbRepository',
+    './engineerMobileAssignedAppointmentDbRowMapper',
+  ]);
 
   assert.ok(sourceFiles.length > 0, 'expected Engineer Mobile source files');
 
@@ -401,7 +404,7 @@ test('Engineer Mobile source does not import completion report writer DB provide
 
     assert.equal(
       specifiers.some((specifier) => (
-        specifier !== task1762AllowedDbAdapterImport
+        !allowedDbAdapterImports.has(specifier)
         && /FieldServiceReport|Completion|repositories?|db|pool|transaction|provider|notification|line|sms|email|push|openai|rag|vector/i.test(specifier)
       )),
       false,

@@ -145,7 +145,10 @@ test('existing Engineer Mobile tests cover sanitized fixtures mapper redaction i
 
 test('Engineer Mobile source remains read-model only and imports no write DB provider or AI modules', () => {
   const sourceFiles = listSourceFiles(engineerMobileSourceDir);
-  const task1762AllowedDbAdapterImport = './engineerMobileAssignedAppointmentDbRepository';
+  const allowedDbAdapterImports = new Set([
+    './engineerMobileAssignedAppointmentDbRepository',
+    './engineerMobileAssignedAppointmentDbRowMapper',
+  ]);
 
   assert.ok(sourceFiles.length > 0, 'expected Engineer Mobile source files');
 
@@ -155,7 +158,7 @@ test('Engineer Mobile source remains read-model only and imports no write DB pro
 
     assert.equal(
       specifiers.some((specifier) => (
-        specifier !== task1762AllowedDbAdapterImport
+        !allowedDbAdapterImports.has(specifier)
         && /FieldServiceReport|Completion|repositories?|db|pool|transaction|migration|provider.*send|notification|line|sms|email|push|openai|rag|vector|admin|smoke/i.test(specifier)
       )),
       false,
