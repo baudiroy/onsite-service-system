@@ -531,6 +531,109 @@ function buildEngineerMobileWorkbenchOptionsFromShortcutOptions(options = {}) {
   };
 }
 
+function loadWorkbenchAuthService() {
+  const modulePath = ['.', 'services', 'AuthService'].join('/');
+  return require(modulePath).AuthService;
+}
+
+function loadWorkbenchUserOrganizationRepository() {
+  const modulePath = ['.', 'repositories', 'UserOrganizationRepository'].join('/');
+  return require(modulePath).UserOrganizationRepository;
+}
+
+function hasWorkbenchDbReadClient(options = {}) {
+  const nested = isPlainServerObject(options.engineerMobileWorkbench)
+    ? options.engineerMobileWorkbench
+    : {};
+
+  return Boolean(
+    firstOwnOption(options, [
+      'engineerMobileWorkbenchDbClient',
+      'dbClient',
+    ])
+    || firstOwnOption(nested, [
+      'engineerMobileWorkbenchDbClient',
+      'dbClient',
+    ])
+  );
+}
+
+function extractWorkbenchBearer(req) {
+  const authorization = typeof req.get === 'function'
+    ? req.get('authorization')
+    : req.headers && req.headers.authorization;
+
+  if (!authorization) {
+    return null;
+  }
+
+  const [scheme, value] = String(authorization).split(' ');
+
+  if (scheme !== 'Bearer' || !value) {
+    return null;
+  }
+
+  return value;
+}
+
+function isWorkbenchHttpPath(req) {
+  const pathValue = req && (req.path || req.url || '');
+  return String(pathValue).startsWith('/api/v1/engineer/mobile-workbench');
+}
+
+function resolveWorkbenchUserRole(user = {}) {
+  if (typeof user.userType === 'string' && user.userType.trim()) {
+    return user.userType.trim();
+  }
+
+  if (Array.isArray(user.roles) && user.roles.length > 0) {
+    return user.roles[0];
+  }
+
+  return undefined;
+}
+
+function createWorkbenchHttpContext(options = {}) {
+  const AuthService = options.AuthService || loadWorkbenchAuthService();
+  const UserOrganizationRepository = options.UserOrganizationRepository
+    || loadWorkbenchUserOrganizationRepository();
+  const authService = options.authService || new AuthService();
+  const userOrganizationRepository = options.userOrganizationRepository
+    || new UserOrganizationRepository();
+
+  return async function engineerMobileWorkbenchHttpContext(req, res, next) {
+    if (!isWorkbenchHttpPath(req) || req.auth) {
+      next();
+      return;
+    }
+
+    const bearer = extractWorkbenchBearer(req);
+
+    if (!bearer) {
+      next();
+      return;
+    }
+
+    try {
+      const user = await authService.getCurrentUserFromToken(bearer);
+      const organizationIds = await userOrganizationRepository.getUserOrganizationIds(user.id);
+
+      req.user = user;
+      req.auth = {
+        organizationId: user.organizationId || organizationIds[0],
+        engineerId: user.id,
+        userId: user.id,
+        role: resolveWorkbenchUserRole(user),
+        permissions: Array.isArray(user.permissions) ? user.permissions : [],
+      };
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
 function withEngineerMobileWorkbenchOptions(appFactoryOptions = {}, options = {}) {
   if (hasOwnOption(options, 'engineerMobileWorkbench')) {
     const dbReadOptions = buildEngineerMobileWorkbenchDbReadOptions(options.engineerMobileWorkbench);
@@ -563,11 +666,32 @@ function withEngineerMobileWorkbenchOptions(appFactoryOptions = {}, options = {}
   };
 }
 
+function withEngineerMobileWorkbenchHttpContext(appFactoryOptions = {}, options = {}) {
+  if (!hasWorkbenchDbReadClient(options)) {
+    return appFactoryOptions;
+  }
+
+  if (typeof options.engineerMobileWorkbenchHttpContext === 'function') {
+    return {
+      ...appFactoryOptions,
+      engineerMobileWorkbenchHttpContext: options.engineerMobileWorkbenchHttpContext,
+    };
+  }
+
+  return {
+    ...appFactoryOptions,
+    engineerMobileWorkbenchHttpContext: createWorkbenchHttpContext(options),
+  };
+}
+
 function withServerAppOptions(appFactoryOptions = {}, options = {}) {
-  return withDraftToCaseServerOptions(
-    withEngineerMobileWorkbenchOptions(
-      withEngineerMobileOptions(
-        withDataCorrectionOptions(appFactoryOptions, options),
+  return withEngineerMobileWorkbenchHttpContext(
+    withDraftToCaseServerOptions(
+      withEngineerMobileWorkbenchOptions(
+        withEngineerMobileOptions(
+          withDataCorrectionOptions(appFactoryOptions, options),
+          options,
+        ),
         options,
       ),
       options,
@@ -690,7 +814,12 @@ function startServer(options = {}) {
 }
 
 if (require.main === module) {
-  startServer();
+  const pool = loadDefaultPool();
+
+  startServer({
+    engineerMobileWorkbenchDbClient: pool,
+    pool,
+  });
 }
 
 module.exports = {

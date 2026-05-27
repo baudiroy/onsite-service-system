@@ -471,6 +471,10 @@ function createApp(options = {}) {
   }));
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 
+  if (typeof options.engineerMobileWorkbenchHttpContext === 'function') {
+    app.use(options.engineerMobileWorkbenchHttpContext);
+  }
+
   app.use(createAppRouter({
     repairIntakeDraftToCaseRuntimePorts: options.repairIntakeDraftToCaseRuntimePorts,
     repairIntakeDraftToCase: options.repairIntakeDraftToCase,
