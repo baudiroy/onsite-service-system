@@ -192,6 +192,24 @@ test('SQL builder selected fields are the accepted DB read field contract', () =
   for (const field of SQL_SELECTED_FIELDS) {
     assert.match(source, new RegExp(` AS ${field}\\b`), `SQL must alias ${field}`);
   }
+
+  assertIncludesAll(source, [
+    'FROM engineer_mobile_task_read_models em',
+    'em.appointment_id AS appointment_id',
+    'em.case_id AS case_reference',
+    'em.customer_name_masked AS customer_display_name',
+    'em.address_summary AS location_label',
+    'em.status AS appointment_status',
+    'em.site_note_safe AS public_customer_notes',
+    'em.checklist_summary AS checklist_preview',
+  ], 'read-model selected fields');
+
+  assert.doesNotMatch(source, /FROM appointments\b/);
+  assert.doesNotMatch(source, /JOIN cases\b/);
+  assert.doesNotMatch(source, /\ba\.organization_id\b/);
+  assert.doesNotMatch(source, /\ba\.assigned_engineer_id\b/);
+  assert.doesNotMatch(source, /\bc\.case_reference\b/);
+  assert.doesNotMatch(source, /\bc\.customer_display_name\b/);
 });
 
 test('SQL selected fields align with DB row mapper accepted input fields', () => {

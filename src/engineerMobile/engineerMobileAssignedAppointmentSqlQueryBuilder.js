@@ -32,53 +32,47 @@ const DETAIL_REQUIRED_PARAMS = Object.freeze([
 
 const LIST_SQL = `
 SELECT
-  a.id AS appointment_id,
-  c.case_reference AS case_reference,
-  a.appointment_window AS appointment_window,
-  a.scheduled_start AS scheduled_start,
-  a.scheduled_end AS scheduled_end,
-  c.service_type AS service_type,
-  c.customer_display_name AS customer_display_name,
-  c.location_label AS location_label,
-  a.status AS appointment_status,
-  a.priority_label AS priority_label,
-  c.service_summary AS service_summary,
-  c.public_customer_notes AS public_customer_notes,
-  a.checklist_preview AS checklist_preview
-FROM appointments a
-JOIN cases c
-  ON c.id = a.case_id
-  AND c.organization_id = a.organization_id
-WHERE a.organization_id = $1
-  AND a.assigned_engineer_id = $2
-  AND ($3::timestamptz IS NULL OR a.scheduled_start >= $3::timestamptz)
-  AND ($4::timestamptz IS NULL OR a.scheduled_start <= $4::timestamptz)
-  AND ($5::text IS NULL OR a.status = $5::text)
-ORDER BY a.scheduled_start ASC, a.id ASC
+  em.appointment_id AS appointment_id,
+  em.case_id AS case_reference,
+  concat_ws(' - ', em.scheduled_start, em.scheduled_end) AS appointment_window,
+  em.scheduled_start AS scheduled_start,
+  em.scheduled_end AS scheduled_end,
+  em.service_type AS service_type,
+  em.customer_name_masked AS customer_display_name,
+  em.address_summary AS location_label,
+  em.status AS appointment_status,
+  NULL::text AS priority_label,
+  em.service_summary AS service_summary,
+  em.site_note_safe AS public_customer_notes,
+  em.checklist_summary AS checklist_preview
+FROM engineer_mobile_task_read_models em
+WHERE em.organization_id = $1
+  AND em.assigned_engineer_id = $2
+  AND ($3::timestamptz IS NULL OR em.scheduled_start >= $3::timestamptz)
+  AND ($4::timestamptz IS NULL OR em.scheduled_start <= $4::timestamptz)
+  AND ($5::text IS NULL OR em.status = $5::text)
+ORDER BY em.scheduled_start ASC, em.appointment_id ASC
 `.trim();
 
 const DETAIL_SQL = `
 SELECT
-  a.id AS appointment_id,
-  c.case_reference AS case_reference,
-  a.appointment_window AS appointment_window,
-  a.scheduled_start AS scheduled_start,
-  a.scheduled_end AS scheduled_end,
-  c.service_type AS service_type,
-  c.customer_display_name AS customer_display_name,
-  c.location_label AS location_label,
-  a.status AS appointment_status,
-  a.priority_label AS priority_label,
-  c.service_summary AS service_summary,
-  c.public_customer_notes AS public_customer_notes,
-  a.checklist_preview AS checklist_preview
-FROM appointments a
-JOIN cases c
-  ON c.id = a.case_id
-  AND c.organization_id = a.organization_id
-WHERE a.organization_id = $1
-  AND a.assigned_engineer_id = $2
-  AND a.id = $3
+  em.appointment_id AS appointment_id,
+  em.case_id AS case_reference,
+  concat_ws(' - ', em.scheduled_start, em.scheduled_end) AS appointment_window,
+  em.scheduled_start AS scheduled_start,
+  em.scheduled_end AS scheduled_end,
+  em.service_type AS service_type,
+  em.customer_name_masked AS customer_display_name,
+  em.address_summary AS location_label,
+  em.status AS appointment_status,
+  NULL::text AS priority_label,
+  em.service_summary AS service_summary,
+  em.site_note_safe AS public_customer_notes,
+  em.checklist_summary AS checklist_preview
+FROM engineer_mobile_task_read_models em
+WHERE em.organization_id = $1
+  AND em.assigned_engineer_id = $2
+  AND em.appointment_id = $3
 LIMIT 1
 `.trim();
 

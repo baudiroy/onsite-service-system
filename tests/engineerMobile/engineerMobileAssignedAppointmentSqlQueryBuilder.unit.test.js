@@ -103,6 +103,23 @@ function assertSelectOnlySql(sql) {
   }
 }
 
+function assertReadModelFirstSql(sql) {
+  assert.match(sql, /FROM engineer_mobile_task_read_models em/);
+  assert.match(sql, /em\.appointment_id AS appointment_id/);
+  assert.match(sql, /em\.case_id AS case_reference/);
+  assert.match(sql, /em\.customer_name_masked AS customer_display_name/);
+  assert.match(sql, /em\.address_summary AS location_label/);
+  assert.match(sql, /em\.site_note_safe AS public_customer_notes/);
+  assert.match(sql, /em\.checklist_summary AS checklist_preview/);
+  assert.doesNotMatch(sql, /FROM appointments\b/);
+  assert.doesNotMatch(sql, /JOIN cases\b/);
+  assert.doesNotMatch(sql, /\ba\.organization_id\b/);
+  assert.doesNotMatch(sql, /\ba\.assigned_engineer_id\b/);
+  assert.doesNotMatch(sql, /\bc\.case_reference\b/);
+  assert.doesNotMatch(sql, /\bc\.customer_display_name\b/);
+  assert.doesNotMatch(sql, /\bc\.location_label\b/);
+}
+
 function requireSpecifiers(source) {
   const specifiers = [];
   const requireRegex = /require\(['"]([^'"]+)['"]\)/g;
@@ -191,11 +208,12 @@ test('list query is SELECT-only and scoped by organization and engineer', () => 
     '2026-05-28T00:00:00.000Z',
     'confirmed',
   ]);
-  assert.match(spec.sql, /a\.organization_id = \$1/);
-  assert.match(spec.sql, /a\.assigned_engineer_id = \$2/);
-  assert.match(spec.sql, /a\.scheduled_start >= \$3::timestamptz/);
-  assert.match(spec.sql, /a\.scheduled_start <= \$4::timestamptz/);
-  assert.match(spec.sql, /a\.status = \$5::text/);
+  assert.match(spec.sql, /em\.organization_id = \$1/);
+  assert.match(spec.sql, /em\.assigned_engineer_id = \$2/);
+  assert.match(spec.sql, /em\.scheduled_start >= \$3::timestamptz/);
+  assert.match(spec.sql, /em\.scheduled_start <= \$4::timestamptz/);
+  assert.match(spec.sql, /em\.status = \$5::text/);
+  assertReadModelFirstSql(spec.sql);
   assertSelectOnlySql(spec.sql);
   assertNoRawInterpolation(spec);
   assertNoForbiddenFieldLeak(spec);
@@ -216,10 +234,11 @@ test('detail query is SELECT-only and scoped by organization engineer and appoin
     'eng_task1758',
     'apt_task1758',
   ]);
-  assert.match(spec.sql, /a\.organization_id = \$1/);
-  assert.match(spec.sql, /a\.assigned_engineer_id = \$2/);
-  assert.match(spec.sql, /a\.id = \$3/);
+  assert.match(spec.sql, /em\.organization_id = \$1/);
+  assert.match(spec.sql, /em\.assigned_engineer_id = \$2/);
+  assert.match(spec.sql, /em\.appointment_id = \$3/);
   assert.match(spec.sql, /LIMIT 1/);
+  assertReadModelFirstSql(spec.sql);
   assertSelectOnlySql(spec.sql);
   assertNoRawInterpolation(spec);
   assertNoForbiddenFieldLeak(spec);
