@@ -23,6 +23,34 @@ function engineerContext(overrides = {}) {
   };
 }
 
+function resolverBackedRequest(overrides = {}) {
+  return {
+    context: {
+      organizationId: 'org_engineer_mobile_1746',
+      engineerUserId: 'eng_user_1746',
+      assignedAppointmentsReadAllowed: true,
+      requestId: 'req_1746',
+    },
+    headers: {
+      'x-request-id': 'header_req_1746',
+      authorization: 'authorization_header_should_not_leak',
+      cookie: 'cookie_should_not_leak',
+    },
+    auth: {
+      token: 'token_should_not_leak',
+      password: 'password_should_not_leak',
+      secret: 'secret_should_not_leak',
+    },
+    session: {
+      raw: 'raw_session_should_not_leak',
+    },
+    user: {
+      raw: 'raw_user_should_not_leak',
+    },
+    ...overrides,
+  };
+}
+
 function syntheticApp() {
   const calls = {
     get: [],
@@ -182,6 +210,11 @@ function assertNoForbiddenLeak(value) {
     'stack_trace_should_not_leak',
     'internal_note_should_not_leak',
     'provider_debug_should_not_leak',
+    'authorization_header_should_not_leak',
+    'cookie_should_not_leak',
+    'password_should_not_leak',
+    'raw_session_should_not_leak',
+    'raw_user_should_not_leak',
     'token_should_not_leak',
     'secret_should_not_leak',
     'line_should_not_leak',
@@ -307,6 +340,154 @@ test('synthetic HTTP detail route flows through adapter, detail handler, and inj
       appointmentId: 'apt_1742_detail_001',
     },
   ]);
+  assert.deepEqual(repository.calls.mutate, []);
+  assertNoForbiddenLeak(response.body);
+});
+
+test('module can use Task1744 resolver as request-backed context source', async () => {
+  const repository = createRepository();
+  const app = syntheticApp();
+  const module = createEngineerMobileWorkbenchReadOnlyModule({
+    assignedAppointmentRepository: repository,
+    requestContextResolver: true,
+  });
+  module.register({ app, includeInternalAliases: false });
+
+  const routes = registeredRoutes(app);
+  const response = createResponseRecorder();
+  await routes['/engineer-mobile/appointments']({
+    ...resolverBackedRequest(),
+    query: {
+      status: 'confirmed',
+      token: 'token_should_not_leak',
+    },
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.status, 'allow');
+  assert.deepEqual(repository.calls.list, [
+    {
+      organizationId: 'org_engineer_mobile_1746',
+      engineerUserId: 'eng_user_1746',
+      filters: {
+        status: 'confirmed',
+      },
+    },
+  ]);
+  assert.deepEqual(repository.calls.mutate, []);
+  assertNoForbiddenLeak(response.body);
+});
+
+test('canonical detail route works through resolver-backed request context', async () => {
+  const repository = createRepository();
+  const app = syntheticApp();
+  const module = createEngineerMobileWorkbenchReadOnlyModule({
+    assignedAppointmentRepository: repository,
+    requestContextResolver: true,
+  });
+  module.register({ app, includeInternalAliases: false });
+
+  const routes = registeredRoutes(app);
+  const response = createResponseRecorder();
+  await routes['/engineer-mobile/appointments/:appointmentId']({
+    ...resolverBackedRequest(),
+    params: {
+      appointmentId: 'apt_1746_detail_001',
+    },
+    query: {
+      finalAppointmentId: 'finalAppointmentId_should_not_leak',
+    },
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.status, 'allow');
+  assert.equal(response.body.data.appointment.appointmentId, 'apt_1746_detail_001');
+  assert.deepEqual(repository.calls.detail, [
+    {
+      organizationId: 'org_engineer_mobile_1746',
+      engineerUserId: 'eng_user_1746',
+      appointmentId: 'apt_1746_detail_001',
+    },
+  ]);
+  assert.deepEqual(repository.calls.mutate, []);
+  assertNoForbiddenLeak(response.body);
+});
+
+test('missing read permission from resolver-backed path fails closed before repository access', async () => {
+  const repository = createRepository();
+  const app = syntheticApp();
+  const module = createEngineerMobileWorkbenchReadOnlyModule({
+    assignedAppointmentRepository: repository,
+    requestContextResolver: true,
+  });
+  module.register({ app, includeInternalAliases: false });
+
+  const routes = registeredRoutes(app);
+  const response = createResponseRecorder();
+  await routes['/engineer-mobile/appointments']({
+    ...resolverBackedRequest({
+      context: {
+        organizationId: 'org_engineer_mobile_1746',
+        engineerUserId: 'eng_user_1746',
+      },
+    }),
+    query: {},
+  }, response);
+
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.body.status, 'deny');
+  assert.deepEqual(repository.calls.list, []);
+  assert.deepEqual(repository.calls.detail, []);
+  assert.deepEqual(repository.calls.mutate, []);
+  assertNoForbiddenLeak(response.body);
+});
+
+test('resolver throw fails closed without leaking raw request or raw error', async () => {
+  const repository = createRepository();
+  const app = syntheticApp();
+  const module = createEngineerMobileWorkbenchReadOnlyModule({
+    assignedAppointmentRepository: repository,
+    requestContextResolver: async () => {
+      throw new Error('raw sql stack_trace_should_not_leak token_should_not_leak');
+    },
+  });
+  module.register({ app, includeInternalAliases: false });
+
+  const routes = registeredRoutes(app);
+  const response = createResponseRecorder();
+  await routes['/engineer-mobile/appointments'](resolverBackedRequest(), response);
+
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.body.status, 'deny');
+  assert.deepEqual(repository.calls.list, []);
+  assert.deepEqual(repository.calls.detail, []);
+  assert.deepEqual(repository.calls.mutate, []);
+  assertNoForbiddenLeak(response.body);
+});
+
+test('resolver-backed route does not mutate the input request', async () => {
+  const repository = createRepository();
+  const app = syntheticApp();
+  const module = createEngineerMobileWorkbenchReadOnlyModule({
+    assignedAppointmentRepository: repository,
+    requestContextResolver: true,
+  });
+  module.register({ app, includeInternalAliases: false });
+
+  const routes = registeredRoutes(app);
+  const request = {
+    ...resolverBackedRequest(),
+    query: {
+      status: 'confirmed',
+    },
+  };
+  const before = JSON.stringify(request);
+  const response = createResponseRecorder();
+
+  await routes['/engineer-mobile/appointments'](request, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.stringify(request), before);
   assert.deepEqual(repository.calls.mutate, []);
   assertNoForbiddenLeak(response.body);
 });

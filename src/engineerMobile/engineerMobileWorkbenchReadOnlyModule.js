@@ -9,6 +9,9 @@ const {
 const {
   createEngineerMobileWorkbenchReadOnlyHttpAdapter,
 } = require('./engineerMobileWorkbenchReadOnlyHttpAdapter');
+const {
+  createEngineerMobileWorkbenchRequestContextResolver,
+} = require('./engineerMobileWorkbenchRequestContextResolver');
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -42,6 +45,51 @@ function createUnavailableWorkbenchModule(reason) {
   });
 }
 
+function contextFromResolverResult(result) {
+  if (
+    isObject(result)
+    && result.status === 'allow'
+    && isObject(result.context)
+  ) {
+    return result.context;
+  }
+
+  return undefined;
+}
+
+function requestContextResolverFrom(source) {
+  if (typeof source.requestContextResolver === 'function') {
+    return source.requestContextResolver;
+  }
+
+  if (source.requestContextResolver === true || source.useRequestContextResolver === true) {
+    return createEngineerMobileWorkbenchRequestContextResolver({
+      clock: source.clock,
+      auditLogger: source.requestContextAuditLogger,
+    });
+  }
+
+  return undefined;
+}
+
+function getContextFrom(source) {
+  if (typeof source.getContext === 'function') {
+    return source.getContext;
+  }
+
+  const requestContextResolver = requestContextResolverFrom(source);
+
+  if (!requestContextResolver) {
+    return undefined;
+  }
+
+  return async function engineerMobileWorkbenchReadOnlyModuleGetContext(request) {
+    const result = await requestContextResolver({ request });
+
+    return contextFromResolverResult(result);
+  };
+}
+
 function routeOptionsFrom(source) {
   const options = isObject(source) ? source : {};
   const routeOptions = {};
@@ -49,7 +97,6 @@ function routeOptionsFrom(source) {
   for (const key of [
     'app',
     'router',
-    'getContext',
     'listPath',
     'detailPath',
     'includeInternalAliases',
@@ -59,6 +106,12 @@ function routeOptionsFrom(source) {
     if (Object.prototype.hasOwnProperty.call(options, key)) {
       routeOptions[key] = options[key];
     }
+  }
+
+  const getContext = getContextFrom(options);
+
+  if (getContext) {
+    routeOptions.getContext = getContext;
   }
 
   return routeOptions;
