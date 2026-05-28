@@ -3,6 +3,9 @@
 const {
   planEngineerMobileVisitActionCommand,
 } = require('./engineerMobileVisitActionCommandPlanner');
+const {
+  normalizeEngineerMobileVisitActionWriterResult,
+} = require('./engineerMobileVisitActionWriterResultNormalizer');
 
 const ENGINEER_MOBILE_VISIT_ACTION_APPLICATION_SERVICE_KIND = 'engineer_mobile.visit_action_application_service';
 
@@ -58,9 +61,6 @@ function safeEnvelopeFrom(plan, overrides = {}) {
   });
 }
 
-function failedWriterResult(value) {
-  return isObject(value) && (value.ok === false || value.success === false);
-}
 
 function hasTransitionWrite(transitionWriter) {
   return isObject(transitionWriter) && typeof transitionWriter.write === 'function';
@@ -144,8 +144,12 @@ function createEngineerMobileVisitActionApplicationService(options = {}) {
 
     try {
       const transitionResult = transitionWriter.write(clonePlain(plan.transitionIntent));
+      const normalizedTransitionResult = normalizeEngineerMobileVisitActionWriterResult({
+        writerKind: 'transition',
+        result: transitionResult,
+      });
 
-      if (failedWriterResult(transitionResult)) {
+      if (!normalizedTransitionResult.ok) {
         return transitionWriteFailed(plan);
       }
     } catch (error) {
@@ -158,8 +162,12 @@ function createEngineerMobileVisitActionApplicationService(options = {}) {
 
     try {
       const auditResult = auditWriter.record(clonePlain(plan.auditIntent));
+      const normalizedAuditResult = normalizeEngineerMobileVisitActionWriterResult({
+        writerKind: 'audit',
+        result: auditResult,
+      });
 
-      if (failedWriterResult(auditResult)) {
+      if (!normalizedAuditResult.ok) {
         return auditWriteFailed(plan);
       }
     } catch (error) {

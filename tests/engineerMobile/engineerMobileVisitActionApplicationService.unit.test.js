@@ -410,3 +410,134 @@ test('writer call payloads contain no unsafe publication or provider fields', ()
   ].sort());
   assertNoSensitiveLeak(calls);
 });
+
+
+test('transition writer success variants still accept after normalization', () => {
+  for (const transitionResult of [
+    undefined,
+    null,
+    true,
+    { ok: true },
+    { accepted: true },
+    { written: true },
+    { persisted: true },
+  ]) {
+    const service = serviceWithWriters({
+      transitionImpl() {
+        return transitionResult;
+      },
+    });
+    const result = service.handleEngineerMobileVisitAction(command({
+      action: ENGINEER_MOBILE_START_TRAVEL_ACTION,
+      permission: ENGINEER_MOBILE_START_TRAVEL_PERMISSION,
+    }));
+
+    assertApplied(result, ENGINEER_MOBILE_START_TRAVEL_ACTION, 'traveling');
+  }
+});
+
+test('transition writer failure variants return transition_write_failed after normalization', () => {
+  for (const transitionResult of [
+    false,
+    { ok: false, error: 'raw_writer_error_should_not_leak' },
+    { written: false, error: 'raw_writer_error_should_not_leak' },
+    { persisted: false, error: 'raw_writer_error_should_not_leak' },
+    { error: 'raw_writer_error_should_not_leak' },
+    { message: 'unknown shape fails closed' },
+  ]) {
+    const calls = [];
+    const service = serviceWithWriters({
+      calls,
+      transitionImpl() {
+        return transitionResult;
+      },
+    });
+    const result = service.handleEngineerMobileVisitAction(command({
+      action: ENGINEER_MOBILE_START_TRAVEL_ACTION,
+      permission: ENGINEER_MOBILE_START_TRAVEL_PERMISSION,
+    }));
+
+    assert.equal(result.ok, false);
+    assert.equal(result.allowed, true);
+    assert.equal(result.reasonCode, 'transition_write_failed');
+    assert.equal(result.transitionApplied, false);
+    assert.equal(result.auditRecorded, false);
+    assert.deepEqual(calls.map((call) => call.name), ['transition']);
+    assertNoSensitiveLeak(result);
+  }
+});
+
+test('audit writer success variants still record after normalization', () => {
+  for (const auditResult of [
+    undefined,
+    null,
+    true,
+    { ok: true },
+    { success: true },
+    { accepted: true },
+    { recorded: true },
+  ]) {
+    const service = serviceWithWriters({
+      auditImpl() {
+        return auditResult;
+      },
+    });
+    const result = service.handleEngineerMobileVisitAction(command({
+      action: ENGINEER_MOBILE_START_TRAVEL_ACTION,
+      permission: ENGINEER_MOBILE_START_TRAVEL_PERMISSION,
+    }));
+
+    assertApplied(result, ENGINEER_MOBILE_START_TRAVEL_ACTION, 'traveling');
+  }
+});
+
+test('audit writer failure variants return audit_write_failed after normalization', () => {
+  for (const auditResult of [
+    false,
+    { ok: false, error: 'raw_writer_error_should_not_leak' },
+    { success: false, error: 'raw_writer_error_should_not_leak' },
+    { recorded: false, error: 'raw_writer_error_should_not_leak' },
+    { error: 'raw_writer_error_should_not_leak' },
+    { message: 'unknown shape fails closed' },
+  ]) {
+    const service = serviceWithWriters({
+      auditImpl() {
+        return auditResult;
+      },
+    });
+    const result = service.handleEngineerMobileVisitAction(command({
+      action: ENGINEER_MOBILE_START_TRAVEL_ACTION,
+      permission: ENGINEER_MOBILE_START_TRAVEL_PERMISSION,
+    }));
+
+    assert.equal(result.ok, false);
+    assert.equal(result.allowed, true);
+    assert.equal(result.reasonCode, 'audit_write_failed');
+    assert.equal(result.transitionApplied, true);
+    assert.equal(result.auditRecorded, false);
+    assertNoSensitiveLeak(result);
+  }
+});
+
+test('raw writer result details do not leak through normalized application service failures', () => {
+  const service = serviceWithWriters({
+    transitionImpl() {
+      return {
+        error: 'raw_writer_error_should_not_leak',
+        sql: 'raw_sql_should_not_leak',
+        providerPayload: 'raw_provider_payload_should_not_leak',
+        customerPhone: 'raw_phone_should_not_leak',
+        reportDraftBody: 'raw_report_draft_should_not_leak',
+      };
+    },
+  });
+  const result = service.handleEngineerMobileVisitAction(command({
+    action: ENGINEER_MOBILE_START_TRAVEL_ACTION,
+    permission: ENGINEER_MOBILE_START_TRAVEL_PERMISSION,
+  }));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reasonCode, 'transition_write_failed');
+  assertNoSensitiveLeak(result);
+  assert.equal(JSON.stringify(result).includes('raw_sql_should_not_leak'), false);
+});
