@@ -46,24 +46,38 @@ function request({
   appointmentOverrides,
   actorOverrides,
   visitResult,
-  params = { appointmentId: 'apt_task_1810' },
+  params,
   requestId = 'req_task_1810',
 } = {}) {
+  const resolvedParams = params === undefined ? { appointmentId: 'apt_task_1810', action } : { ...params };
+
+  if (action !== undefined && !('action' in resolvedParams)) {
+    resolvedParams.action = action;
+  }
+
   return {
     requestId,
-    params,
+    actor: actor(actorOverrides),
+    now: NOW,
+    params: resolvedParams,
     body: {
-      action,
-      actor: actor(actorOverrides),
       appointment: appointment(appointmentOverrides),
       visitResult,
-      now: NOW,
       rawRequestField: 'raw_request_should_not_leak',
     },
     headers: {
       authorization: 'secret_header_should_not_leak',
+      'user-agent': 'raw_user_agent_should_not_leak',
       'x-request-id': requestId,
     },
+    cookies: {
+      session: 'raw_cookie_should_not_leak',
+    },
+    session: {
+      id: 'raw_session_should_not_leak',
+    },
+    ip: 'raw_ip_should_not_leak',
+    userAgent: 'raw_root_user_agent_should_not_leak',
   };
 }
 
@@ -120,6 +134,11 @@ function assertNoForbiddenLeak(value) {
     'token_should_not_leak',
     'private_actor_note_should_not_leak',
     'secret_header_should_not_leak',
+    'raw_user_agent_should_not_leak',
+    'raw_cookie_should_not_leak',
+    'raw_session_should_not_leak',
+    'raw_ip_should_not_leak',
+    'raw_root_user_agent_should_not_leak',
     'raw_request_should_not_leak',
     'raw service failure',
     'stack',
@@ -130,16 +149,32 @@ function assertNoForbiddenLeak(value) {
 }
 
 function assertSafeServicePayload(payload, expectedAction) {
+  const expectedKeys = ['action', 'actor', 'appointment', 'appointmentId', 'now', 'requestId'];
+
+  if ('visitResult' in payload) {
+    expectedKeys.push('visitResult');
+  }
+
+  assert.deepEqual(Object.keys(payload).sort(), expectedKeys.sort());
   assert.equal(payload.action, expectedAction);
   assert.equal(payload.actor.id, 'eng_task_1810');
   assert.deepEqual(payload.actor.permissions, ['engineer_mobile.visit.start_travel']);
   assert.equal(payload.appointment.appointmentId, 'apt_task_1810');
   assert.equal(payload.appointment.caseId, 'case_task_1810');
   assert.equal(payload.appointment.assignedEngineerId, 'eng_task_1810');
+  assert.equal(payload.appointmentId, 'apt_task_1810');
+  assert.equal(payload.requestId, 'req_task_1810');
   assert.equal(payload.now, NOW);
   assert.equal('body' in payload, false);
   assert.equal('params' in payload, false);
   assert.equal('request' in payload, false);
+  assert.equal('headers' in payload, false);
+  assert.equal('cookies' in payload, false);
+  assert.equal('session' in payload, false);
+  assert.equal('ip' in payload, false);
+  assert.equal('ok' in payload, false);
+  assert.equal('normalized' in payload, false);
+  assert.equal('normalizerKind' in payload, false);
   assertNoForbiddenLeak(payload);
 }
 
@@ -411,14 +446,18 @@ test('response is sanitized with no raw customer private or report draft fields'
   assertNoForbiddenLeak(response);
 });
 
-test('service call payload contains no raw request object or unsafe infrastructure fields', async () => {
+test('service call payload contains normalized safe fields only', async () => {
   const { calls } = await handleWith(
     acceptedServiceResult('engineer_mobile.start_travel'),
     request(),
   );
 
   assert.equal(calls.length, 1);
+  assertSafeServicePayload(calls[0], 'engineer_mobile.start_travel');
   assert.equal('headers' in calls[0], false);
+  assert.equal('cookies' in calls[0], false);
+  assert.equal('session' in calls[0], false);
+  assert.equal('ip' in calls[0], false);
   assert.equal('rawRequestField' in calls[0], false);
   assertNoForbiddenLeak(calls[0]);
 });

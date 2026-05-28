@@ -1,5 +1,10 @@
 'use strict';
 
+const HTTP_REQUEST_NORMALIZER_MODULE = './engineerMobileVisitActionHttpRequestNormalizer';
+const {
+  normalizeEngineerMobileVisitActionHttpRequest,
+} = require(HTTP_REQUEST_NORMALIZER_MODULE);
+
 const ENGINEER_MOBILE_VISIT_ACTION_HTTP_HANDLER_ADAPTER_KIND = 'engineer_mobile.visit_action_http_handler_adapter';
 
 const ERROR_CODES = Object.freeze({
@@ -7,79 +12,6 @@ const ERROR_CODES = Object.freeze({
   APPOINTMENT_ID_MISMATCH: 'APPOINTMENT_ID_MISMATCH',
   SERVICE_FAILED: 'VISIT_ACTION_SERVICE_FAILED',
 });
-
-const SAFE_ACTOR_KEYS = Object.freeze([
-  'id',
-  'engineerId',
-  'userId',
-  'organizationId',
-  'organization_id',
-]);
-
-const SAFE_APPOINTMENT_KEYS = Object.freeze([
-  'appointmentId',
-  'appointment_id',
-  'id',
-  'caseId',
-  'case_id',
-  'organizationId',
-  'organization_id',
-  'assignedEngineerId',
-  'assigned_engineer_id',
-  'engineerId',
-  'engineer_id',
-  'status',
-  'appointmentStatus',
-  'appointment_status',
-  'mobileVisitStatus',
-  'mobile_visit_status',
-  'visitStatus',
-  'visit_status',
-  'visitResult',
-  'visit_result',
-  'visitOutcome',
-  'visit_outcome',
-  'recordedVisitResult',
-  'recorded_visit_result',
-  'recordedVisitOutcome',
-  'recorded_visit_outcome',
-  'visitResultRecordedAt',
-  'visit_result_recorded_at',
-  'travelStartedAt',
-  'travel_started_at',
-  'mobileTravelStartedAt',
-  'mobile_travel_started_at',
-  'arrivedAt',
-  'arrived_at',
-  'arrivalAt',
-  'arrival_at',
-  'actualArrivalAt',
-  'actual_arrival_at',
-  'travelArrivedAt',
-  'travel_arrived_at',
-  'workStartedAt',
-  'work_started_at',
-  'startedWorkAt',
-  'started_work_at',
-  'serviceStartedAt',
-  'service_started_at',
-  'mobileWorkStartedAt',
-  'mobile_work_started_at',
-  'workFinishedAt',
-  'work_finished_at',
-  'finishedWorkAt',
-  'finished_work_at',
-  'serviceFinishedAt',
-  'service_finished_at',
-  'mobileWorkFinishedAt',
-  'mobile_work_finished_at',
-  'finishedAt',
-  'finished_at',
-  'completedAt',
-  'completed_at',
-  'actualEndAt',
-  'actual_end_at',
-]);
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -108,124 +40,21 @@ function compactRecord(record) {
   );
 }
 
-function clonePlain(value) {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  return JSON.parse(JSON.stringify(value));
-}
-
-function safeStringArray(value) {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-
-  const items = value.map((item) => stringValue(item)).filter(Boolean);
-  return items.length > 0 ? items : undefined;
-}
-
-function pickSafeObject(source, keys) {
-  if (!isObject(source)) {
-    return undefined;
-  }
-
-  const picked = {};
-
-  for (const key of keys) {
-    if (source[key] !== undefined) {
-      picked[key] = clonePlain(source[key]);
-    }
-  }
-
-  return Object.keys(picked).length > 0 ? picked : undefined;
-}
-
-function safeActor(actor) {
-  const picked = pickSafeObject(actor, SAFE_ACTOR_KEYS);
-
-  if (!picked) {
-    return undefined;
-  }
-
-  const permissions = safeStringArray(actor.permissions);
-
-  if (permissions) {
-    picked.permissions = permissions;
-  }
-
-  return picked;
-}
-
-function safeAppointment(appointment) {
-  return pickSafeObject(appointment, SAFE_APPOINTMENT_KEYS);
-}
-
-function requestBody(request) {
-  return isObject(request.body) ? request.body : {};
-}
-
-function requestParams(request) {
-  return isObject(request.params) ? request.params : {};
-}
-
-function firstString(...values) {
-  for (const value of values) {
-    const text = stringValue(value);
-
-    if (text) {
-      return text;
-    }
-  }
-
-  return undefined;
-}
-
-function appointmentIdFromAppointment(appointment) {
-  if (!isObject(appointment)) {
-    return undefined;
-  }
-
-  return firstString(appointment.appointmentId, appointment.appointment_id, appointment.id);
-}
-
-function appointmentIdMismatch(request) {
-  const body = requestBody(request);
-  const params = requestParams(request);
-  const paramAppointmentId = stringValue(params.appointmentId);
-  const bodyAppointment = isObject(body.appointment) ? body.appointment : undefined;
-  const bodyAppointmentId = appointmentIdFromAppointment(bodyAppointment);
-
-  return Boolean(paramAppointmentId && bodyAppointmentId && paramAppointmentId !== bodyAppointmentId);
-}
-
-function requestIdFrom(request, body) {
-  return firstString(
-    request.requestId,
-    request.id,
-    body.requestId,
-    body.id,
-    request.headers && request.headers['x-request-id'],
-  );
-}
-
-function actionRequestFrom(request) {
-  const body = requestBody(request);
-  const actor = safeActor(body.actor || request.actor);
-  const appointment = safeAppointment(body.appointment || request.appointment);
-
-  return compactRecord({
-    action: stringValue(body.action || request.action),
-    actor,
-    appointment,
-    visitResult: stringValue(body.visitResult || request.visitResult),
-    now: stringValue(body.now || request.now),
-  });
-}
-
 function hasServiceHandler(visitActionService) {
   return isObject(visitActionService)
     && typeof visitActionService.handleEngineerMobileVisitAction === 'function';
+}
+
+function actionRequestFromNormalization(normalization) {
+  return compactRecord({
+    action: normalization.action,
+    actor: normalization.actor,
+    appointment: normalization.appointment,
+    visitResult: normalization.visitResult,
+    now: normalization.now,
+    requestId: normalization.requestId,
+    appointmentId: normalization.appointmentId,
+  });
 }
 
 function safeErrorResponse(statusCode, code, requestId) {
@@ -312,21 +141,24 @@ function createEngineerMobileVisitActionHttpHandlerAdapter(options = {}) {
   const visitActionService = source.visitActionService;
 
   async function handleEngineerMobileVisitActionRequest(input) {
-    const request = isObject(input) ? input : {};
-    const body = requestBody(request);
-    const requestId = requestIdFrom(request, body);
+    const normalization = normalizeEngineerMobileVisitActionHttpRequest(input);
+    const requestId = stringValue(normalization.requestId);
 
     if (!hasServiceHandler(visitActionService)) {
       return safeErrorResponse(500, ERROR_CODES.SERVICE_REQUIRED, requestId);
     }
 
-    if (appointmentIdMismatch(request)) {
+    if (normalization.reasonCode === 'appointment_id_mismatch') {
       return safeErrorResponse(400, ERROR_CODES.APPOINTMENT_ID_MISMATCH, requestId);
+    }
+
+    if (normalization.ok !== true) {
+      return safeErrorResponse(400, stringValue(normalization.reasonCode), requestId);
     }
 
     try {
       const serviceResult = await visitActionService.handleEngineerMobileVisitAction(
-        actionRequestFrom(request),
+        actionRequestFromNormalization(normalization),
       );
       const result = isObject(serviceResult) ? serviceResult : {};
 
