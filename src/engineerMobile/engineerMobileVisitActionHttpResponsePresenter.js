@@ -6,6 +6,7 @@ const ERROR_RESPONSE_KIND = 'error';
 const SERVICE_RESULT_RESPONSE_KIND = 'service_result';
 
 const SERVER_FAILURE_REASON_CODES = Object.freeze([
+  'service_invocation_failed',
   'transition_writer_required',
   'transition_write_failed',
   'patch_writer_required',

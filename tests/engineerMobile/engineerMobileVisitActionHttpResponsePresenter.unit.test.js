@@ -157,6 +157,7 @@ test('unsupported action maps to sanitized HTTP 400 response', () => {
 
 test('writer and persistence failure reasons map to sanitized HTTP 500 response', () => {
   for (const reasonCode of [
+    'service_invocation_failed',
     'transition_writer_required',
     'transition_write_failed',
     'patch_writer_required',
@@ -186,6 +187,25 @@ test('writer and persistence failure reasons map to sanitized HTTP 500 response'
   }
 });
 
+test('service invocation failure maps to HTTP 500 with safe request id', () => {
+  const response = presentService({
+    ok: false,
+    allowed: true,
+    reasonCode: 'service_invocation_failed',
+    error: {
+      message: 'raw service failure',
+      stack: 'stack_should_not_leak',
+    },
+    rawCustomerPhone: 'raw_phone_should_not_leak',
+  }, 'req_task_1858');
+
+  assert.equal(response.statusCode, 500);
+  assert.equal(response.body.reasonCode, 'service_invocation_failed');
+  assert.equal(response.body.requestId, 'req_task_1858');
+  assert.equal('error' in response.body, false);
+  assertNoForbiddenLeak(response);
+});
+
 test('explicit error response maps status code and sanitized error body', () => {
   const response = presentError('VISIT_ACTION_SERVICE_REQUIRED', 500);
 
@@ -212,10 +232,10 @@ test('appointment mismatch error maps to HTTP 400', () => {
 });
 
 test('invalid status code falls back safely for explicit errors', () => {
-  const response = presentError('VISIT_ACTION_SERVICE_FAILED', 999);
+  const response = presentError('service_invocation_failed', 999);
 
   assert.equal(response.statusCode, 500);
-  assert.equal(response.body.error.code, 'VISIT_ACTION_SERVICE_FAILED');
+  assert.equal(response.body.error.code, 'service_invocation_failed');
 });
 
 test('does not throw for missing null primitive or partial input', () => {

@@ -14,7 +14,7 @@ const ENGINEER_MOBILE_VISIT_ACTION_HTTP_HANDLER_ADAPTER_KIND = 'engineer_mobile.
 const ERROR_CODES = Object.freeze({
   SERVICE_REQUIRED: 'VISIT_ACTION_SERVICE_REQUIRED',
   APPOINTMENT_ID_MISMATCH: 'APPOINTMENT_ID_MISMATCH',
-  SERVICE_FAILED: 'VISIT_ACTION_SERVICE_FAILED',
+  SERVICE_INVOCATION_FAILED: 'service_invocation_failed',
 });
 
 function isObject(value) {
@@ -106,7 +106,7 @@ function createEngineerMobileVisitActionHttpHandlerAdapter(options = {}) {
 
       return presentServiceResult(result, requestId);
     } catch (error) {
-      return presentError(500, ERROR_CODES.SERVICE_FAILED, requestId);
+      return presentError(500, ERROR_CODES.SERVICE_INVOCATION_FAILED, requestId);
     }
   }
 

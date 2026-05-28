@@ -13,6 +13,7 @@ const PRESENTER_UNIT_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitAction
 const PRESENTER_BOUNDARY_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitActionHttpResponsePresenterBoundary.static.test.js';
 const HANDLER_UNIT_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitActionHttpHandlerAdapter.unit.test.js';
 const TASK_DOC = 'docs/task-1856-engineer-mobile-visit-action-http-response-presenter-no-route.md';
+const TASK1858_DOC = 'docs/task-1858-engineer-mobile-http-handler-service-failure-guard-no-route.md';
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -46,6 +47,7 @@ test('Task1856 allowed files exist', () => {
     PRESENTER_BOUNDARY_TEST_FILE,
     HANDLER_UNIT_TEST_FILE,
     TASK_DOC,
+    TASK1858_DOC,
   ]) {
     assert.equal(fs.existsSync(absolutePath(file)), true, `${file} should exist`);
   }
@@ -201,5 +203,39 @@ test('Task1856 doc records required response presenter boundaries and future seq
     HANDLER_UNIT_TEST_FILE,
   ]) {
     assert.match(doc, escaped(file));
+  }
+});
+
+test('Task1858 doc records service failure guard boundaries', () => {
+  const doc = read(TASK1858_DOC);
+
+  for (const phrase of [
+    'Purpose',
+    'service failure guard',
+    'request normalizer',
+    'response presenter',
+    'injected HTTP handler adapter',
+    'Synthetic HTTP-style failure handling only',
+    'service_invocation_failed',
+    'HTTP 500',
+    'Raw service errors and stacks must never be exposed',
+    'No DB',
+    'No SQL',
+    'No migration',
+    'No route registration',
+    'No global mount',
+    'No Express import',
+    'No repository import',
+    'No DB client import',
+    'No real persistence',
+    'No provider sending',
+    'No completion report creation',
+    'No completion report approval',
+    'No completion report publication',
+    'No finalAppointmentId mutation',
+    'No customer-visible publication',
+    'Future real route/controller/global mount still requires separate approval',
+  ]) {
+    assert.match(doc, escaped(phrase));
   }
 });

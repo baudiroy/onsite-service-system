@@ -493,11 +493,13 @@ test('handler does not throw for missing null or partial request', async () => {
   assert.equal((await adapter.handleEngineerMobileVisitActionRequest({ body: {} })).statusCode, 403);
 });
 
-test('service thrown error returns sanitized HTTP 500 without raw error', async () => {
+test('service thrown error returns service_invocation_failed without raw error', async () => {
   const { response } = await handleWith(undefined, request(), { throw: true });
 
   assert.equal(response.statusCode, 500);
-  assert.equal(response.body.error.code, 'VISIT_ACTION_SERVICE_FAILED');
+  assert.equal(response.body.reasonCode, 'service_invocation_failed');
+  assert.equal(response.body.error.code, 'service_invocation_failed');
+  assert.equal(response.body.requestId, 'req_task_1810');
   assertNoForbiddenLeak(response);
 });
 
