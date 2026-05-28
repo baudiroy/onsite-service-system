@@ -11,6 +11,7 @@ const SERVICE_FILE = 'src/engineerMobile/engineerMobileVisitActionApplicationSer
 const UNIT_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitActionApplicationService.unit.test.js';
 const BOUNDARY_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitActionApplicationServiceBoundary.static.test.js';
 const TASK_DOC = 'docs/task-1808-engineer-mobile-visit-action-application-service-injected-writers-no-db-no-route.md';
+const TASK1852_DOC = 'docs/task-1852-engineer-mobile-application-service-boundary-alignment-accepted-normalizer-import-no-runtime-change.md';
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -38,10 +39,13 @@ test('Task1808 allowed files exist', () => {
   }
 });
 
-test('visit action application service imports only the command planner module', () => {
+test('visit action application service imports only accepted planner and writer normalizer modules', () => {
   const source = read(SERVICE_FILE);
 
-  assert.deepEqual(requireSpecifiers(source), ['./engineerMobileVisitActionCommandPlanner']);
+  assert.deepEqual(requireSpecifiers(source), [
+    './engineerMobileVisitActionCommandPlanner',
+    './engineerMobileVisitActionWriterResultNormalizer',
+  ]);
 });
 
 test('visit action application service stays isolated from forbidden runtimes', () => {
@@ -136,5 +140,32 @@ test('Task1808 doc records required injected-writer boundaries', () => {
 
   for (const file of [SERVICE_FILE, UNIT_TEST_FILE, BOUNDARY_TEST_FILE]) {
     assert.match(doc, new RegExp(file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+});
+
+test('Task1852 doc records no-runtime boundary alignment with accepted normalizer import', () => {
+  const doc = read(TASK1852_DOC);
+
+  for (const phrase of [
+    'aligns the stale Task1808 application-service static boundary test with the accepted Task1816 writer result normalizer refactor',
+    './engineerMobileVisitActionCommandPlanner',
+    './engineerMobileVisitActionWriterResultNormalizer',
+    'No runtime code change',
+    'No src change',
+    'No DB',
+    'No SQL',
+    'No migration',
+    'No route/global mount',
+    'No Express import',
+    'No repository import',
+    'No real persistence',
+    'No provider sending',
+    'No completion report creation',
+    'No completion report approval',
+    'No completion report publication',
+    'No finalAppointmentId mutation',
+    'No customer-visible publication',
+  ]) {
+    assert.match(doc, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
 });
