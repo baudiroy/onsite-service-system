@@ -218,6 +218,7 @@ test('detects appointment ID mismatch against appointment id', () => {
   assert.equal(result.ok, false);
   assert.equal(result.normalized, false);
   assert.equal(result.reasonCode, 'appointment_id_mismatch');
+  assert.equal(result.requestId, 'req_task_1854');
   assertNoForbiddenLeak(result);
 });
 
@@ -231,6 +232,7 @@ test('detects appointment ID mismatch against appointment appointmentId', () => 
 
   assert.equal(result.ok, false);
   assert.equal(result.reasonCode, 'appointment_id_mismatch');
+  assert.equal(result.requestId, 'req_task_1854');
   assertNoForbiddenLeak(result);
 });
 

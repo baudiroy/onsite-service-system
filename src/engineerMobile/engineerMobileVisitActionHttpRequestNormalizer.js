@@ -183,13 +183,14 @@ function appointmentIdFromAppointment(appointment) {
   return firstString(appointment.appointmentId, appointment.appointment_id, appointment.id);
 }
 
-function failure(reasonCode) {
-  return {
+function failure(reasonCode, extra = {}) {
+  return compactRecord({
     ok: false,
     normalized: false,
     normalizerKind: ENGINEER_MOBILE_VISIT_ACTION_HTTP_REQUEST_NORMALIZER_KIND,
     reasonCode,
-  };
+    ...extra,
+  });
 }
 
 function normalizeEngineerMobileVisitActionHttpRequest(input) {
@@ -203,9 +204,10 @@ function normalizeEngineerMobileVisitActionHttpRequest(input) {
   const rawAppointment = body.appointment !== undefined ? body.appointment : request.appointment;
   const paramAppointmentId = stringValue(params.appointmentId);
   const bodyAppointmentId = appointmentIdFromAppointment(rawAppointment);
+  const requestId = firstString(request.requestId, request.id, body.requestId, body.id);
 
   if (paramAppointmentId && bodyAppointmentId && paramAppointmentId !== bodyAppointmentId) {
-    return failure('appointment_id_mismatch');
+    return failure('appointment_id_mismatch', { requestId });
   }
 
   return compactRecord({
@@ -217,7 +219,7 @@ function normalizeEngineerMobileVisitActionHttpRequest(input) {
     appointment: safeAppointment(rawAppointment),
     visitResult: firstString(body.visitResult, request.visitResult),
     now: firstString(request.now, body.now),
-    requestId: firstString(request.requestId, request.id, body.requestId, body.id),
+    requestId,
     appointmentId: firstString(paramAppointmentId, bodyAppointmentId),
   });
 }

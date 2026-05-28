@@ -222,6 +222,19 @@ const ENGINEER_MOBILE_READ_REPOSITORY_OPTION_KEYS = [
   'engineerMobileReadRepository',
 ];
 
+const ENGINEER_MOBILE_VISIT_ACTION_OPTION_KEYS = [
+  'engineerMobileVisitActionService',
+  'engineerMobileVisitActionAppointmentProvider',
+  'engineerMobileVisitActionPermission',
+  'engineerMobileVisitActionNow',
+  'engineerMobileVisitActionTransitionWriter',
+  'engineerMobileVisitActionAuditWriter',
+  'engineerMobileVisitActionPatchWriter',
+  'engineerMobileVisitActionAuditEventWriter',
+  'engineerMobileVisitActionPersistencePort',
+  'engineerMobileVisitActionRepositoryAdapter',
+];
+
 function firstOwnOption(options, keys) {
   for (const key of keys) {
     if (hasOwnOption(options, key)) {
@@ -392,23 +405,45 @@ function buildEngineerMobileOptionsFromExecutorOptions(options = {}) {
   };
 }
 
+function buildEngineerMobileVisitActionOptionsFromShortcutOptions(options = {}) {
+  const visitActionOptions = Object.fromEntries(
+    ENGINEER_MOBILE_VISIT_ACTION_OPTION_KEYS
+      .filter((key) => hasOwnOption(options, key))
+      .map((key) => [key, options[key]])
+  );
+
+  if (Object.keys(visitActionOptions).length === 0) {
+    return undefined;
+  }
+
+  return visitActionOptions;
+}
+
 function withEngineerMobileOptions(appFactoryOptions = {}, options = {}) {
+  const visitActionOptions = buildEngineerMobileVisitActionOptionsFromShortcutOptions(options);
+
   if (hasOwnOption(options, 'engineerMobile')) {
     return {
       ...appFactoryOptions,
-      engineerMobile: options.engineerMobile,
+      engineerMobile: {
+        ...visitActionOptions,
+        ...options.engineerMobile,
+      },
     };
   }
 
   const engineerMobile = buildEngineerMobileOptionsFromExecutorOptions(options);
 
-  if (!engineerMobile) {
+  if (!engineerMobile && !visitActionOptions) {
     return appFactoryOptions;
   }
 
   return {
     ...appFactoryOptions,
-    engineerMobile,
+    engineerMobile: {
+      ...(engineerMobile || {}),
+      ...(visitActionOptions || {}),
+    },
   };
 }
 
@@ -578,7 +613,11 @@ function extractWorkbenchBearer(req) {
 
 function isWorkbenchHttpPath(req) {
   const pathValue = req && (req.path || req.url || '');
-  return String(pathValue).startsWith('/api/v1/engineer/mobile-workbench');
+  const path = String(pathValue);
+
+  return path.startsWith('/api/v1/engineer/mobile-workbench')
+    || path.startsWith('/api/v1/engineer-mobile/')
+    || path.startsWith('/engineer-mobile/');
 }
 
 function resolveWorkbenchUserRole(user = {}) {

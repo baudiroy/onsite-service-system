@@ -15,6 +15,9 @@ const {
 const {
   composeEngineerMobileReadProviderOptions,
 } = require('./engineerMobile/engineerMobileReadProviderOptionsComposer');
+const {
+  createEngineerMobileVisitActionRuntimeBootstrap,
+} = require('./engineerMobile/engineerMobileVisitActionRuntimeBootstrap');
 
 const ENGINEER_MOBILE_READ_REPOSITORY_OPTION_KEYS = [
   'engineerMobileReadRepository',
@@ -28,6 +31,19 @@ const ENGINEER_MOBILE_READ_EXECUTOR_OPTION_KEYS = [
   'engineerMobileReadListExecutor',
   'engineerMobileDetailExecutor',
   'engineerMobileReadDetailExecutor',
+];
+
+const ENGINEER_MOBILE_VISIT_ACTION_OPTION_KEYS = [
+  'engineerMobileVisitActionService',
+  'engineerMobileVisitActionAppointmentProvider',
+  'engineerMobileVisitActionPermission',
+  'engineerMobileVisitActionNow',
+  'engineerMobileVisitActionTransitionWriter',
+  'engineerMobileVisitActionAuditWriter',
+  'engineerMobileVisitActionPatchWriter',
+  'engineerMobileVisitActionAuditEventWriter',
+  'engineerMobileVisitActionPersistencePort',
+  'engineerMobileVisitActionRepositoryAdapter',
 ];
 
 function hasEngineerMobileReadRepositoryOptions(options = {}) {
@@ -131,17 +147,140 @@ function buildEngineerMobileReadOptions(engineerMobileOptions) {
   };
 }
 
+function engineerMobileVisitActionNestedOptions(options = {}) {
+  return isPlainObject(options.visitAction) ? options.visitAction : {};
+}
+
+function hasEngineerMobileVisitActionOptions(options = {}) {
+  const nested = engineerMobileVisitActionNestedOptions(options);
+
+  return ENGINEER_MOBILE_VISIT_ACTION_OPTION_KEYS.some((key) => hasOwnOption(options, key))
+    || hasOwnOption(options, 'visitAction')
+    || hasOwnOption(options, 'visitActionService')
+    || hasOwnOption(options, 'visitActionAppointmentProvider')
+    || hasOwnOption(nested, 'visitActionService')
+    || hasOwnOption(nested, 'appointmentProvider');
+}
+
+function buildVisitActionWriterSource(options = {}) {
+  const nested = engineerMobileVisitActionNestedOptions(options);
+
+  return {
+    transitionWriter: firstOwnOption(options, [
+      'engineerMobileVisitActionTransitionWriter',
+      'transitionWriter',
+    ]) || nested.transitionWriter,
+    auditWriter: firstOwnOption(options, [
+      'engineerMobileVisitActionAuditWriter',
+      'auditWriter',
+    ]) || nested.auditWriter,
+    patchWriter: firstOwnOption(options, [
+      'engineerMobileVisitActionPatchWriter',
+      'patchWriter',
+    ]) || nested.patchWriter,
+    auditEventWriter: firstOwnOption(options, [
+      'engineerMobileVisitActionAuditEventWriter',
+      'auditEventWriter',
+    ]) || nested.auditEventWriter,
+    persistencePort: firstOwnOption(options, [
+      'engineerMobileVisitActionPersistencePort',
+      'persistencePort',
+    ]) || nested.persistencePort,
+    repositoryAdapter: firstOwnOption(options, [
+      'engineerMobileVisitActionRepositoryAdapter',
+      'repositoryAdapter',
+    ]) || nested.repositoryAdapter,
+    now: firstOwnOption(options, [
+      'engineerMobileVisitActionNow',
+      'now',
+    ]) || nested.now,
+  };
+}
+
+function hasVisitActionWriterSource(writerSource = {}) {
+  return [
+    'transitionWriter',
+    'auditWriter',
+    'patchWriter',
+    'auditEventWriter',
+    'persistencePort',
+    'repositoryAdapter',
+  ].some((key) => isPlainObject(writerSource[key]));
+}
+
+function buildEngineerMobileVisitActionOptions(options = {}, readOptions = {}) {
+  if (!hasEngineerMobileVisitActionOptions(options)) {
+    return undefined;
+  }
+
+  const nested = engineerMobileVisitActionNestedOptions(options);
+  const writerSource = buildVisitActionWriterSource(options);
+  const explicitService = firstOwnOption(options, [
+    'engineerMobileVisitActionService',
+    'visitActionService',
+  ]) || nested.visitActionService;
+  const visitActionService = explicitService || (
+    hasVisitActionWriterSource(writerSource)
+      ? createEngineerMobileVisitActionRuntimeBootstrap(writerSource).visitActionService
+      : undefined
+  );
+
+  if (!visitActionService) {
+    return undefined;
+  }
+
+  return {
+    visitActionService,
+    visitActionAppointmentProvider: firstOwnOption(options, [
+      'engineerMobileVisitActionAppointmentProvider',
+      'visitActionAppointmentProvider',
+      'appointmentProvider',
+    ]) || nested.visitActionAppointmentProvider
+      || nested.appointmentProvider
+      || readOptions.taskProviderAsync
+      || readOptions.taskProvider,
+    permission: firstOwnOption(options, [
+      'engineerMobileVisitActionPermission',
+      'permission',
+    ]) || nested.permission,
+    now: firstOwnOption(options, [
+      'engineerMobileVisitActionNow',
+      'now',
+    ]) || nested.now,
+  };
+}
+
+function withEngineerMobileVisitActionOptions(readOptions, options = {}) {
+  const baseOptions = readOptions || {};
+  const visitActionOptions = buildEngineerMobileVisitActionOptions(options, baseOptions);
+
+  if (!visitActionOptions) {
+    return readOptions;
+  }
+
+  return {
+    ...baseOptions,
+    ...visitActionOptions,
+  };
+}
+
 function buildEngineerMobileOptions(options = {}) {
+  let readOptions;
+
   if (hasOwnOption(options, 'engineerMobile')) {
-    return buildEngineerMobileReadOptions(options.engineerMobile);
+    readOptions = buildEngineerMobileReadOptions(options.engineerMobile);
+    return withEngineerMobileVisitActionOptions(readOptions, {
+      ...options,
+      ...options.engineerMobile,
+    });
   }
 
   if (!hasEngineerMobileReadRepositoryOptions(options)) {
     if (!hasEngineerMobileReadExecutorOptions(options)) {
-      return undefined;
+      return withEngineerMobileVisitActionOptions(undefined, options);
     }
 
-    return buildEngineerMobileReadOptions({
+    readOptions = buildEngineerMobileReadOptions({
       allowNonExecutableForTest: options.engineerMobileAllowNonExecutableForTest === true,
       detailExecutor: firstOwnOption(options, [
         'engineerMobileDetailExecutor',
@@ -158,12 +297,14 @@ function buildEngineerMobileOptions(options = {}) {
       ]),
       useRequestAwareProvider: true,
     });
+    return withEngineerMobileVisitActionOptions(readOptions, options);
   }
 
-  return buildEngineerMobileReadOptions({
+  readOptions = buildEngineerMobileReadOptions({
     repository: options.engineerMobileReadRepository,
     useRequestAwareProvider: true,
   });
+  return withEngineerMobileVisitActionOptions(readOptions, options);
 }
 
 const ENGINEER_MOBILE_WORKBENCH_OPTION_KEYS = [

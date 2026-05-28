@@ -21,6 +21,7 @@ const { usersRouter } = require('./users.routes');
 const { createEngineerMobileWorkbenchRouter } = require('./engineerMobileWorkbench.routes');
 const { registerEngineerMobileRoutes } = require('./engineerMobileRoutes');
 const { registerEngineerMobileTaskDetailRoutes } = require('./engineerMobileTaskDetailRoutes');
+const { registerEngineerMobileVisitActionRoutes } = require('./engineerMobileVisitActionRoutes');
 const { registerCustomerAccessRoutes } = require('./customerAccessRoutes');
 const { registerCustomerAccessModuleRoutes } = require('../customerAccess/customerAccessRouteRegistry');
 const { registerDataCorrectionRoutes } = require('./dataCorrectionRoutes');
@@ -90,6 +91,7 @@ function createAppRouter(options = {}) {
   );
   registerEngineerMobileRoutes(appRouter, options.engineerMobile);
   registerEngineerMobileTaskDetailRoutes(appRouter, options.engineerMobile);
+  registerEngineerMobileVisitActionRoutes(appRouter, options.engineerMobile);
   registerCustomerAccessRoutesWithOptions(appRouter, options.customerAccess);
   registerDataCorrectionRoutes(appRouter, options.dataCorrection);
   registerRepairIntakeDraftToCaseAdminRoutes(appRouter, {
