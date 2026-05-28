@@ -500,3 +500,23 @@ test('service thrown error returns sanitized HTTP 500 without raw error', async 
   assert.equal(response.body.error.code, 'VISIT_ACTION_SERVICE_FAILED');
   assertNoForbiddenLeak(response);
 });
+
+test('repository adapter failure maps through presenter to HTTP 500', async () => {
+  const { response } = await handleWith(
+    {
+      ok: false,
+      allowed: true,
+      action: 'engineer_mobile.start_travel',
+      reasonCode: 'repository_adapter_write_failed',
+      appointmentId: 'apt_task_1810',
+      transitionApplied: false,
+      auditRecorded: false,
+      rawError: 'raw service failure token_should_not_leak',
+    },
+    request(),
+  );
+
+  assert.equal(response.statusCode, 500);
+  assert.equal(response.body.reasonCode, 'repository_adapter_write_failed');
+  assertNoForbiddenLeak(response);
+});
