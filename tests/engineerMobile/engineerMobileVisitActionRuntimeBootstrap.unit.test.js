@@ -140,6 +140,21 @@ function persistencePortSource() {
   };
 }
 
+function repositoryAdapterSource() {
+  const calls = [];
+  const repositoryAdapter = {
+    persist(payload) {
+      calls.push(payload);
+      return { ok: true, auditRecorded: payload.auditEventEnvelope ? true : undefined };
+    },
+  };
+
+  return {
+    calls,
+    repositoryAdapter,
+  };
+}
+
 function postMountTarget(extra = {}) {
   const registrations = [];
 
@@ -595,6 +610,261 @@ test('service-only bootstrap with persistencePort can handle accepted record_vis
   assert.equal(fake.calls[0].auditEventEnvelope.action, 'engineer_mobile.record_visit_result.allowed');
   assertNoSensitiveLeak(response);
   assertNoSensitiveLeak(fake.calls);
+});
+
+test('repositoryAdapter creates repository bridge integrated writer when direct writers and persistencePort are absent', () => {
+  const fake = repositoryAdapterSource();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    repositoryAdapter: fake.repositoryAdapter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'repository_bridge_integrated_writer',
+    auditWriter: 'repository_bridge_integrated_writer',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.allowed, true);
+  assert.equal(response.transitionApplied, true);
+  assert.equal(response.auditRecorded, false);
+  assert.equal(fake.calls.length, 1);
+  assert.equal(fake.calls[0].transitionPatchEnvelope.patchKind, 'engineer_mobile.visit_action_transition_patch');
+  assert.equal(fake.calls[0].transitionPatchEnvelope.entityId, 'apt_task_1814');
+  assert.equal(fake.calls[0].transitionPatchEnvelope.patch.mobileVisitStatus, 'traveling');
+  assert.equal(fake.calls[0].auditEventEnvelope.eventKind, 'engineer_mobile.visit_action_audit_event');
+  assert.equal(fake.calls[0].auditEventEnvelope.action, 'engineer_mobile.start_travel.allowed');
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(fake.calls);
+});
+
+test('direct transitionWriter takes precedence over persistencePort repositoryAdapter and patchWriter', () => {
+  const direct = writers();
+  const persistence = persistencePortSource();
+  const repository = repositoryAdapterSource();
+  const adapter = adapterWriterSources();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    transitionWriter: direct.transitionWriter,
+    persistencePort: persistence.persistencePort,
+    repositoryAdapter: repository.repositoryAdapter,
+    patchWriter: adapter.patchWriter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'direct',
+    auditWriter: 'missing',
+  });
+  assert.equal(response.ok, true);
+  assert.deepEqual(direct.calls.map((call) => call.name), ['transition']);
+  assert.deepEqual(persistence.calls, []);
+  assert.deepEqual(repository.calls, []);
+  assert.deepEqual(adapter.calls, []);
+  assertNoSensitiveLeak(response);
+});
+
+test('persistencePort takes precedence over repositoryAdapter', () => {
+  const persistence = persistencePortSource();
+  const repository = repositoryAdapterSource();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    persistencePort: persistence.persistencePort,
+    repositoryAdapter: repository.repositoryAdapter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'integrated_persistence_writer',
+    auditWriter: 'integrated_persistence_writer',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(persistence.calls.length, 1);
+  assert.deepEqual(repository.calls, []);
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(persistence.calls);
+});
+
+test('repositoryAdapter takes precedence over patchWriter', () => {
+  const repository = repositoryAdapterSource();
+  const adapter = adapterWriterSources();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    repositoryAdapter: repository.repositoryAdapter,
+    patchWriter: adapter.patchWriter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'repository_bridge_integrated_writer',
+    auditWriter: 'repository_bridge_integrated_writer',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(repository.calls.length, 1);
+  assert.equal(repository.calls[0].transitionPatchEnvelope.patch.mobileVisitStatus, 'traveling');
+  assert.deepEqual(adapter.calls, []);
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(repository.calls);
+});
+
+test('direct auditWriter takes precedence over repository bridge audit handling', () => {
+  const direct = writers();
+  const repository = repositoryAdapterSource();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    auditWriter: direct.auditWriter,
+    repositoryAdapter: repository.repositoryAdapter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'repository_bridge_integrated_writer',
+    auditWriter: 'direct',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.auditRecorded, true);
+  assert.equal(repository.calls.length, 1);
+  assert.equal(repository.calls[0].auditEventEnvelope, undefined);
+  assert.deepEqual(direct.calls.map((call) => call.name), ['audit']);
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(repository.calls);
+});
+
+test('repository bridge integrated writer handles audit together with transition without separate audit writer', () => {
+  const repository = repositoryAdapterSource();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    repositoryAdapter: repository.repositoryAdapter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'repository_bridge_integrated_writer',
+    auditWriter: 'repository_bridge_integrated_writer',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.auditRecorded, false);
+  assert.equal(repository.calls.length, 1);
+  assert.equal(repository.calls[0].auditEventEnvelope.entityId, 'apt_task_1814');
+  assert.equal(repository.calls[0].auditEventEnvelope.auditEvent.entityId, 'apt_task_1814');
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(repository.calls);
+});
+
+test('repositoryAdapter path does not create or call separate auditEventWriter', () => {
+  const repository = repositoryAdapterSource();
+  const adapter = adapterWriterSources();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    repositoryAdapter: repository.repositoryAdapter,
+    auditEventWriter: adapter.auditEventWriter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'repository_bridge_integrated_writer',
+    auditWriter: 'repository_bridge_integrated_writer',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(repository.calls.length, 1);
+  assert.equal(repository.calls[0].auditEventEnvelope.action, 'engineer_mobile.start_travel.allowed');
+  assert.deepEqual(adapter.calls, []);
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(repository.calls);
+});
+
+test('bootstrap does not call repositoryAdapter during bootstrap', () => {
+  const repository = repositoryAdapterSource();
+
+  createEngineerMobileVisitActionRuntimeBootstrap({
+    repositoryAdapter: repository.repositoryAdapter,
+    now: NOW,
+  });
+
+  assert.deepEqual(repository.calls, []);
+});
+
+test('service-only bootstrap with repositoryAdapter can handle accepted start_travel', () => {
+  const repository = repositoryAdapterSource();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    repositoryAdapter: repository.repositoryAdapter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assert.equal(response.ok, true);
+  assert.equal(response.action, ENGINEER_MOBILE_START_TRAVEL_ACTION);
+  assert.equal(repository.calls.length, 1);
+  assert.equal(repository.calls[0].transitionPatchEnvelope.patch.mobileVisitStatus, 'traveling');
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(repository.calls);
+});
+
+test('service-only bootstrap with repositoryAdapter can handle accepted record_visit_result', () => {
+  const repository = repositoryAdapterSource();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    repositoryAdapter: repository.repositoryAdapter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(recordVisitResultCommand());
+
+  assert.equal(response.ok, true);
+  assert.equal(response.action, ENGINEER_MOBILE_RECORD_VISIT_RESULT_ACTION);
+  assert.equal(repository.calls.length, 1);
+  assert.equal(repository.calls[0].transitionPatchEnvelope.patch.mobileVisitStatus, 'visit_result_recorded');
+  assert.equal(repository.calls[0].transitionPatchEnvelope.patch.visitResult, 'resolved');
+  assert.equal(repository.calls[0].auditEventEnvelope.action, 'engineer_mobile.record_visit_result.allowed');
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(repository.calls);
+});
+
+test('mounted handler with repositoryAdapter can process synthetic accepted request', async () => {
+  const repository = repositoryAdapterSource();
+  const mountTarget = postMountTarget();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    repositoryAdapter: repository.repositoryAdapter,
+    mountTarget,
+    now: NOW,
+  });
+  const response = await mountTarget.registrations[0].handler(request());
+
+  assertMounted(result, mountTarget, DEFAULT_PATH, 'post', {
+    transitionWriter: 'repository_bridge_integrated_writer',
+    auditWriter: 'repository_bridge_integrated_writer',
+  });
+  assert.equal(response.statusCode, 202);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.accepted, true);
+  assert.equal(repository.calls.length, 1);
+  assert.equal(repository.calls[0].transitionPatchEnvelope.patch.mobileVisitStatus, 'traveling');
+  assert.equal(repository.calls[0].auditEventEnvelope.action, 'engineer_mobile.start_travel.allowed');
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(repository.calls);
+});
+
+test('repositoryAdapter path does not mutate injected dependencies actor appointment or request payload', async () => {
+  const repository = repositoryAdapterSource();
+  const mountTarget = postMountTarget();
+  const sourceCommand = command();
+  const sourceRequest = request();
+  const beforeCommand = clone(sourceCommand);
+  const beforeRequest = clone(sourceRequest);
+  const repositoryBeforeKeys = Object.keys(repository.repositoryAdapter);
+
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    repositoryAdapter: repository.repositoryAdapter,
+    mountTarget,
+    now: NOW,
+  });
+
+  result.visitActionService.handleEngineerMobileVisitAction(sourceCommand);
+  await mountTarget.registrations[0].handler(sourceRequest);
+
+  assert.deepEqual(sourceCommand, beforeCommand);
+  assert.deepEqual(sourceRequest, beforeRequest);
+  assert.deepEqual(Object.keys(repository.repositoryAdapter), repositoryBeforeKeys);
+  assert.equal(mountTarget.registrations.length, 1);
+  assertNoSensitiveLeak(result);
 });
 
 test('with mountTarget.post bootstrap mounts exactly one POST handler', () => {

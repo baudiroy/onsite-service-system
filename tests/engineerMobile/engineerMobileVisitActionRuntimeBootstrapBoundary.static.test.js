@@ -10,7 +10,7 @@ const repoRoot = path.resolve(__dirname, '../..');
 const BOOTSTRAP_FILE = 'src/engineerMobile/engineerMobileVisitActionRuntimeBootstrap.js';
 const UNIT_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitActionRuntimeBootstrap.unit.test.js';
 const BOUNDARY_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitActionRuntimeBootstrapBoundary.static.test.js';
-const TASK_DOC = 'docs/task-1834-engineer-mobile-runtime-bootstrap-integrated-persistence-writer-wiring-no-db.md';
+const TASK_DOC = 'docs/task-1848-engineer-mobile-runtime-bootstrap-repository-bridge-wiring-injected-repository-no-db.md';
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -32,13 +32,13 @@ function requireSpecifiers(source) {
   return specifiers;
 }
 
-test('Task1834 allowed files exist', () => {
+test('Task1848 allowed files exist', () => {
   for (const file of [BOOTSTRAP_FILE, UNIT_TEST_FILE, BOUNDARY_TEST_FILE, TASK_DOC]) {
     assert.equal(fs.existsSync(absolutePath(file)), true, `${file} should exist`);
   }
 });
 
-test('visit action runtime bootstrap imports only accepted service injected mount writer adapters and integrated persistence writer', () => {
+test('visit action runtime bootstrap imports only accepted injected composition modules', () => {
   const source = read(BOOTSTRAP_FILE);
 
   assert.deepEqual(requireSpecifiers(source), [
@@ -47,6 +47,7 @@ test('visit action runtime bootstrap imports only accepted service injected moun
     './engineerMobileVisitActionTransitionWriterAdapter',
     './engineerMobileVisitActionAuditWriterAdapter',
     './engineerMobileVisitActionIntegratedPersistenceWriter',
+    './engineerMobileVisitActionRepositoryPersistencePortBridge',
   ]);
 });
 
@@ -62,6 +63,7 @@ test('visit action runtime bootstrap stays isolated from forbidden runtimes', ()
     /routes\/index/i,
     /\bapp\./,
     /\.listen\s*\(/,
+    /\blisten\b/,
     /\bpg\b/i,
     /\bpool\b/i,
     /DATABASE_URL/,
@@ -69,11 +71,19 @@ test('visit action runtime bootstrap stays isolated from forbidden runtimes', ()
     /\bfs\b/,
     /require\(['"].*node:path['"]\)/,
     /require\(['"].*path['"]\)/,
-    /\bfetch\b/,
-    /\brepository\b/i,
-    /\bRepository\b/,
+    /\brepository\.query\b/i,
+    /\bdb\.query\b/i,
+    /\bclient\.query\b/i,
+    /\bpool\.query\b/i,
     /db:migrate/i,
     /\bpsql\b/i,
+    /\bSELECT\b/,
+    /\bUPDATE\b/,
+    /\bINSERT\b/,
+    /\bDELETE\b/,
+    /CREATE\s+TABLE/i,
+    /ALTER\s+TABLE/i,
+    /DROP\s+TABLE/i,
     /\bline\b/i,
     /\bsms\b/i,
     /\bemail\b/i,
@@ -83,13 +93,20 @@ test('visit action runtime bootstrap stays isolated from forbidden runtimes', ()
     /\brag\b/i,
     /\bbilling\b/i,
     /\bsettlement\b/i,
+    /createCompletionReport/i,
+    /completionReportRepository/i,
     /completionReport/i,
     /fieldServiceReport/i,
-    /finalAppointmentId/,
+    /publish/i,
+    /approve/i,
+    /finalAppointmentId\s*=/,
+    /finalAppointmentId:/,
     /Date\.now\s*\(/,
     /new Date\s*\(/,
     /setTimeout\s*\(/,
     /setInterval\s*\(/,
+    /\bfetch\b/,
+    /\baxios\b/,
   ]) {
     assert.doesNotMatch(source, pattern, `bootstrap contains forbidden pattern ${pattern}`);
   }
@@ -99,11 +116,6 @@ test('visit action runtime bootstrap does not execute persistence provider or co
   const source = read(BOOTSTRAP_FILE);
 
   for (const pattern of [
-    /\bINSERT\b/i,
-    /\bUPDATE\b/i,
-    /\bDELETE\b/i,
-    /\bALTER\b/i,
-    /\bCREATE\s+TABLE\b/i,
     /\.query\s*\(/,
     /\.save\s*\(/,
     /\.update\s*\(/,
@@ -119,25 +131,26 @@ test('visit action runtime bootstrap does not execute persistence provider or co
   }
 });
 
-test('Task1834 doc records required runtime bootstrap integrated persistence boundaries', () => {
+test('Task1848 doc records required runtime bootstrap repository bridge boundaries', () => {
   const doc = read(TASK_DOC);
 
   for (const phrase of [
-    'No DB',
-    'No SQL',
+    'No DB execution',
+    'No SQL execution',
+    'No raw SQL',
     'No migration',
     'No global mount',
     'No route registration',
     'No Express import',
-    'No repository import',
-    'Injected persistence port only',
+    'Injected repository adapter only',
+    'Injected repository bridge only',
+    'No DB client creation',
     'No real persistence implementation',
     'No audit log persistence implementation',
     'No provider sending',
     'Injected dependencies only',
     'Injected writers only',
-    'Injected patch writer only',
-    'Injected audit event writer only',
+    'No separate audit event writer on repository bridge path',
     'No completion report creation',
     'No completion report approval',
     'No completion report publication',

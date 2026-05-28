@@ -15,6 +15,9 @@ const {
 const {
   createEngineerMobileVisitActionIntegratedPersistenceWriter,
 } = require('./engineerMobileVisitActionIntegratedPersistenceWriter');
+const {
+  createEngineerMobileVisitActionRepositoryPersistencePortBridge,
+} = require('./engineerMobileVisitActionRepositoryPersistencePortBridge');
 
 const ENGINEER_MOBILE_VISIT_ACTION_RUNTIME_BOOTSTRAP_KIND = 'engineer_mobile.visit_action_runtime_bootstrap';
 const AUDIT_EVENT_ACTION_BY_VISIT_ACTION = Object.freeze({
@@ -153,35 +156,61 @@ function auditIntentWriterAdapter(auditEventWriterAdapter) {
   };
 }
 
+function integratedWriterFromPersistencePort(persistencePort, source, writerSource) {
+  const integratedPersistenceWriter = createEngineerMobileVisitActionIntegratedPersistenceWriter({
+    persistencePort,
+    now: source.now,
+  });
+  const hasDirectAuditWriter = isObject(source.auditWriter);
+  const audit = resolveAuditWriter({
+    ...source,
+    persistencePort: undefined,
+    repositoryAdapter: undefined,
+    auditEventWriter: hasDirectAuditWriter ? source.auditEventWriter : undefined,
+  });
+
+  return {
+    transitionWriter: integratedTransitionWriterAdapter(integratedPersistenceWriter, {
+      includeAudit: !hasDirectAuditWriter,
+    }),
+    auditWriter: audit.writer,
+    sources: {
+      transitionWriter: writerSource,
+      auditWriter: hasDirectAuditWriter ? audit.source : writerSource,
+    },
+  };
+}
+
 function resolvedWriters(source) {
   const transitionSourceHasDirectWriter = isObject(source.transitionWriter);
-  const auditSourceHasDirectWriter = isObject(source.auditWriter);
 
   if (!transitionSourceHasDirectWriter && isObject(source.persistencePort)) {
-    const integratedPersistenceWriter = createEngineerMobileVisitActionIntegratedPersistenceWriter({
-      persistencePort: source.persistencePort,
-      now: source.now,
-    });
-    const audit = resolveAuditWriter({
-      ...source,
-      persistencePort: undefined,
-      auditEventWriter: auditSourceHasDirectWriter ? source.auditEventWriter : undefined,
+    return integratedWriterFromPersistencePort(
+      source.persistencePort,
+      source,
+      'integrated_persistence_writer',
+    );
+  }
+
+  if (!transitionSourceHasDirectWriter && isObject(source.repositoryAdapter)) {
+    const repositoryPersistencePortBridge = createEngineerMobileVisitActionRepositoryPersistencePortBridge({
+      repositoryAdapter: source.repositoryAdapter,
     });
 
-    return {
-      transitionWriter: integratedTransitionWriterAdapter(integratedPersistenceWriter, {
-        includeAudit: !auditSourceHasDirectWriter,
-      }),
-      auditWriter: audit.writer,
-      sources: {
-        transitionWriter: 'integrated_persistence_writer',
-        auditWriter: auditSourceHasDirectWriter ? audit.source : 'integrated_persistence_writer',
-      },
-    };
+    return integratedWriterFromPersistencePort(
+      repositoryPersistencePortBridge,
+      source,
+      'repository_bridge_integrated_writer',
+    );
   }
 
   const transition = resolveTransitionWriter(source);
-  const audit = resolveAuditWriter(source);
+  const audit = (
+    isObject(source.auditWriter)
+    || (!isObject(source.persistencePort) && !isObject(source.repositoryAdapter))
+      ? resolveAuditWriter(source)
+      : { writer: undefined, source: 'missing' }
+  );
 
   return {
     transitionWriter: transition.writer,
