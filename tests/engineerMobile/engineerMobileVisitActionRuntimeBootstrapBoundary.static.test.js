@@ -10,7 +10,7 @@ const repoRoot = path.resolve(__dirname, '../..');
 const BOOTSTRAP_FILE = 'src/engineerMobile/engineerMobileVisitActionRuntimeBootstrap.js';
 const UNIT_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitActionRuntimeBootstrap.unit.test.js';
 const BOUNDARY_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitActionRuntimeBootstrapBoundary.static.test.js';
-const TASK_DOC = 'docs/task-1814-engineer-mobile-visit-action-runtime-bootstrap-injected-dependencies-no-global-mount.md';
+const TASK_DOC = 'docs/task-1826-engineer-mobile-visit-action-runtime-bootstrap-writer-adapters-injected-only-no-db.md';
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -32,18 +32,20 @@ function requireSpecifiers(source) {
   return specifiers;
 }
 
-test('Task1814 allowed files exist', () => {
+test('Task1826 allowed files exist', () => {
   for (const file of [BOOTSTRAP_FILE, UNIT_TEST_FILE, BOUNDARY_TEST_FILE, TASK_DOC]) {
     assert.equal(fs.existsSync(absolutePath(file)), true, `${file} should exist`);
   }
 });
 
-test('visit action runtime bootstrap imports only accepted service and injected mount adapter', () => {
+test('visit action runtime bootstrap imports only accepted service injected mount and writer adapters', () => {
   const source = read(BOOTSTRAP_FILE);
 
   assert.deepEqual(requireSpecifiers(source), [
     './engineerMobileVisitActionApplicationService',
     './engineerMobileVisitActionInjectedMountAdapter',
+    './engineerMobileVisitActionTransitionWriterAdapter',
+    './engineerMobileVisitActionAuditWriterAdapter',
   ]);
 });
 
@@ -116,7 +118,7 @@ test('visit action runtime bootstrap does not execute persistence provider or co
   }
 });
 
-test('Task1814 doc records required runtime bootstrap boundaries', () => {
+test('Task1826 doc records required runtime bootstrap boundaries', () => {
   const doc = read(TASK_DOC);
 
   for (const phrase of [
@@ -128,8 +130,10 @@ test('Task1814 doc records required runtime bootstrap boundaries', () => {
     'No app/server change',
     'Injected dependencies only',
     'Injected writers only',
-    'Injected mount target only',
+    'Injected patch writer only',
+    'Injected audit event writer only',
     'No real persistence',
+    'No real audit persistence',
     'No repository import',
     'No provider sending',
     'No completion report creation',

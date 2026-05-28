@@ -84,6 +84,28 @@ function writers() {
   };
 }
 
+function adapterWriterSources() {
+  const calls = [];
+  const patchWriter = {
+    write(patchEnvelope) {
+      calls.push({ name: 'patch', payload: patchEnvelope });
+      return { ok: true };
+    },
+  };
+  const auditEventWriter = {
+    record(auditEventEnvelope) {
+      calls.push({ name: 'audit_event', payload: auditEventEnvelope });
+      return { ok: true };
+    },
+  };
+
+  return {
+    calls,
+    patchWriter,
+    auditEventWriter,
+  };
+}
+
 function postMountTarget(extra = {}) {
   const registrations = [];
 
@@ -163,22 +185,36 @@ function assertNoSensitiveLeak(value) {
   }
 }
 
-function assertServiceOnly(result) {
+function assertServiceOnly(result, expectedWriterSources = {
+  transitionWriter: 'direct',
+  auditWriter: 'direct',
+}) {
   assert.equal(result.kind, ENGINEER_MOBILE_VISIT_ACTION_RUNTIME_BOOTSTRAP_KIND);
   assert.equal(result.ok, true);
   assert.equal(result.reasonCode, 'service_only');
   assert.equal(result.mounted, 0);
   assert.deepEqual(result.routes, []);
+  assert.deepEqual(result.writerSources, expectedWriterSources);
   assert.equal(typeof result.visitActionService.handleEngineerMobileVisitAction, 'function');
   assertNoSensitiveLeak(result);
 }
 
-function assertMounted(result, mountTarget, expectedPath = DEFAULT_PATH, expectedStyle = 'post') {
+function assertMounted(
+  result,
+  mountTarget,
+  expectedPath = DEFAULT_PATH,
+  expectedStyle = 'post',
+  expectedWriterSources = {
+    transitionWriter: 'direct',
+    auditWriter: 'direct',
+  },
+) {
   assert.equal(result.kind, ENGINEER_MOBILE_VISIT_ACTION_RUNTIME_BOOTSTRAP_KIND);
   assert.equal(result.ok, true);
   assert.equal(result.reasonCode, 'mounted');
   assert.equal(result.mounted, 1);
   assert.deepEqual(result.routes, [{ method: 'POST', path: expectedPath }]);
+  assert.deepEqual(result.writerSources, expectedWriterSources);
   assert.equal(result.mountSummary.reasonCode, 'mounted');
   assert.equal(result.mountSummary.mountStyle, expectedStyle);
   assert.equal(mountTarget.registrations.length, 1);
@@ -209,6 +245,20 @@ test('service-only bootstrap does not call transition writer or audit writer', (
   });
 
   assert.deepEqual(fake.calls, []);
+});
+
+test('service-only bootstrap with missing writer sources reports missing and preserves safe service behavior', () => {
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({});
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'missing',
+    auditWriter: 'missing',
+  });
+  assert.equal(response.ok, false);
+  assert.equal(response.allowed, true);
+  assert.equal(response.reasonCode, 'transition_writer_required');
+  assertNoSensitiveLeak(response);
 });
 
 test('bootstrapped service can handle a synthetic denied request without writers being called', () => {
@@ -244,6 +294,133 @@ test('bootstrapped service can handle a synthetic accepted start_travel request 
   assert.equal(response.transitionApplied, true);
   assert.equal(response.auditRecorded, true);
   assert.deepEqual(fake.calls.map((call) => call.name), ['transition', 'audit']);
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(fake.calls);
+});
+
+test('patchWriter creates transition writer adapter when transitionWriter is absent', () => {
+  const fake = adapterWriterSources();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    patchWriter: fake.patchWriter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'patch_writer_adapter',
+    auditWriter: 'missing',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.allowed, true);
+  assert.equal(response.reasonCode, 'applied');
+  assert.equal(response.transitionApplied, true);
+  assert.equal(response.auditRecorded, false);
+  assert.deepEqual(fake.calls.map((call) => call.name), ['patch']);
+  assert.equal(fake.calls[0].payload.patch.mobileVisitStatus, 'traveling');
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(fake.calls);
+});
+
+test('direct transitionWriter takes precedence over patchWriter', () => {
+  const direct = writers();
+  const adapter = adapterWriterSources();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    transitionWriter: direct.transitionWriter,
+    patchWriter: adapter.patchWriter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'direct',
+    auditWriter: 'missing',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.auditRecorded, false);
+  assert.deepEqual(direct.calls.map((call) => call.name), ['transition']);
+  assert.deepEqual(adapter.calls, []);
+  assertNoSensitiveLeak(response);
+});
+
+test('auditEventWriter creates audit writer adapter when auditWriter is absent', () => {
+  const direct = writers();
+  const adapter = adapterWriterSources();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    transitionWriter: direct.transitionWriter,
+    auditEventWriter: adapter.auditEventWriter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'direct',
+    auditWriter: 'audit_event_writer_adapter',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.auditRecorded, true);
+  assert.deepEqual(direct.calls.map((call) => call.name), ['transition']);
+  assert.deepEqual(adapter.calls.map((call) => call.name), ['audit_event']);
+  assert.equal(adapter.calls[0].payload.auditEvent.entityType, 'appointment');
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(adapter.calls);
+});
+
+test('direct auditWriter takes precedence over auditEventWriter', () => {
+  const direct = writers();
+  const adapter = adapterWriterSources();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    transitionWriter: direct.transitionWriter,
+    auditWriter: direct.auditWriter,
+    auditEventWriter: adapter.auditEventWriter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'direct',
+    auditWriter: 'direct',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.auditRecorded, true);
+  assert.deepEqual(direct.calls.map((call) => call.name), ['transition', 'audit']);
+  assert.deepEqual(adapter.calls, []);
+  assertNoSensitiveLeak(response);
+});
+
+test('bootstrap does not call direct writers patch writer or audit event writer during bootstrap', () => {
+  const direct = writers();
+  const adapter = adapterWriterSources();
+
+  createEngineerMobileVisitActionRuntimeBootstrap({
+    transitionWriter: direct.transitionWriter,
+    auditWriter: direct.auditWriter,
+    patchWriter: adapter.patchWriter,
+    auditEventWriter: adapter.auditEventWriter,
+    now: NOW,
+  });
+
+  assert.deepEqual(direct.calls, []);
+  assert.deepEqual(adapter.calls, []);
+});
+
+test('bootstrapped service can handle accepted start_travel through adapter-created transition and audit writers', () => {
+  const fake = adapterWriterSources();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    patchWriter: fake.patchWriter,
+    auditEventWriter: fake.auditEventWriter,
+    now: NOW,
+  });
+  const response = result.visitActionService.handleEngineerMobileVisitAction(command());
+
+  assertServiceOnly(result, {
+    transitionWriter: 'patch_writer_adapter',
+    auditWriter: 'audit_event_writer_adapter',
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.allowed, true);
+  assert.equal(response.transitionApplied, true);
+  assert.equal(response.auditRecorded, true);
+  assert.deepEqual(fake.calls.map((call) => call.name), ['patch', 'audit_event']);
   assertNoSensitiveLeak(response);
   assertNoSensitiveLeak(fake.calls);
 });
@@ -306,6 +483,29 @@ test('mounted handler can process a synthetic accepted request through the boots
   assert.equal(response.body.caseId, 'case_task_1814');
   assert.deepEqual(fake.calls.map((call) => call.name), ['transition', 'audit']);
   assertNoSensitiveLeak(response);
+});
+
+test('mounted handler processes synthetic accepted request through adapter-created writers', async () => {
+  const fake = adapterWriterSources();
+  const mountTarget = postMountTarget();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    patchWriter: fake.patchWriter,
+    auditEventWriter: fake.auditEventWriter,
+    mountTarget,
+    now: NOW,
+  });
+  const response = await mountTarget.registrations[0].handler(request());
+
+  assertMounted(result, mountTarget, DEFAULT_PATH, 'post', {
+    transitionWriter: 'patch_writer_adapter',
+    auditWriter: 'audit_event_writer_adapter',
+  });
+  assert.equal(response.statusCode, 202);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.accepted, true);
+  assert.deepEqual(fake.calls.map((call) => call.name), ['patch', 'audit_event']);
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(fake.calls);
 });
 
 test('unsupported mount target returns sanitized failure with unsupported_mount_target', () => {
