@@ -12,6 +12,9 @@ const {
 const {
   createEngineerMobileVisitActionAuditWriterAdapter,
 } = require('./engineerMobileVisitActionAuditWriterAdapter');
+const {
+  createEngineerMobileVisitActionIntegratedPersistenceWriter,
+} = require('./engineerMobileVisitActionIntegratedPersistenceWriter');
 
 const ENGINEER_MOBILE_VISIT_ACTION_RUNTIME_BOOTSTRAP_KIND = 'engineer_mobile.visit_action_runtime_bootstrap';
 const AUDIT_EVENT_ACTION_BY_VISIT_ACTION = Object.freeze({
@@ -112,6 +115,35 @@ function auditEventIntentFrom(auditIntent) {
   };
 }
 
+function integratedAuditIntentFrom(transitionIntent) {
+  const source = isObject(transitionIntent) ? transitionIntent : {};
+  const action = AUDIT_EVENT_ACTION_BY_VISIT_ACTION[source.action];
+
+  return {
+    action,
+    entityType: 'appointment',
+    entityId: source.appointmentId,
+    actorId: source.actorId,
+    organizationId: source.organizationId,
+    caseId: source.caseId,
+    appointmentId: source.appointmentId,
+  };
+}
+
+function integratedTransitionWriterAdapter(integratedPersistenceWriter, options = {}) {
+  const includeAudit = options.includeAudit === true;
+
+  return {
+    kind: integratedPersistenceWriter.kind,
+    write(transitionIntent) {
+      return integratedPersistenceWriter.write({
+        transitionIntent,
+        auditIntent: includeAudit ? integratedAuditIntentFrom(transitionIntent) : undefined,
+      });
+    },
+  };
+}
+
 function auditIntentWriterAdapter(auditEventWriterAdapter) {
   return {
     kind: auditEventWriterAdapter.kind,
@@ -122,6 +154,32 @@ function auditIntentWriterAdapter(auditEventWriterAdapter) {
 }
 
 function resolvedWriters(source) {
+  const transitionSourceHasDirectWriter = isObject(source.transitionWriter);
+  const auditSourceHasDirectWriter = isObject(source.auditWriter);
+
+  if (!transitionSourceHasDirectWriter && isObject(source.persistencePort)) {
+    const integratedPersistenceWriter = createEngineerMobileVisitActionIntegratedPersistenceWriter({
+      persistencePort: source.persistencePort,
+      now: source.now,
+    });
+    const audit = resolveAuditWriter({
+      ...source,
+      persistencePort: undefined,
+      auditEventWriter: auditSourceHasDirectWriter ? source.auditEventWriter : undefined,
+    });
+
+    return {
+      transitionWriter: integratedTransitionWriterAdapter(integratedPersistenceWriter, {
+        includeAudit: !auditSourceHasDirectWriter,
+      }),
+      auditWriter: audit.writer,
+      sources: {
+        transitionWriter: 'integrated_persistence_writer',
+        auditWriter: auditSourceHasDirectWriter ? audit.source : 'integrated_persistence_writer',
+      },
+    };
+  }
+
   const transition = resolveTransitionWriter(source);
   const audit = resolveAuditWriter(source);
 

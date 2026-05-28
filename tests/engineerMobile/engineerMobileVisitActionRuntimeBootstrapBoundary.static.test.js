@@ -10,7 +10,7 @@ const repoRoot = path.resolve(__dirname, '../..');
 const BOOTSTRAP_FILE = 'src/engineerMobile/engineerMobileVisitActionRuntimeBootstrap.js';
 const UNIT_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitActionRuntimeBootstrap.unit.test.js';
 const BOUNDARY_TEST_FILE = 'tests/engineerMobile/engineerMobileVisitActionRuntimeBootstrapBoundary.static.test.js';
-const TASK_DOC = 'docs/task-1826-engineer-mobile-visit-action-runtime-bootstrap-writer-adapters-injected-only-no-db.md';
+const TASK_DOC = 'docs/task-1834-engineer-mobile-runtime-bootstrap-integrated-persistence-writer-wiring-no-db.md';
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -32,13 +32,13 @@ function requireSpecifiers(source) {
   return specifiers;
 }
 
-test('Task1826 allowed files exist', () => {
+test('Task1834 allowed files exist', () => {
   for (const file of [BOOTSTRAP_FILE, UNIT_TEST_FILE, BOUNDARY_TEST_FILE, TASK_DOC]) {
     assert.equal(fs.existsSync(absolutePath(file)), true, `${file} should exist`);
   }
 });
 
-test('visit action runtime bootstrap imports only accepted service injected mount and writer adapters', () => {
+test('visit action runtime bootstrap imports only accepted service injected mount writer adapters and integrated persistence writer', () => {
   const source = read(BOOTSTRAP_FILE);
 
   assert.deepEqual(requireSpecifiers(source), [
@@ -46,6 +46,7 @@ test('visit action runtime bootstrap imports only accepted service injected moun
     './engineerMobileVisitActionInjectedMountAdapter',
     './engineerMobileVisitActionTransitionWriterAdapter',
     './engineerMobileVisitActionAuditWriterAdapter',
+    './engineerMobileVisitActionIntegratedPersistenceWriter',
   ]);
 });
 
@@ -118,24 +119,25 @@ test('visit action runtime bootstrap does not execute persistence provider or co
   }
 });
 
-test('Task1826 doc records required runtime bootstrap boundaries', () => {
+test('Task1834 doc records required runtime bootstrap integrated persistence boundaries', () => {
   const doc = read(TASK_DOC);
 
   for (const phrase of [
     'No DB',
+    'No SQL',
     'No migration',
     'No global mount',
+    'No route registration',
     'No Express import',
-    'No route index change',
-    'No app/server change',
+    'No repository import',
+    'Injected persistence port only',
+    'No real persistence implementation',
+    'No audit log persistence implementation',
+    'No provider sending',
     'Injected dependencies only',
     'Injected writers only',
     'Injected patch writer only',
     'Injected audit event writer only',
-    'No real persistence',
-    'No real audit persistence',
-    'No repository import',
-    'No provider sending',
     'No completion report creation',
     'No completion report approval',
     'No completion report publication',
