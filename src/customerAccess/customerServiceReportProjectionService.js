@@ -463,6 +463,20 @@ function customerDisplayValue(value) {
   return candidate;
 }
 
+function customerServiceSummaryValue(value) {
+  const candidate = customerDisplayValue(value);
+
+  if (!candidate) {
+    return undefined;
+  }
+
+  if (/(?:authorization|bearer\s+|cookie:|set-cookie|x-api-key|api[_-]?key|stack trace|\n\s*at\s+\S+|raw payload|provider payload|ai draft|engineer note|diagnosis note|completion note|private report)/i.test(candidate)) {
+    return undefined;
+  }
+
+  return candidate;
+}
+
 function buildQuerySpec({ organizationId, customerId, caseId, reportId }) {
   return Object.freeze({
     name: 'customerServiceReportProjection',
@@ -639,7 +653,7 @@ function mapProjection(row) {
   const serviceStatus = customerDisplayValue(rowValue(row, 'serviceStatus', 'service_status_display', 'serviceStatusDisplay', 'statusDisplay'));
   const appointmentWindow = customerDisplayValue(rowValue(row, 'appointmentWindow', 'appointment_window', 'appointmentDisplayTimeWindow'));
   const engineerDisplayName = customerDisplayValue(rowValue(row, 'engineerDisplayName', 'engineer_display_name'));
-  const serviceSummary = rowValue(row, 'approved_service_summary');
+  const serviceSummary = customerServiceSummaryValue(rowValue(row, 'approved_service_summary'));
   const completionTime = completionTimeValue(rowValue(row, 'completionTime', 'completion_time', 'completed_at'));
   const attachments = safeAttachments(row);
 

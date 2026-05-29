@@ -1,4 +1,4 @@
-# Task2058 - Customer-Facing serviceSummary Approved Source Contract / No DB No Route No Smoke
+# Task2058 - Customer-Facing serviceSummary Approved Source Runtime Contract / No DB No Route No Smoke
 
 ## PM Decision
 
@@ -12,11 +12,14 @@ PM selected Option B from Task2056:
 - Updated `src/customerAccess/customerServiceReportProjectionService.js` so the customer-facing service report projection query selects `approved_service_summary`.
 - Updated the service report DTO mapper so `serviceSummary` reads only `approved_service_summary`.
 - Removed the previous runtime fallback from `serviceSummary` and `service_summary` into customer-facing output.
+- Added a conservative malformed/unsafe summary filter for non-string, empty, SQL-looking, token/header-looking, stack-like, provider-payload, internal-note, AI-draft, completion-note, diagnosis-note, and private-report-body strings.
 
 ## Tests
 
 - Updated customer-facing projection, handler, route, adapter, and full-route synthetic tests to use `approved_service_summary` as the approved source.
 - Added unit coverage proving legacy `serviceSummary` and `service_summary` values are ignored and do not leak when `approved_service_summary` is absent.
+- Added positive coverage proving approved summaries are trimmed before customer display.
+- Added malformed/unsafe source coverage proving raw unsafe approved summary candidates do not appear in response JSON.
 - Added static coverage guarding against restoring the old fallback chain.
 
 ## Scope Guard

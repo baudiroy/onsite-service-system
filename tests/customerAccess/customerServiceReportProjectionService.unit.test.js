@@ -705,6 +705,24 @@ test('authorized context omits malformed completion time values', async () => {
   assertNoSensitiveLeak(output);
 });
 
+test('authorized context trims approved service summary before customer display', async () => {
+  const dbClient = createDbClient([
+    reportRow({
+      approved_service_summary: ' Safe completed repair summary ',
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+
+  assert.equal(output.status, 'allow');
+  assert.equal(output.data.serviceReport.serviceSummary, 'Safe completed repair summary');
+  assertNoSensitiveLeak(output);
+});
+
 test('authorized context ignores legacy service summary fields and only emits approved source', async () => {
   const dbClient = createDbClient([
     reportRow({
@@ -746,6 +764,70 @@ test('authorized context omits serviceSummary when approved source is absent', a
     false,
   );
   assertNoSensitiveLeak(output);
+});
+
+test('authorized context omits unsafe approved service summary strings', async () => {
+  for (const unsafeSummary of [
+    'select secret from cases',
+    'Authorization: Bearer token_should_not_leak',
+    'stack trace\n    at internal.handler (/srv/app.js:1:1)',
+    'provider payload should not leak',
+    'engineer note should not leak',
+    'AI draft summary should not leak',
+    'completion note should not leak',
+    'diagnosis note should not leak',
+    'private report body should not leak',
+  ]) {
+    const dbClient = createDbClient([
+      reportRow({
+        approved_service_summary: unsafeSummary,
+      }),
+    ]);
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assert.equal(output.status, 'allow');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(output.data.serviceReport, 'serviceSummary'),
+      false,
+    );
+    assert.equal(JSON.stringify(output).includes(unsafeSummary), false);
+    assertNoSensitiveLeak(output);
+  }
+});
+
+test('authorized context omits non-string approved service summary values', async () => {
+  for (const approved_service_summary of [
+    null,
+    undefined,
+    123,
+    true,
+    ['array summary should not leak'],
+    { text: 'object summary should not leak' },
+  ]) {
+    const dbClient = createDbClient([
+      reportRow({
+        approved_service_summary,
+      }),
+    ]);
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assert.equal(output.status, 'allow');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(output.data.serviceReport, 'serviceSummary'),
+      false,
+    );
+    assertNoSensitiveLeak(output);
+  }
 });
 
 test('authorized context omits malformed service status display values', async () => {
