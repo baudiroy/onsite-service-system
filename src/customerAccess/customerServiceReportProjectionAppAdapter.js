@@ -96,6 +96,7 @@ function registerCustomerServiceReportProjectionRoute(options = {}) {
   const handler = createCustomerServiceReportProjectionHandler({
     dbClient: options.dbClient,
     projectionService: options.projectionService,
+    auditWriter: options.auditWriter,
   });
 
   try {

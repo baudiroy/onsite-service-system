@@ -7,6 +7,10 @@ const {
   createCustomerServiceReportProjectionHandler,
   handleCustomerServiceReportProjectionRequest,
 } = require('../../src/customerAccess/customerServiceReportProjectionHandler');
+const {
+  CUSTOMER_ACCESS_AUDIT_EVENT_KEYS,
+  CUSTOMER_ACCESS_AUDIT_METADATA_KEYS,
+} = require('../../src/customerAccess/customerAccessAuditEventBuilder');
 
 function authorizedContext(overrides = {}) {
   return {
@@ -272,6 +276,44 @@ function assertForbiddenBoundaryKeysAbsent(output) {
     '"internal_path"',
   ]) {
     assert.equal(serialized.includes(forbidden), false, `handler response leaked boundary key ${forbidden}`);
+  }
+}
+
+function assertSafeAuditEvent(event) {
+  const serialized = JSON.stringify(event);
+
+  assert.deepEqual(
+    Object.keys(event).sort(),
+    Object.keys(event)
+      .filter((key) => CUSTOMER_ACCESS_AUDIT_EVENT_KEYS.includes(key))
+      .sort(),
+  );
+
+  if (event.metadata) {
+    assert.deepEqual(
+      Object.keys(event.metadata).sort(),
+      Object.keys(event.metadata)
+        .filter((key) => CUSTOMER_ACCESS_AUDIT_METADATA_KEYS.includes(key))
+        .sort(),
+    );
+  }
+
+  for (const forbidden of [
+    '0912345678',
+    'No. 1 Secret Road',
+    'line_user_should_not_leak',
+    'raw_projection_row_should_not_leak',
+    'raw_service_result_should_not_leak',
+    'provider_payload_should_not_leak',
+    'debug_marker_should_not_leak',
+    'projection_query_config_should_not_leak',
+    'select secret',
+    'token_should_not_leak',
+    'query_metadata_should_not_leak',
+    'raw_db_rows_should_not_leak',
+    'internal field should not leak',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `audit event leaked ${forbidden}`);
   }
 }
 
@@ -560,6 +602,236 @@ test('valid authorized request returns HTTP 200 with only Task908 safe projectio
   assertStableHandlerDtoShape(response);
   assert.equal(dbClient.calls.length, 1);
   assert.equal(dbClient.calls[0].readOnly, true);
+});
+
+test('valid service-report allow response writes one injected audit event without changing response', async () => {
+  const dbClient = dbClientWithRows([reportRow()]);
+  const auditEvents = [];
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient,
+    auditWriter: (auditEvent) => {
+      auditEvents.push(auditEvent);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.status, 'allow');
+  assert.equal(auditEvents.length, 1);
+  assert.deepEqual(auditEvents[0], {
+    eventType: 'customer_access.service_report.allow',
+    organizationId: 'org_handler_001',
+    customerId: 'customer_handler_001',
+    caseId: 'case_handler_001',
+    reportId: 'report_public_handler_001',
+    decision: 'allow',
+    route: '/customer-access/:caseId/service-report/:reportId',
+    method: 'GET',
+    source: 'customer_access_projection_service',
+    metadata: {
+      routeMatched: true,
+      contextPresent: true,
+      identifierValid: true,
+    },
+  });
+  assertSafeAuditEvent(auditEvents[0]);
+  assertNoSensitiveLeak(response);
+  assert.equal(JSON.stringify(response).includes('auditWritten'), false);
+});
+
+test('service-report safe-deny response writes one injected deny audit event without changing response', async () => {
+  const auditEvents = [];
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient: dbClientWithRows([]),
+    auditWriter: (auditEvent) => {
+      auditEvents.push(auditEvent);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+
+  assertGenericSafeDeny(response);
+  assert.equal(auditEvents.length, 1);
+  assert.deepEqual(auditEvents[0], {
+    eventType: 'customer_access.service_report.deny',
+    organizationId: 'org_handler_001',
+    customerId: 'customer_handler_001',
+    caseId: 'case_handler_001',
+    reportId: 'report_public_handler_001',
+    decision: 'deny',
+    reasonCode: 'customerAccess.unavailable',
+    route: '/customer-access/:caseId/service-report/:reportId',
+    method: 'GET',
+    source: 'customer_access_projection_service',
+    metadata: {
+      routeMatched: true,
+      contextPresent: true,
+      identifierValid: true,
+    },
+  });
+  assertSafeAuditEvent(auditEvents[0]);
+});
+
+test('service-report without auditWriter preserves allow and deny responses with no audit output', async () => {
+  const allowResponse = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient: dbClientWithRows([reportRow()]),
+  });
+  const denyResponse = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient: dbClientWithRows([]),
+  });
+
+  assert.equal(allowResponse.statusCode, 200);
+  assertGenericSafeDeny(denyResponse);
+  assert.equal(JSON.stringify(allowResponse).includes('auditWritten'), false);
+  assert.equal(JSON.stringify(denyResponse).includes('auditWritten'), false);
+  assert.equal(JSON.stringify(allowResponse).includes('customer_access.service_report'), false);
+  assert.equal(JSON.stringify(denyResponse).includes('customer_access.service_report'), false);
+});
+
+test('service-report audit writer failure never changes allow deny or projection failure response', async () => {
+  const rawWriterError = new Error('writer stack should not leak token_should_not_leak');
+  const auditWriters = [
+    () => {
+      throw rawWriterError;
+    },
+    async () => {
+      throw rawWriterError;
+    },
+    () => ({
+      ok: true,
+      status: 'recorded',
+      auditWritten: false,
+      persisted: true,
+      raw: 'raw_service_result_should_not_leak',
+    }),
+  ];
+
+  for (const auditWriter of auditWriters) {
+    const allowResponse = await handleCustomerServiceReportProjectionRequest({
+      request: request(),
+      dbClient: dbClientWithRows([reportRow()]),
+      auditWriter,
+    });
+    const denyResponse = await handleCustomerServiceReportProjectionRequest({
+      request: request(),
+      dbClient: dbClientWithRows([]),
+      auditWriter,
+    });
+    const queryFailureResponse = await handleCustomerServiceReportProjectionRequest({
+      request: request(),
+      dbClient: dbClientWithRows([reportRow()], { throwOnQuery: true }),
+      auditWriter,
+    });
+
+    assert.equal(allowResponse.statusCode, 200);
+    assertGenericSafeDeny(denyResponse);
+    assertGenericSafeDeny(queryFailureResponse);
+    assertNoSensitiveLeak(allowResponse);
+    assertNoSensitiveLeak(denyResponse);
+    assertNoSensitiveLeak(queryFailureResponse);
+    assert.equal(JSON.stringify(allowResponse).includes('auditWritten'), false);
+    assert.equal(JSON.stringify(denyResponse).includes('writer stack should not leak'), false);
+    assert.equal(JSON.stringify(queryFailureResponse).includes('token_should_not_leak'), false);
+  }
+});
+
+test('service-report audit event omits raw request context projection DB and private fields', async () => {
+  const auditEvents = [];
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request({
+      headers: {
+        authorization: 'token_should_not_leak',
+      },
+      rawHeaders: ['authorization', 'token_should_not_leak'],
+      query: {
+        sql: 'select secret',
+      },
+      body: {
+        provider_payload: 'provider_payload_should_not_leak',
+      },
+      user: {
+        private: 'internal field should not leak',
+      },
+    }),
+    dbClient: dbClientWithRows([
+      reportRow({
+        queryMetadata: 'query_metadata_should_not_leak',
+        rawDbRows: 'raw_db_rows_should_not_leak',
+        debugMarker: 'debug_marker_should_not_leak',
+        providerPayload: 'provider_payload_should_not_leak',
+      }),
+    ]),
+    projectionService: () => ({
+      status: 'allow',
+      messageKey: 'customerAccess.serviceReport.available',
+      customerVisible: true,
+      data: {
+        serviceReport: {
+          customerReportReference: 'report_public_handler_001',
+          caseReference: 'CASE-HANDLER-001',
+          serviceStatus: 'Completed',
+          serviceSummary: 'Customer-safe handler service summary',
+        },
+      },
+    }),
+    auditWriter: (auditEvent) => {
+      auditEvents.push(auditEvent);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(auditEvents.length, 1);
+  assertSafeAuditEvent(auditEvents[0]);
+  assertNoSensitiveLeak(response);
+  assert.equal(JSON.stringify(response).includes('auditWritten'), false);
+});
+
+test('invalid service-report input skips audit writer and keeps safe-deny response unchanged', async () => {
+  let auditCallCount = 0;
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request({
+      params: {
+        caseId: 'case_handler_001; select secret',
+        reportId: 'report_public_handler_001',
+      },
+    }),
+    dbClient: dbClientWithRows([reportRow()]),
+    auditWriter: () => {
+      auditCallCount += 1;
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+
+  assertGenericSafeDeny(response);
+  assert.equal(auditCallCount, 0);
 });
 
 test('valid handler response omits null empty optional DTO fields safely', async () => {

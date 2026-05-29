@@ -337,7 +337,7 @@ test('customer access context middleware rebuilds downstream context from explic
   assert.doesNotMatch(middleware, /req\.headers|req\.body|req\.query|req\.cookies|req\.session|req\.user|req\.socket|req\.connection/);
 });
 
-test('Task2113 audit side-channel remains case-overview only without service-report route-registration or middleware adapter integration', () => {
+test('Task2116 audit side-channel remains bounded to case-overview controller and service-report HTTP handler', () => {
   const route = read(FILES.route);
   const controller = read(FILES.customerAccessController);
   const middleware = read(FILES.customerAccessContextMiddleware);
@@ -349,22 +349,25 @@ test('Task2113 audit side-channel remains case-overview only without service-rep
   assert.match(controller, /writeCustomerAccessAuditEvent/);
   assert.match(controller, /customer_access\.case_overview\.allow/);
   assert.match(controller, /customer_access\.case_overview\.deny/);
+  assert.match(projectionHandler, /customerAccessAuditWriterAdapter/);
+  assert.match(projectionHandler, /writeCustomerAccessAuditEvent/);
+  assert.match(projectionHandler, /customer_access\.service_report\.allow/);
+  assert.match(projectionHandler, /customer_access\.service_report\.deny/);
+  assert.match(projectionAppAdapter, /auditWriter: options\.auditWriter/);
 
   for (const [name, source] of [
     ['customerAccessRoutes.js', route],
     ['customerAccessContextMiddleware.js', middleware],
-    ['customerServiceReportProjectionHandler.js', projectionHandler],
-    ['customerServiceReportProjectionAppAdapter.js', projectionAppAdapter],
     ['customerServiceReportAuditBoundary.js', auditBoundary],
   ]) {
     assert.doesNotMatch(source, /customerAccessAuditWriterAdapter|writeCustomerAccessAuditEvent/, name);
     assert.doesNotMatch(source, /customer_access\.case_overview\.(allow|deny)/, name);
+    assert.doesNotMatch(source, /customer_access\.service_report\.(allow|deny)/, name);
   }
 
   assert.doesNotMatch(route, /buildCustomerAccessAuditEvent|customer_access\.service_report|customer_access\.route_registration/);
   assert.doesNotMatch(middleware, /buildCustomerAccessAuditEvent|auditWriter|customer_access\./);
-  assert.doesNotMatch(projectionHandler, /buildCustomerAccessAuditEvent|customer_access\.service_report/);
-  assert.doesNotMatch(projectionAppAdapter, /buildCustomerAccessAuditEvent|customer_access\.service_report/);
+  assert.doesNotMatch(projectionAppAdapter, /customerAccessAuditWriterAdapter|writeCustomerAccessAuditEvent|buildCustomerAccessAuditEvent|customer_access\.service_report/);
 });
 
 test('customer access public report route remains param based without new global mount dependency', () => {
@@ -479,7 +482,7 @@ test('projection app adapter delegates through handler without passing raw reque
   assert.match(appAdapter, /function mountTargetFromOptions\(options\)/);
   assert.match(appAdapter, /function safeNotRegistered\(reasonCode = 'mount_target_invalid'\)/);
   assert.match(appAdapter, /reasonCode/);
-  assert.match(appAdapter, /createCustomerServiceReportProjectionHandler\(\{\s*dbClient: options\.dbClient,\s*projectionService: options\.projectionService,\s*\}\)/);
+  assert.match(appAdapter, /createCustomerServiceReportProjectionHandler\(\{\s*dbClient: options\.dbClient,\s*projectionService: options\.projectionService,\s*auditWriter: options\.auditWriter,\s*\}\)/);
   assert.match(appAdapter, /registrationTarget\.get\.call\(registrationTarget\.target,\s*path,\s*handler\)/);
   assert.match(appAdapter, /Buffer\.isBuffer\(value\)/);
   assert.match(appAdapter, /value instanceof Date \|\| value instanceof Error/);

@@ -329,6 +329,39 @@ test('registered handler preserves Task909 safe allow behavior through synthetic
   assertNoSensitiveLeak(response);
 });
 
+test('registered app adapter passes injected auditWriter to service-report handler side-channel', async () => {
+  const app = syntheticApp();
+  const auditEvents = [];
+  const result = registerCustomerServiceReportProjectionRoute({
+    app,
+    dbClient: dbClientWithRows([reportRow()]),
+    path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+    auditWriter: (auditEvent) => {
+      auditEvents.push(auditEvent);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+
+  const response = await app.calls.get[0].handler(request());
+
+  assert.equal(result.registered, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.status, 'allow');
+  assert.equal(auditEvents.length, 1);
+  assert.equal(auditEvents[0].eventType, 'customer_access.service_report.allow');
+  assert.equal(auditEvents[0].route, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
+  assert.equal(auditEvents[0].method, 'GET');
+  assert.equal(auditEvents[0].source, 'customer_access_projection_service');
+  assert.equal(JSON.stringify(response).includes('auditWritten'), false);
+  assertNoSensitiveLeak(response);
+});
+
 test('registered handler passes only explicit sanitized DTO keys to projection service', async () => {
   const app = syntheticApp();
   const serviceInputs = [];

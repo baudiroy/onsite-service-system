@@ -3,9 +3,13 @@
 const {
   getCustomerServiceReportProjection,
 } = require('./customerServiceReportProjectionService');
+const { buildCustomerAccessAuditEvent } = require('./customerAccessAuditEventBuilder');
+const { writeCustomerAccessAuditEvent } = require('./customerAccessAuditWriterAdapter');
 
 const SAFE_DENY_MESSAGE_KEY = 'customerAccess.unavailable';
 const ALLOW_MESSAGE_KEY = 'customerAccess.serviceReport.available';
+const CUSTOMER_ACCESS_SERVICE_REPORT_ROUTE = '/customer-access/:caseId/service-report/:reportId';
+const CUSTOMER_ACCESS_SERVICE_REPORT_AUDIT_SOURCE = 'customer_access_projection_service';
 const HTTP_ENVELOPE_KEYS = Object.freeze(['customerVisible', 'data', 'error', 'messageKey', 'status']);
 const SERVICE_REPORT_KEYS = Object.freeze([
   'appointmentWindow',
@@ -286,10 +290,71 @@ async function handleCustomerServiceReportProjectionRequest(options = {}) {
     envelope = safeDenyEnvelope();
   }
 
+  recordServiceReportAudit({
+    auditWriter: typeof options.auditWriter === 'function' ? options.auditWriter : undefined,
+    envelope,
+    serviceInput,
+  });
+
   return {
     statusCode: statusCodeForEnvelope(envelope),
     body: envelope,
   };
+}
+
+function serviceReportAuditEventType(envelope) {
+  return envelope && envelope.status === 'allow'
+    ? 'customer_access.service_report.allow'
+    : 'customer_access.service_report.deny';
+}
+
+function serviceReportAuditInput({ envelope, serviceInput }) {
+  const eventType = serviceReportAuditEventType(envelope);
+  const context = isObject(serviceInput.customerAccessContext)
+    ? serviceInput.customerAccessContext
+    : {};
+  const auditInput = {
+    eventType,
+    caseId: safeIdentifierValue(serviceInput.caseId),
+    reportId: safeIdentifierValue(serviceInput.reportId),
+    organizationId: safeIdentifierValue(context.organizationId),
+    customerId: safeIdentifierValue(context.customerId),
+    decision: envelope && envelope.status === 'allow' ? 'allow' : 'deny',
+    route: CUSTOMER_ACCESS_SERVICE_REPORT_ROUTE,
+    method: 'GET',
+    source: CUSTOMER_ACCESS_SERVICE_REPORT_AUDIT_SOURCE,
+    metadata: {
+      routeMatched: true,
+      contextPresent: true,
+      identifierValid: true,
+    },
+  };
+
+  if (eventType === 'customer_access.service_report.deny') {
+    auditInput.reasonCode = SAFE_DENY_MESSAGE_KEY;
+  }
+
+  return auditInput;
+}
+
+function recordServiceReportAudit({ auditWriter, envelope, serviceInput }) {
+  if (typeof auditWriter !== 'function' || !serviceInput) {
+    return;
+  }
+
+  const auditEventResult = buildCustomerAccessAuditEvent(serviceReportAuditInput({
+    envelope,
+    serviceInput,
+  }));
+
+  if (!auditEventResult.ok) {
+    return;
+  }
+
+  writeCustomerAccessAuditEvent({
+    auditEvent: auditEventResult.auditEvent,
+    writer: auditWriter,
+  }).catch(() => undefined);
 }
 
 function createCustomerServiceReportProjectionHandler(options = {}) {
@@ -297,12 +362,16 @@ function createCustomerServiceReportProjectionHandler(options = {}) {
   const projectionService = isObject(options) && typeof options.projectionService === 'function'
     ? options.projectionService
     : undefined;
+  const auditWriter = isObject(options) && typeof options.auditWriter === 'function'
+    ? options.auditWriter
+    : undefined;
 
   return async function handleCustomerServiceReportProjectionHttpRequest(req, res) {
     const response = await handleCustomerServiceReportProjectionRequest({
       request: req,
       dbClient,
       projectionService,
+      auditWriter,
     });
 
     if (res && typeof res.status === 'function' && typeof res.json === 'function') {
