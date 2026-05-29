@@ -160,19 +160,25 @@ test('resolver output remains minimal and excludes raw sensitive request identit
   }
 });
 
-test('no production route registration exists for this projection branch', () => {
+test('accepted production route wiring stays limited to customer access route registry', () => {
   const routeFiles = [
     'src/routes/index.js',
     'src/routes/customerAccessRoutes.js',
     'src/app.js',
     'src/server.js',
   ];
+  const acceptedRouteFile = 'src/routes/customerAccessRoutes.js';
 
   for (const file of routeFiles) {
     const source = read(file);
 
-    assert.doesNotMatch(source, /customerServiceReportProjectionHandler|handleCustomerServiceReportProjectionRequest|createCustomerServiceReportProjectionHandler/);
     assert.doesNotMatch(source, /customerAccessRequestContextResolver|resolveCustomerAccessContextFromRequest/);
+
+    if (file === acceptedRouteFile) {
+      assert.match(source, /handleCustomerServiceReportProjectionRequest/);
+    } else {
+      assert.doesNotMatch(source, /customerServiceReportProjectionHandler|handleCustomerServiceReportProjectionRequest|createCustomerServiceReportProjectionHandler/);
+    }
   }
 });
 

@@ -153,19 +153,25 @@ test('resolver remains synthetic pre-resolved only and is not auth middleware', 
   assert.doesNotMatch(`${handlerSource}\n${appAdapterSource}`, /resolveCustomerAccessContextFromRequest|customerAccessRequestContextResolver/);
 });
 
-test('no production route registration exists for service report projection app adapter branch', () => {
+test('accepted production route wiring does not mount projection app adapter branch', () => {
   const routeFiles = [
     'src/routes/index.js',
     'src/routes/customerAccessRoutes.js',
     'src/app.js',
     'src/server.js',
   ];
+  const acceptedRouteFile = 'src/routes/customerAccessRoutes.js';
 
   for (const file of routeFiles) {
     const source = read(file);
 
     assert.doesNotMatch(source, /customerServiceReportProjectionAppAdapter|registerCustomerServiceReportProjectionRoute/);
-    assert.doesNotMatch(source, /customerServiceReportProjectionHandler|handleCustomerServiceReportProjectionRequest|createCustomerServiceReportProjectionHandler/);
+
+    if (file === acceptedRouteFile) {
+      assert.match(source, /handleCustomerServiceReportProjectionRequest/);
+    } else {
+      assert.doesNotMatch(source, /customerServiceReportProjectionHandler|handleCustomerServiceReportProjectionRequest|createCustomerServiceReportProjectionHandler/);
+    }
   }
 });
 

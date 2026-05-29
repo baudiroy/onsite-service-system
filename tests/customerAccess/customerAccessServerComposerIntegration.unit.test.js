@@ -504,5 +504,5 @@ test('direct-run behavior remains guarded by require.main === module', () => {
   const source = fs.readFileSync(serverFile, 'utf8');
 
   assert.match(source, /require\.main\s*===\s*module/);
-  assert.match(source, /startServer\(\)/);
+  assert.match(source, /if\s*\(\s*require\.main\s*===\s*module\s*\)[\s\S]*startServer\s*\(/);
 });
