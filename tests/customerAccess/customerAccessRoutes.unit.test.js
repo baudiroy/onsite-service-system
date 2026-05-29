@@ -315,8 +315,11 @@ function assertNoRouteRegistrationSummaryLeak(summary) {
     'user_should_not_leak',
     'session_should_not_leak',
     'db_client_should_not_leak',
+    'query_function_source_should_not_leak',
+    'postgres://user:password@localhost/customer_access_should_not_leak',
     'zeabur_should_not_leak',
     'provider_should_not_leak',
+    'projection_service_should_not_leak',
     'debug_should_not_leak',
     'internal_should_not_leak',
     'Bearer token_should_not_leak',
@@ -431,6 +434,91 @@ test('route registration summary never exposes raw router handler route or depen
   assert.equal(typeof router.routes[0].handlers[0], 'function');
   assert.equal(typeof router.routes[1].handlers[1], 'function');
   assertNoRouteRegistrationSummaryLeak(summary);
+});
+
+test('route registration does not execute injected dbClient or projectionService dependencies', () => {
+  const router = createSyntheticRouter();
+  const dbClient = {
+    calls: [],
+    query() {
+      this.calls.push('query');
+      throw new Error('query function should not run during registration');
+    },
+    connectionString: 'postgres://user:password@localhost/customer_access_should_not_leak',
+    queryFunctionSource: 'query_function_source_should_not_leak',
+  };
+  let projectionServiceCalls = 0;
+  const projectionService = () => {
+    projectionServiceCalls += 1;
+    throw new Error('projection_service_should_not_leak');
+  };
+
+  const summary = registerCustomerAccessRoutes(router, {
+    dbClient,
+    projectionService,
+    providerDebug: 'provider_should_not_leak',
+    zeaburEnv: 'zeabur_should_not_leak',
+  });
+
+  assert.deepEqual(summary, expectedRegistrationSummary());
+  assert.equal(dbClient.calls.length, 0);
+  assert.equal(projectionServiceCalls, 0);
+  assert.equal(router.routes.length, 2);
+  assertNoRouteRegistrationSummaryLeak(summary);
+});
+
+test('explicit malformed dbClient returns sanitized failure without route registration or raw leak', () => {
+  for (const candidate of [
+    null,
+    {},
+    { query: 'not function' },
+    {
+      query: null,
+      connectionString: 'postgres://user:password@localhost/customer_access_should_not_leak',
+      token: 'Bearer token_should_not_leak',
+      sql: 'select secret_should_not_leak',
+      providerDebug: 'provider_should_not_leak',
+    },
+  ]) {
+    const router = createSyntheticRouter();
+    const summary = registerCustomerAccessRoutes(router, {
+      dbClient: candidate,
+      projectionService: {
+        raw: 'projection_service_should_not_leak',
+      },
+    });
+
+    assert.deepEqual(summary, expectedRegistrationFailure('db_client_invalid'));
+    assert.equal(router.routes.length, 0);
+    assertNoRouteRegistrationSummaryLeak(summary);
+  }
+});
+
+test('throwing dbClient dependency getters fail closed without raw leak', () => {
+  const throwingDbClientOptions = {};
+  Object.defineProperty(throwingDbClientOptions, 'dbClient', {
+    get() {
+      throw new Error('db_client_should_not_leak');
+    },
+  });
+  const throwingQueryDbClient = {};
+  Object.defineProperty(throwingQueryDbClient, 'query', {
+    get() {
+      throw new Error('query_function_source_should_not_leak');
+    },
+  });
+
+  for (const options of [
+    throwingDbClientOptions,
+    { dbClient: throwingQueryDbClient },
+  ]) {
+    const router = createSyntheticRouter();
+    const summary = registerCustomerAccessRoutes(router, options);
+
+    assert.deepEqual(summary, expectedRegistrationFailure('db_client_invalid'));
+    assert.equal(router.routes.length, 0);
+    assertNoRouteRegistrationSummaryLeak(summary);
+  }
 });
 
 test('route registration failure returns sanitized summary without raw thrown error leak', () => {

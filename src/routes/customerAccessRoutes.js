@@ -103,6 +103,10 @@ function safeProperty(value, key) {
   }
 }
 
+function hasOwn(value, key) {
+  return isObject(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
 function safeRegistrationFailed(reasonCode = 'mount_target_invalid') {
   return {
     registered: false,
@@ -126,6 +130,16 @@ function safeRegistrationSucceeded() {
       },
     ],
   };
+}
+
+function hasValidExplicitDbClient(options) {
+  if (!hasOwn(options, 'dbClient')) {
+    return true;
+  }
+
+  const dbClient = safeProperty(options, 'dbClient');
+
+  return isObject(dbClient) && typeof safeProperty(dbClient, 'query') === 'function';
 }
 
 function writeSafeDeny(res) {
@@ -194,6 +208,10 @@ function registerCustomerAccessRoutes(router, options) {
 
   if (typeof registerGet !== 'function') {
     return safeRegistrationFailed('mount_target_invalid');
+  }
+
+  if (!hasValidExplicitDbClient(options)) {
+    return safeRegistrationFailed('db_client_invalid');
   }
 
   try {

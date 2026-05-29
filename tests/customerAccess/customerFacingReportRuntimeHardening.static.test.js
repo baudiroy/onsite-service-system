@@ -201,6 +201,10 @@ test('customer access public report route remains param based without new global
   assert.match(route, /registerGet\.call\(router,\s*CUSTOMER_ACCESS_REPORT_ROUTE_PATH,\s*customerAccessContextMiddleware,\s*reportRouteHandler\)/);
   assert.match(route, /buildCustomerAccessControllerResponse\(req\)/);
   assert.match(route, /handleCustomerServiceReportProjectionRequest\(\{\s*request: req,\s*dbClient,\s*\}\)/);
+  assert.match(route, /function hasOwn\(value, key\)/);
+  assert.match(route, /function hasValidExplicitDbClient\(options\)/);
+  assert.match(route, /!hasOwn\(options,\s*'dbClient'\)/);
+  assert.match(route, /typeof safeProperty\(dbClient,\s*'query'\) === 'function'/);
   assert.match(route, /function safeRegistrationFailed\(reasonCode = 'mount_target_invalid'\)/);
   assert.match(route, /messageKey: 'customerAccess\.unavailable'/);
   assert.match(route, /function safeRegistrationSucceeded\(\)/);
@@ -208,10 +212,13 @@ test('customer access public report route remains param based without new global
   assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_ROUTE_PATH/);
   assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH/);
   assert.match(route, /return safeRegistrationFailed\('mount_target_invalid'\)/);
+  assert.match(route, /return safeRegistrationFailed\('db_client_invalid'\)/);
   assert.match(route, /return safeRegistrationFailed\('route_registration_failed'\)/);
   assert.doesNotMatch(route, /return router;/);
   assert.doesNotMatch(route, /return \{\s*registered: true,[\s\S]*handler/);
   assert.doesNotMatch(route, /rawRouter|rawRoute|handler:/);
+  assert.doesNotMatch(JSON.stringify(requireSpecifiers(route)), /src\/app|src\/server|public\.routes|routes\/index|pg|knex|sequelize|prisma|provider|openai|rag|billing|line|sms|email/i);
+  assert.doesNotMatch(route, /process\.env|DATABASE_URL|JWT_SECRET|new Pool|createPool|psql|db:migrate|db:seed|\.listen\s*\(|app\.listen|server\.listen|express\s*\(/i);
   assert.match(routeIndex, /registerCustomerAccessRoutesWithOptions\(appRouter,\s*options\.customerAccess\)/);
 
   for (const [name, source] of [
