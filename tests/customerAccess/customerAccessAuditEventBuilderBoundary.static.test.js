@@ -22,12 +22,13 @@ function exists(file) {
   return fs.existsSync(path.join(repoRoot, file));
 }
 
-test('Task2101 audit event builder source and tests exist', () => {
+test('Task2101 and Task2102 audit event builder source tests and docs exist', () => {
   for (const file of [
     FILES.builder,
     'tests/customerAccess/customerAccessAuditEventBuilder.unit.test.js',
     'tests/customerAccess/customerAccessAuditEventBuilderBoundary.static.test.js',
     'docs/task-2101-customer-access-audit-event-contract-skeleton-no-db-no-provider-no-smoke.md',
+    'docs/task-2102-customer-access-audit-event-builder-immutability-determinism-guard-no-db-no-provider-no-smoke.md',
   ]) {
     assert.equal(exists(file), true, `${file} should exist`);
   }
@@ -37,7 +38,7 @@ test('audit event builder has no forbidden imports or runtime side effects', () 
   const source = read(FILES.builder);
 
   assert.doesNotMatch(source, /require\(|import\s/);
-  assert.doesNotMatch(source, /process\.env|Date\.now|new Date|console\.|fetch\(|axios|http\.request|https\.request/i);
+  assert.doesNotMatch(source, /process\.env|globalThis|global\.|Date\.now|new Date|Math\.random|crypto\.randomUUID|randomUUID|randomBytes|console\.|fetch\(|axios|http\.request|https\.request/i);
   assert.doesNotMatch(source, /fs\.|readFile|writeFile|appendFile|createWriteStream|createReadStream/i);
   assert.doesNotMatch(source, /app\.listen|server\.listen|listen\(|express\s*\(|Router\s*\(|router\.(get|post|use)|\.get\(.*handler/i);
   assert.doesNotMatch(source, /pg|knex|sequelize|prisma|mysql|sqlite|Pool\(|Client\(|connect\(|query\(|psql|migration|schema|index|seed/i);

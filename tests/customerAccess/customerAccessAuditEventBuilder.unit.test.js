@@ -90,6 +90,10 @@ function assertNoLeak(value) {
   }
 }
 
+function jsonClone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 test('exports exact supported event key and metadata allowlists', () => {
   assert.deepEqual(SUPPORTED_CUSTOMER_ACCESS_AUDIT_EVENT_TYPES, [
     'customer_access.case_overview.allow',
@@ -188,6 +192,99 @@ test('normalizes a full valid service report audit event without extra keys', ()
   });
   assertAllowedAuditEventKeys(result.auditEvent);
   assertNoLeak(result);
+});
+
+test('same safe input produces deterministic output without generated occurredAt or requestId', () => {
+  const input = baseInput();
+  const first = buildCustomerAccessAuditEvent(input);
+  const second = buildCustomerAccessAuditEvent(input);
+
+  assert.deepEqual(first, second);
+
+  const missingExplicitRuntimeFields = buildCustomerAccessAuditEvent(baseInput({
+    occurredAt: undefined,
+    requestId: undefined,
+  }));
+
+  assert.equal(missingExplicitRuntimeFields.ok, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(missingExplicitRuntimeFields.auditEvent, 'occurredAt'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(missingExplicitRuntimeFields.auditEvent, 'requestId'), false);
+  assertNoLeak(missingExplicitRuntimeFields);
+});
+
+test('builder does not mutate caller input metadata or unknown raw fields', () => {
+  const input = baseInput({
+    rawRequest: 'raw_request_should_not_leak',
+    unknownRawField: 'unknown_field_should_not_leak',
+    metadata: {
+      routeMatched: true,
+      contextPresent: false,
+      identifierValid: true,
+      dependencyValid: false,
+      registrationResult: 'failure',
+      rawPayload: 'provider_payload_should_not_leak',
+      nested: {
+        raw: 'nested_metadata_should_not_leak',
+      },
+    },
+  });
+  const before = jsonClone(input);
+  const result = buildCustomerAccessAuditEvent(input);
+
+  assert.deepEqual(input, before);
+  assert.equal(input.rawRequest, 'raw_request_should_not_leak');
+  assert.equal(input.unknownRawField, 'unknown_field_should_not_leak');
+  assert.equal(input.metadata.rawPayload, 'provider_payload_should_not_leak');
+  assert.deepEqual(input.metadata.nested, {
+    raw: 'nested_metadata_should_not_leak',
+  });
+  assert.equal(result.ok, true);
+  assertAllowedAuditEventKeys(result.auditEvent);
+  assertNoLeak(result);
+});
+
+test('returned audit events and metadata are isolated across calls without output freezing', () => {
+  const input = baseInput({
+    metadata: {
+      routeMatched: true,
+      contextPresent: true,
+      identifierValid: true,
+      dependencyValid: true,
+      registrationResult: 'success',
+    },
+  });
+  const first = buildCustomerAccessAuditEvent(input);
+  const second = buildCustomerAccessAuditEvent(input);
+
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.notEqual(first.auditEvent, second.auditEvent);
+  assert.notEqual(first.auditEvent.metadata, second.auditEvent.metadata);
+  assert.equal(Object.isFrozen(first.auditEvent), false);
+  assert.equal(Object.isFrozen(first.auditEvent.metadata), false);
+
+  first.auditEvent.eventType = 'mutated_event_type_should_not_leak';
+  first.auditEvent.metadata.routeMatched = false;
+  first.auditEvent.metadata.registrationResult = 'mutated_metadata_should_not_leak';
+
+  const third = buildCustomerAccessAuditEvent(input);
+
+  assert.equal(input.eventType, 'customer_access.service_report.allow');
+  assert.deepEqual(input.metadata, {
+    routeMatched: true,
+    contextPresent: true,
+    identifierValid: true,
+    dependencyValid: true,
+    registrationResult: 'success',
+  });
+  assert.equal(second.auditEvent.eventType, 'customer_access.service_report.allow');
+  assert.equal(second.auditEvent.metadata.routeMatched, true);
+  assert.equal(second.auditEvent.metadata.registrationResult, 'success');
+  assert.equal(third.auditEvent.eventType, 'customer_access.service_report.allow');
+  assert.equal(third.auditEvent.metadata.routeMatched, true);
+  assert.equal(third.auditEvent.metadata.registrationResult, 'success');
+  assertNoLeak(second);
+  assertNoLeak(third);
 });
 
 test('unknown event type fails closed without emitting arbitrary event type', () => {
