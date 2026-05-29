@@ -9,6 +9,43 @@ const {
 
 const ACTION = 'repair_intake_draft_to_case_plan';
 
+const UNSAFE_FIELD_NAMES = new Set([
+  'address',
+  'authorization',
+  'caseid',
+  'case_id',
+  'caseno',
+  'case_no',
+  'caseref',
+  'case_ref',
+  'confirmedduplicate',
+  'confirmed_duplicate',
+  'cookie',
+  'customerpayload',
+  'database_url',
+  'databaseurl',
+  'db',
+  'error',
+  'finalappointmentid',
+  'final_appointment_id',
+  'headers',
+  'lineaccesstoken',
+  'lineuserid',
+  'phone',
+  'providerpayload',
+  'raw',
+  'rawbody',
+  'rawdraft',
+  'rawinput',
+  'rawpayload',
+  'rawportoutput',
+  'rawrows',
+  'secret',
+  'sql',
+  'stack',
+  'token',
+]);
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -17,8 +54,64 @@ function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function firstString(source, keys) {
+  if (!isObject(source)) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = stringValue(source[key]);
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
 function safeArray(value, fallback = []) {
-  return Array.isArray(value) ? value.slice() : fallback.slice();
+  const source = Array.isArray(value) ? value : fallback;
+
+  return source
+    .filter((item) => typeof item === 'string' && item.trim().length > 0)
+    .map((item) => item.trim());
+}
+
+function fieldIsUnsafe(key) {
+  return UNSAFE_FIELD_NAMES.has(String(key).toLowerCase());
+}
+
+function sanitizeValue(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeValue(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (isObject(value)) {
+    const result = {};
+
+    for (const [key, fieldValue] of Object.entries(value)) {
+      if (fieldIsUnsafe(key)) {
+        continue;
+      }
+
+      const sanitized = sanitizeValue(fieldValue);
+
+      if (sanitized !== undefined) {
+        result[key] = sanitized;
+      }
+    }
+
+    return result;
+  }
+
+  if (value === undefined || typeof value === 'function' || typeof value === 'symbol') {
+    return undefined;
+  }
+
+  return value;
 }
 
 function resolveReaderFunction(draftReader) {
@@ -62,7 +155,9 @@ function envelope({
   candidateReady = false,
   caseCandidate = null,
 }) {
-  return {
+  const sanitizedCandidate = caseCandidate === null ? null : sanitizeValue(caseCandidate);
+
+  return sanitizeValue({
     ok,
     action: ACTION,
     draftId,
@@ -70,11 +165,11 @@ function envelope({
     eligible,
     status,
     reasonCode,
-    requiredActions,
+    requiredActions: safeArray(requiredActions),
     caseCreationAllowed,
     candidateReady,
-    caseCandidate,
-  };
+    caseCandidate: sanitizedCandidate,
+  });
 }
 
 function blocked({ draftId = null, organizationId = null, reasonCode, requiredActions }) {
@@ -100,6 +195,19 @@ function preflightFromEligibility({ draftId, organizationId, eligibility }) {
     requiredActions: safeArray(eligibility && eligibility.requiredActions, ['manual_review']),
     caseCreationAllowed: eligible,
   };
+}
+
+function draftOrganizationIdOf(draft) {
+  return firstString(draft, [
+    'organizationId',
+    'organization_id',
+  ]);
+}
+
+function draftMatchesLookupOrganization(draft, lookup) {
+  const draftOrganizationId = draftOrganizationIdOf(draft);
+
+  return !draftOrganizationId || draftOrganizationId === lookup.organizationId;
 }
 
 function createRepairIntakeDraftCasePlanningService(options = {}) {
@@ -153,6 +261,16 @@ function createRepairIntakeDraftCasePlanningService(options = {}) {
         organizationId: lookup.organizationId,
         reasonCode: 'draft_not_found',
         requiredActions: ['manual_review'],
+      });
+    }
+
+    if (!draftMatchesLookupOrganization(draft, lookup)) {
+      return envelope({
+        draftId: lookup.draftId,
+        organizationId: lookup.organizationId,
+        status: 'blocked',
+        reasonCode: 'organization_scope_mismatch',
+        requiredActions: ['retry_with_matching_organization_scope'],
       });
     }
 

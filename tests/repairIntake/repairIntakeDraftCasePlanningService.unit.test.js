@@ -133,6 +133,63 @@ test('needs-review eligibility returns no candidate', async () => {
   assert.equal(result.caseCandidate, null);
 });
 
+test('duplicate candidate metadata stays advisory and returns review-required plan only', async () => {
+  const service = createRepairIntakeDraftCasePlanningService({
+    draftReader: async () => sanitizedDraft({
+      duplicateStatus: 'possible_duplicate',
+      duplicateCandidate: {
+        candidateRef: 'draft_candidate_task1889',
+        confirmedDuplicate: true,
+        caseId: 'case_should_not_copy',
+        phone: 'phone',
+      },
+    }),
+  });
+
+  const result = await service.planDraftToCase(lookupInput());
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 'needs_review');
+  assert.equal(result.reasonCode, 'duplicate_unresolved');
+  assert.deepEqual(result.requiredActions, ['resolve_duplicate_review']);
+  assert.equal(result.caseCreationAllowed, false);
+  assert.equal(result.candidateReady, false);
+  assert.equal(result.caseCandidate, null);
+  assertNoForbiddenFields(result);
+});
+
+test('organization mismatch fails closed before candidate builder is called', async () => {
+  let builderCalled = false;
+  const service = createRepairIntakeDraftCasePlanningService({
+    draftReader: async () => sanitizedDraft({ organizationId: 'other_org_task1889' }),
+    candidateBuilder: () => {
+      builderCalled = true;
+      return {
+        ok: true,
+        candidateReady: true,
+        caseCandidate: { sourceDraftId: 'draft_task937_001', organizationId: 'other_org_task1889' },
+      };
+    },
+  });
+
+  const result = await service.planDraftToCase(lookupInput());
+
+  assert.equal(builderCalled, false);
+  assert.deepEqual(result, {
+    ok: false,
+    action: ACTION,
+    draftId: 'draft_task937_001',
+    organizationId: 'org_task937',
+    eligible: false,
+    status: 'blocked',
+    reasonCode: 'organization_scope_mismatch',
+    requiredActions: ['retry_with_matching_organization_scope'],
+    caseCreationAllowed: false,
+    candidateReady: false,
+    caseCandidate: null,
+  });
+});
+
 test('candidate builder blocked result is preserved as no candidate', async () => {
   const service = createRepairIntakeDraftCasePlanningService({
     draftReader: async () => sanitizedDraft({ intakeSource: undefined }),
@@ -378,4 +435,52 @@ test('custom injected evaluator and candidate builder can be used without DB or 
   assert.equal(builderInput.preflightResult.caseCreationAllowed, true);
   assert.deepEqual(builderInput.actorContext, { actorId: 'actor_task937' });
   assert.deepEqual(result.caseCandidate, customCandidate);
+});
+
+test('custom injected candidate builder output is sanitized before returning intent envelope', async () => {
+  const service = createRepairIntakeDraftCasePlanningService({
+    draftReader: async () => sanitizedDraft({ draftId: 'draft_task937_custom_sanitized' }),
+    eligibilityEvaluator: () => ({
+      eligible: true,
+      status: 'eligible',
+      reasonCode: 'eligible',
+      requiredActions: [],
+    }),
+    candidateBuilder: () => ({
+      ok: true,
+      action: 'repair_intake_draft_to_case_candidate_build',
+      candidateReady: true,
+      reasonCode: 'candidate_ready',
+      requiredActions: [],
+      caseCandidate: {
+        sourceDraftId: 'draft_task937_custom_sanitized',
+        organizationId: 'org_task937',
+        intakeSource: 'web',
+        reporterRef: {
+          refId: 'reporter_ref_task937',
+          phone: 'phone',
+          address: 'address',
+        },
+        rawRows: [{ phone: 'phone' }],
+        providerPayload: 'providerPayload',
+        caseId: 'case_should_not_copy',
+        finalAppointmentId: 'final_should_not_copy',
+        token: 'token',
+        secret: 'secret',
+      },
+    }),
+  });
+
+  const result = await service.planDraftToCase(lookupInput());
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.caseCandidate, {
+    sourceDraftId: 'draft_task937_custom_sanitized',
+    organizationId: 'org_task937',
+    intakeSource: 'web',
+    reporterRef: {
+      refId: 'reporter_ref_task937',
+    },
+  });
+  assertNoForbiddenFields(result);
 });
