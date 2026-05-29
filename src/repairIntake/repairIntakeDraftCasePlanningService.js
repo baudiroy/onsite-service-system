@@ -49,6 +49,20 @@ const UNSAFE_FIELD_NAMES = new Set([
   'token',
 ]);
 
+const UNSAFE_TEXT_PATTERNS = Object.freeze([
+  /select\s+\*/i,
+  /database[_\s-]*url/i,
+  /jwt[_\s-]*secret/i,
+  /provider\s*payload/i,
+  /\braw(?:body|draft|input|payload|request|result|row|rows)?\b/i,
+  /\bphone\b/i,
+  /\baddress\b/i,
+  /\bsql\b/i,
+  /\bstack\b/i,
+  /\btoken\b/i,
+  /\bsecret\b/i,
+]);
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -79,6 +93,30 @@ function safeArray(value, fallback = []) {
   return source
     .filter((item) => typeof item === 'string' && item.trim().length > 0)
     .map((item) => item.trim());
+}
+
+function textHasUnsafeMarker(value) {
+  const text = stringValue(value);
+
+  return text ? UNSAFE_TEXT_PATTERNS.some((pattern) => pattern.test(text)) : false;
+}
+
+function safeReasonCode(value, fallback) {
+  const reasonCode = stringValue(value);
+
+  return reasonCode && !textHasUnsafeMarker(reasonCode) ? reasonCode : fallback;
+}
+
+function safeRequiredActions(value, fallback = []) {
+  const sanitized = safeArray(value)
+    .filter((item) => !textHasUnsafeMarker(item));
+
+  if (sanitized.length > 0) {
+    return sanitized;
+  }
+
+  return safeArray(fallback)
+    .filter((item) => !textHasUnsafeMarker(item));
 }
 
 function fieldIsUnsafe(key) {
@@ -188,8 +226,8 @@ function envelope({
     organizationId,
     eligible,
     status,
-    reasonCode,
-    requiredActions: safeArray(requiredActions),
+    reasonCode: safeReasonCode(reasonCode, 'repair_intake_draft_to_case_plan_blocked'),
+    requiredActions: safeRequiredActions(requiredActions),
     caseCreationAllowed,
     candidateReady,
     caseCandidate: sanitizedCandidate,
@@ -230,8 +268,8 @@ function preflightFromEligibility({ draftId, organizationId, eligibility }) {
     organizationId,
     eligible,
     status: stringValue(eligibility && eligibility.status) || 'blocked',
-    reasonCode: stringValue(eligibility && eligibility.reasonCode) || 'eligibility_unavailable',
-    requiredActions: safeArray(eligibility && eligibility.requiredActions, ['manual_review']),
+    reasonCode: safeReasonCode(eligibility && eligibility.reasonCode, 'eligibility_unavailable'),
+    requiredActions: safeRequiredActions(eligibility && eligibility.requiredActions, ['manual_review']),
     caseCreationAllowed: eligible,
   };
 }
@@ -368,8 +406,8 @@ function createRepairIntakeDraftCasePlanningService(options = {}) {
         organizationId: lookup.organizationId,
         eligible: true,
         status: 'blocked',
-        reasonCode: stringValue(candidateResult && candidateResult.reasonCode) || 'candidate_not_ready',
-        requiredActions: safeArray(candidateResult && candidateResult.requiredActions, ['manual_review']),
+        reasonCode: safeReasonCode(candidateResult && candidateResult.reasonCode, 'candidate_not_ready'),
+        requiredActions: safeRequiredActions(candidateResult && candidateResult.requiredActions, ['manual_review']),
         caseCreationAllowed: true,
       }), lookup);
     }
@@ -380,8 +418,8 @@ function createRepairIntakeDraftCasePlanningService(options = {}) {
       organizationId: lookup.organizationId,
       eligible: true,
       status: 'eligible',
-      reasonCode: candidateResult.reasonCode || 'candidate_ready',
-      requiredActions: safeArray(candidateResult.requiredActions),
+      reasonCode: safeReasonCode(candidateResult.reasonCode, 'candidate_ready'),
+      requiredActions: safeRequiredActions(candidateResult.requiredActions),
       caseCreationAllowed: true,
       candidateReady: true,
       caseCandidate: candidateResult.caseCandidate,

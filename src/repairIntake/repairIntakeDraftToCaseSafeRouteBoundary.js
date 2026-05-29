@@ -43,6 +43,20 @@ const UNSAFE_FIELD_NAMES = new Set([
   'token',
 ]);
 
+const UNSAFE_TEXT_PATTERNS = Object.freeze([
+  /select\s+\*/i,
+  /database[_\s-]*url/i,
+  /jwt[_\s-]*secret/i,
+  /provider\s*payload/i,
+  /\braw(?:body|context|error|input|request|result|row|rows)?\b/i,
+  /\bphone\b/i,
+  /\baddress\b/i,
+  /\bsql\b/i,
+  /\bstack\b/i,
+  /\btoken\b/i,
+  /\bsecret\b/i,
+]);
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -95,8 +109,23 @@ function sanitizeValue(value) {
 
 function safeActions(value) {
   return Array.isArray(value)
-    ? value.filter((item) => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim())
+    ? value
+      .filter((item) => typeof item === 'string' && item.trim().length > 0)
+      .map((item) => item.trim())
+      .filter((item) => !textHasUnsafeMarker(item))
     : [];
+}
+
+function textHasUnsafeMarker(value) {
+  const text = stringValue(value);
+
+  return text ? UNSAFE_TEXT_PATTERNS.some((pattern) => pattern.test(text)) : false;
+}
+
+function safeReasonCode(value, fallback) {
+  const reasonCode = stringValue(value);
+
+  return reasonCode && !textHasUnsafeMarker(reasonCode) ? reasonCode : fallback;
 }
 
 function firstString(...values) {
@@ -159,7 +188,7 @@ function body(statusCode, status, reasonCode, {
       ok,
       status,
       messageKey: `repair_intake_draft_to_case.${status}`,
-      reasonCode,
+      reasonCode: safeReasonCode(reasonCode, 'REPAIR_INTAKE_DRAFT_TO_CASE_SAFE_ROUTE_DENIED'),
       caseId: null,
       repairIntakeDraftId,
       requiredActions: safeActions(requiredActions),
@@ -202,8 +231,10 @@ function statusFromPlanResult(planResult) {
 
 function publicEnvelopeFromPlanResult(planResult, fallbackDraftId) {
   const safePlan = sanitizeValue(isObject(planResult) ? planResult : {});
-  const reasonCode = stringValue(safePlan.reasonCode)
-    || 'REPAIR_INTAKE_DRAFT_TO_CASE_SAFE_ROUTE_PLAN_DENIED';
+  const reasonCode = safeReasonCode(
+    safePlan.reasonCode,
+    'REPAIR_INTAKE_DRAFT_TO_CASE_SAFE_ROUTE_PLAN_DENIED',
+  );
   const repairIntakeDraftId = firstString(safePlan.draftId, fallbackDraftId) || null;
   const resolvedStatus = statusFromPlanResult(safePlan);
 

@@ -6,12 +6,57 @@ const {
 
 const ACTION = 'repair_intake_draft_to_case_candidate_build';
 
+const UNSAFE_TEXT_PATTERNS = Object.freeze([
+  /select\s+\*/i,
+  /database[_\s-]*url/i,
+  /jwt[_\s-]*secret/i,
+  /provider\s*payload/i,
+  /\braw(?:body|draft|input|payload|request|result|row|rows)?\b/i,
+  /\bphone\b/i,
+  /\baddress\b/i,
+  /\bsql\b/i,
+  /\bstack\b/i,
+  /\btoken\b/i,
+  /\bsecret\b/i,
+]);
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function textHasUnsafeMarker(value) {
+  const text = stringValue(value);
+
+  return text ? UNSAFE_TEXT_PATTERNS.some((pattern) => pattern.test(text)) : false;
+}
+
+function safeReasonCode(value, fallback) {
+  const reasonCode = stringValue(value);
+
+  return reasonCode && !textHasUnsafeMarker(reasonCode) ? reasonCode : fallback;
+}
+
+function safeRequiredActions(value, fallback = []) {
+  const source = Array.isArray(value) ? value : fallback;
+  const sanitized = source
+    .filter((item) => typeof item === 'string' && item.trim().length > 0)
+    .map((item) => item.trim())
+    .filter((item) => !textHasUnsafeMarker(item));
+
+  if (sanitized.length > 0) {
+    return sanitized;
+  }
+
+  return Array.isArray(fallback)
+    ? fallback
+      .filter((item) => typeof item === 'string' && item.trim().length > 0)
+      .map((item) => item.trim())
+      .filter((item) => !textHasUnsafeMarker(item))
+    : [];
 }
 
 function firstString(source, keys) {
@@ -34,7 +79,7 @@ function sanitizeRef(value) {
   if (typeof value === 'string') {
     const refId = stringValue(value);
 
-    return refId ? { refId } : null;
+    return refId && !textHasUnsafeMarker(refId) ? { refId } : null;
   }
 
   if (!isObject(value)) {
@@ -56,7 +101,7 @@ function sanitizeRef(value) {
   ]) {
     const refValue = stringValue(value[key]);
 
-    if (refValue) {
+    if (refValue && !textHasUnsafeMarker(refValue)) {
       sanitized[key] = refValue;
     }
   }
@@ -69,8 +114,8 @@ function blocked(reasonCode, requiredActions = ['manual_review']) {
     ok: false,
     action: ACTION,
     candidateReady: false,
-    reasonCode,
-    requiredActions,
+    reasonCode: safeReasonCode(reasonCode, 'candidate_metadata_incomplete'),
+    requiredActions: safeRequiredActions(requiredActions, ['manual_review']),
     caseCandidate: null,
   };
 }
@@ -135,7 +180,7 @@ function buildRepairIntakeDraftCaseCandidate(input = {}) {
 
   if (preflightResult.caseCreationAllowed !== true) {
     const requiredActions = Array.isArray(preflightResult.requiredActions) && preflightResult.requiredActions.length > 0
-      ? preflightResult.requiredActions.slice()
+      ? safeRequiredActions(preflightResult.requiredActions, ['resolve_preflight_result'])
       : ['resolve_preflight_result'];
 
     return blocked('preflight_not_allowed', requiredActions);

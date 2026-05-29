@@ -132,3 +132,40 @@ test('billing contact reporter and on-site override are not treated as customer'
   assert.deepEqual(result.billingContactRef, { refId: 'billing-1', role: 'billing_contact' });
   assert.deepEqual(result.onSiteContactOverrideRef, { refId: 'site-1', role: 'on_site_contact_override' });
 });
+
+test('unsafe role ref values and unsafe safeContactSummary fields are stripped', () => {
+  const result = normalizeRepairIntakeContactRoleDto({
+    reporterRef: {
+      refId: 'select * stack phone address providerPayload token secret',
+      type: 'reporter',
+      safeContactSummary: {
+        displayName: 'select * stack phone address providerPayload token secret',
+        maskedPhone: '+8869*****000',
+      },
+    },
+    customerRef: {
+      refId: 'customer-safe',
+      type: 'customer',
+      safeContactSummary: {
+        displayName: 'Masked Customer',
+        maskedPhone: '+8869*****000',
+      },
+    },
+  });
+
+  assert.deepEqual(result.reporterRef, {
+    type: 'reporter',
+    safeContactSummary: {
+      maskedPhone: '+8869*****000',
+    },
+  });
+  assert.deepEqual(result.customerRef, {
+    refId: 'customer-safe',
+    type: 'customer',
+    safeContactSummary: {
+      displayName: 'Masked Customer',
+      maskedPhone: '+8869*****000',
+    },
+  });
+  assertNoUnsafeFields(result);
+});

@@ -559,3 +559,60 @@ test('planning audit writer failure stays internal and preserves safe planning r
   assert.equal(Object.prototype.hasOwnProperty.call(result, 'auditEvent'), false);
   assertNoForbiddenFields(result);
 });
+
+test('unsafe injected evaluator reason and required actions are sanitized in planning envelope', async () => {
+  const service = createRepairIntakeDraftCasePlanningService({
+    draftReader: async () => sanitizedDraft(),
+    eligibilityEvaluator: () => ({
+      eligible: false,
+      status: 'needs_review',
+      reasonCode: 'select * stack trace phone address providerPayload token secret',
+      requiredActions: [
+        'resolve_duplicate_review',
+        'select * stack trace phone address providerPayload token secret',
+      ],
+    }),
+  });
+
+  const result = await service.planDraftToCase(lookupInput());
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 'needs_review');
+  assert.equal(result.reasonCode, 'eligibility_unavailable');
+  assert.deepEqual(result.requiredActions, ['resolve_duplicate_review']);
+  assertNoForbiddenFields(result);
+});
+
+test('unsafe injected candidate builder failure cannot leak raw reason or actions', async () => {
+  const service = createRepairIntakeDraftCasePlanningService({
+    draftReader: async () => sanitizedDraft(),
+    eligibilityEvaluator: () => ({
+      eligible: true,
+      status: 'eligible',
+      reasonCode: 'eligible',
+      requiredActions: [],
+    }),
+    candidateBuilder: () => ({
+      ok: false,
+      candidateReady: false,
+      reasonCode: 'select * stack trace phone address providerPayload token secret',
+      requiredActions: [
+        'manual_review',
+        'select * stack trace phone address providerPayload token secret',
+      ],
+      caseCandidate: {
+        phone: 'phone',
+        address: 'address',
+      },
+    }),
+  });
+
+  const result = await service.planDraftToCase(lookupInput());
+
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.reasonCode, 'candidate_not_ready');
+  assert.deepEqual(result.requiredActions, ['manual_review']);
+  assert.equal(result.caseCandidate, null);
+  assertNoForbiddenFields(result);
+});

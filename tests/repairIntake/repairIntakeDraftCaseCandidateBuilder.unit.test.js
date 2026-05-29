@@ -288,6 +288,33 @@ test('candidate preserves on-site contact override separately from reporter cust
   assertNoForbiddenFields(result);
 });
 
+test('unsafe preflight reason actions and ref values are not copied into candidate builder output', () => {
+  const blocked = buildRepairIntakeDraftCaseCandidate({
+    draft: sanitizedDraft(),
+    preflightResult: blockedPreflight({
+      requiredActions: [
+        'resolve_duplicate_review',
+        'select * stack trace phone address providerPayload token secret',
+      ],
+    }),
+  });
+  const allowed = buildRepairIntakeDraftCaseCandidate({
+    draft: sanitizedDraft({
+      reporterRef: { refId: 'phone', type: 'reporter' },
+      customerRef: { refId: 'customer_ref_safe', type: 'customer' },
+      siteRef: { refId: 'select * stack trace token', type: 'service_site' },
+    }),
+    preflightResult: eligiblePreflight(),
+  });
+
+  assert.deepEqual(blocked.requiredActions, ['resolve_duplicate_review']);
+  assert.deepEqual(allowed.caseCandidate.reporterRef, { type: 'reporter' });
+  assert.deepEqual(allowed.caseCandidate.customerRef, { refId: 'customer_ref_safe', type: 'customer' });
+  assert.deepEqual(allowed.caseCandidate.siteRef, { type: 'service_site' });
+  assertNoForbiddenFields(blocked);
+  assertNoForbiddenFields(allowed);
+});
+
 test('candidate keeps safe contact summary but strips raw phone address payloads', () => {
   const result = buildRepairIntakeDraftCaseCandidate({
     draft: sanitizedDraft({

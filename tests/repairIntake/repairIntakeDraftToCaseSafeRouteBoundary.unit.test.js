@@ -263,3 +263,30 @@ test('audit metadata from planning result is never exposed in public route envel
   assert.equal(Object.prototype.hasOwnProperty.call(result.body, 'auditRecord'), false);
   assertNoUnsafeText(result);
 });
+
+test('unsafe planning result reason and actions are sanitized before public route response', async () => {
+  const boundary = createRepairIntakeDraftToCaseSafeRouteBoundary({
+    planningService: async () => planResult({
+      ok: false,
+      status: 'needs_review',
+      reasonCode: 'select * stack phone address providerPayload token secret DATABASE_URL',
+      requiredActions: [
+        'resolve_duplicate_review',
+        'select * stack phone address providerPayload token secret DATABASE_URL',
+      ],
+      caseCandidate: {
+        phone: 'phone',
+        address: 'address',
+      },
+    }),
+  });
+
+  const result = await boundary.handlePlanRoute(request());
+
+  assert.equal(result.statusCode, 202);
+  assert.equal(result.body.status, 'review_required');
+  assert.equal(result.body.reasonCode, 'REPAIR_INTAKE_DRAFT_TO_CASE_SAFE_ROUTE_PLAN_DENIED');
+  assert.deepEqual(result.body.requiredActions, ['resolve_duplicate_review']);
+  assert.equal(result.body.caseId, null);
+  assertNoUnsafeText(result);
+});

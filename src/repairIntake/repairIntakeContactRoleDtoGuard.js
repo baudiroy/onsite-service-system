@@ -27,12 +27,38 @@ const SAFE_CONTACT_SUMMARY_FIELDS = Object.freeze([
   'normalizedAddressRef',
 ]);
 
+const UNSAFE_TEXT_PATTERNS = Object.freeze([
+  /select\s+\*/i,
+  /database[_\s-]*url/i,
+  /jwt[_\s-]*secret/i,
+  /provider\s*payload/i,
+  /\braw(?:body|draft|input|payload|request|result|row|rows)?\b/i,
+  /\bphone\b/i,
+  /\baddress\b/i,
+  /\bsql\b/i,
+  /\bstack\b/i,
+  /\btoken\b/i,
+  /\bsecret\b/i,
+]);
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function textHasUnsafeMarker(value) {
+  const text = stringValue(value);
+
+  return text ? UNSAFE_TEXT_PATTERNS.some((pattern) => pattern.test(text)) : false;
+}
+
+function safeStringValue(value) {
+  const safe = stringValue(value);
+
+  return safe && !textHasUnsafeMarker(safe) ? safe : undefined;
 }
 
 function normalizedRole(value) {
@@ -53,7 +79,7 @@ function sanitizeSafeContactSummary(value) {
   const result = {};
 
   for (const key of SAFE_CONTACT_SUMMARY_FIELDS) {
-    const safe = stringValue(value[key]);
+    const safe = safeStringValue(value[key]);
 
     if (safe) {
       result[key] = safe;
@@ -65,7 +91,7 @@ function sanitizeSafeContactSummary(value) {
 
 function sanitizeRoleRef(value, expectedRole) {
   if (typeof value === 'string') {
-    const refId = stringValue(value);
+    const refId = safeStringValue(value);
 
     return refId ? { refId } : null;
   }
@@ -77,7 +103,7 @@ function sanitizeRoleRef(value, expectedRole) {
   const result = {};
 
   for (const key of SAFE_REF_FIELDS) {
-    const safe = stringValue(value[key]);
+    const safe = safeStringValue(value[key]);
 
     if (safe) {
       result[key] = safe;
