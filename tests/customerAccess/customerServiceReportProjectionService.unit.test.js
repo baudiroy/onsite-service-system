@@ -303,26 +303,134 @@ test('missing or invalid customerAccessContext fails closed before query', async
   assert.equal(dbClient.calls.length, 0);
 });
 
-test('missing empty or suspicious route identifiers fail closed before query', async () => {
+test('missing malformed or suspicious top-level service identifiers fail closed before query', async () => {
+  class IdentifierContainer {}
+
+  const dbClient = createDbClient([reportRow()]);
+  const promiseIdentifier = Promise.resolve('case_projection_001');
+  promiseIdentifier.id = 'promise_identifier_should_not_leak';
+  const thenableIdentifier = { then() {}, id: 'thenable_identifier_should_not_leak' };
+  const invalidIdentifierValues = [
+    undefined,
+    null,
+    '',
+    '   ',
+    123,
+    true,
+    ['identifier_array_should_not_leak'],
+    { id: 'identifier_object_should_not_leak' },
+    new Date('2026-05-21T04:00:00.000Z'),
+    new Error('identifier_error_should_not_leak'),
+    Buffer.from('identifier_buffer_should_not_leak'),
+    promiseIdentifier,
+    thenableIdentifier,
+    Object.assign(new IdentifierContainer(), { id: 'identifier_class_should_not_leak' }),
+    "case_projection_001' or '1'='1",
+    'case_projection_001/../internal',
+    'case_projection_001;select secret',
+    '../report_public_projection_001',
+    'Bearer token_should_not_leak',
+    'headers.authorization',
+  ];
+
+  for (const key of ['caseId', 'reportId']) {
+    for (const value of invalidIdentifierValues) {
+      const input = {
+        dbClient,
+        customerAccessContext: authorizedContext(),
+        caseId: 'case_projection_001',
+        reportId: 'report_public_projection_001',
+        [key]: value,
+      };
+      const output = await getCustomerServiceReportProjection(input);
+
+      assertSafeDeny(output);
+      assert.equal(JSON.stringify(output).includes('should_not_leak'), false);
+      assertNoSensitiveLeak(output);
+    }
+  }
+
+  assert.equal(dbClient.calls.length, 0);
+});
+
+test('service input identifiers do not fall back to aliases wrappers or context report aliases', async () => {
   const dbClient = createDbClient([reportRow()]);
 
-  for (const candidate of [
-    { caseId: undefined, reportId: 'report_public_projection_001' },
-    { caseId: '', reportId: 'report_public_projection_001' },
-    { caseId: '   ', reportId: 'report_public_projection_001' },
-    { caseId: 'case_projection_001', reportId: undefined },
-    { caseId: 'case_projection_001', reportId: '' },
-    { caseId: 'case_projection_001', reportId: '   ' },
-    { caseId: "case_projection_001' or '1'='1", reportId: 'report_public_projection_001' },
-    { caseId: 'case_projection_001/../internal', reportId: 'report_public_projection_001' },
-    { caseId: 'case_projection_001', reportId: 'report_public_projection_001;select secret' },
-    { caseId: 'case_projection_001', reportId: '../report_public_projection_001' },
+  for (const aliasPayload of [
+    {
+      public_report_id: 'report_public_projection_001',
+      case_id: 'case_projection_001',
+    },
+    {
+      publicReportId: 'report_public_projection_001',
+      customerReportReference: 'report_public_projection_001',
+      caseReference: 'case_projection_001',
+    },
+    {
+      row: {
+        caseId: 'case_projection_001',
+        reportId: 'report_public_projection_001',
+      },
+    },
+    {
+      rows: [
+        {
+          caseId: 'case_projection_001',
+          reportId: 'report_public_projection_001',
+        },
+      ],
+    },
+    {
+      data: {
+        caseId: 'case_projection_001',
+        reportId: 'report_public_projection_001',
+      },
+    },
+    {
+      payload: {
+        caseId: 'case_projection_001',
+        reportId: 'report_public_projection_001',
+      },
+    },
+    {
+      result: {
+        caseId: 'case_projection_001',
+        public_report_id: 'report_public_projection_001',
+      },
+    },
+    {
+      raw: {
+        case_id: 'case_projection_001',
+        report_id: 'report_public_projection_001',
+      },
+    },
+    {
+      rawRow: {
+        caseId: 'case_projection_001',
+        reportId: 'report_public_projection_001',
+      },
+    },
+    {
+      dbRow: {
+        case_id: 'case_projection_001',
+        public_report_id: 'report_public_projection_001',
+      },
+    },
+    {
+      customerAccessContext: authorizedContext({
+        reportId: 'report_public_projection_001',
+      }),
+    },
+    {
+      customerAccessContext: authorizedContext({
+        public_report_id: 'report_public_projection_001',
+      }),
+    },
   ]) {
     const output = await getCustomerServiceReportProjection({
       dbClient,
       customerAccessContext: authorizedContext(),
-      caseId: candidate.caseId,
-      reportId: candidate.reportId,
+      ...aliasPayload,
     });
 
     assertSafeDeny(output);
@@ -564,6 +672,9 @@ test('unauthorized customer context and scoped case mismatch fail closed before 
 
   assertSafeDeny(unauthorizedOutput);
   assertSafeDeny(mismatchedCaseOutput);
+  assert.equal(JSON.stringify(mismatchedCaseOutput).includes('case_other_001'), false);
+  assertNoSensitiveLeak(unauthorizedOutput);
+  assertNoSensitiveLeak(mismatchedCaseOutput);
   assert.equal(dbClient.calls.length, 0);
 });
 

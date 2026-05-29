@@ -18,6 +18,7 @@ const CUSTOMER_PUBLIC_ATTACHMENT_RESPONSE_KEYS = Object.freeze([
   'label',
   'mimeType',
 ]);
+const SERVICE_INPUT_IDENTIFIER_KEYS = Object.freeze(['caseId', 'reportId']);
 const CUSTOMER_ACCESS_CONTEXT_KEYS = Object.freeze([
   'organizationId',
   'customerId',
@@ -207,6 +208,10 @@ function customerAccessContextIdentifierValue(value) {
     : undefined;
 }
 
+function serviceInputIdentifierValue(value) {
+  return customerAccessContextIdentifierValue(value);
+}
+
 function customerAccessContextScope(context) {
   if (!isPlainObject(context) || !hasOnlyCustomerAccessContextKeys(context)) {
     return undefined;
@@ -230,6 +235,42 @@ function customerAccessContextScope(context) {
     organizationId,
     customerId,
     caseId,
+  };
+}
+
+function serviceInputIdentifiers(options) {
+  if (!isObject(options)) {
+    return undefined;
+  }
+
+  const identifiers = {};
+
+  for (const key of SERVICE_INPUT_IDENTIFIER_KEYS) {
+    const value = serviceInputIdentifierValue(options[key]);
+
+    if (!value) {
+      return undefined;
+    }
+
+    identifiers[key] = value;
+  }
+
+  return identifiers;
+}
+
+function serviceInputScope(options) {
+  const identifiers = serviceInputIdentifiers(options);
+  const contextScope = customerAccessContextScope(options && options.customerAccessContext);
+
+  if (!identifiers || !contextScope || contextScope.caseId !== identifiers.caseId) {
+    return undefined;
+  }
+
+  return {
+    organizationId: contextScope.organizationId,
+    customerId: contextScope.customerId,
+    caseId: identifiers.caseId,
+    reportId: identifiers.reportId,
   };
 }
 
@@ -840,41 +881,32 @@ async function getCustomerServiceReportProjection(options = {}) {
     return buildSafeDenyEnvelope();
   }
 
-  const { dbClient, customerAccessContext } = options;
-  const caseId = identifierValue(options.caseId);
-  const reportId = identifierValue(options.reportId);
+  const { dbClient } = options;
+  const scope = serviceInputScope(options);
 
   if (!isObject(dbClient) || typeof dbClient.query !== 'function') {
     return buildSafeDenyEnvelope();
   }
 
-  if (!caseId || !reportId || !isAuthorizedContext(customerAccessContext)) {
-    return buildSafeDenyEnvelope();
-  }
-
-  const organizationId = contextOrganizationId(customerAccessContext);
-  const customerId = contextCustomerId(customerAccessContext);
-  const scopedCaseId = contextCaseId(customerAccessContext);
-
-  if (scopedCaseId && scopedCaseId !== caseId) {
+  if (!scope) {
     return buildSafeDenyEnvelope();
   }
 
   const querySpec = buildQuerySpec({
-    organizationId,
-    customerId,
-    caseId,
-    reportId,
+    organizationId: scope.organizationId,
+    customerId: scope.customerId,
+    caseId: scope.caseId,
+    reportId: scope.reportId,
   });
 
   try {
     const rows = await queryProjection(dbClient, querySpec);
     const row = rows.find((candidate) => (
-      isCustomerVisibleRow(candidate, { caseId, reportId }) &&
-      valuesMatch(rowValue(candidate, 'organization_id', 'organizationId'), organizationId) &&
-      valuesMatch(rowValue(candidate, 'customer_id', 'customerId'), customerId) &&
-      valuesMatch(rowValue(candidate, 'case_id', 'caseId'), caseId) &&
-      valuesMatch(rowReportId(candidate), reportId)
+      isCustomerVisibleRow(candidate, { caseId: scope.caseId, reportId: scope.reportId }) &&
+      valuesMatch(rowValue(candidate, 'organization_id', 'organizationId'), scope.organizationId) &&
+      valuesMatch(rowValue(candidate, 'customer_id', 'customerId'), scope.customerId) &&
+      valuesMatch(rowValue(candidate, 'case_id', 'caseId'), scope.caseId) &&
+      valuesMatch(rowReportId(candidate), scope.reportId)
     ));
     const projection = mapProjection(row);
 

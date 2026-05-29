@@ -85,14 +85,21 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
 
   assert.match(projectionService, /CUSTOMER_SERVICE_REPORT_RESPONSE_KEYS = Object\.freeze\(\[/);
   assert.match(projectionService, /CUSTOMER_PUBLIC_ATTACHMENT_RESPONSE_KEYS = Object\.freeze\(\[/);
+  assert.match(projectionService, /SERVICE_INPUT_IDENTIFIER_KEYS = Object\.freeze\(\['caseId', 'reportId'\]\)/);
   assert.match(projectionService, /function isPlainProjectionRow\(value\)/);
   assert.match(projectionService, /const CUSTOMER_ACCESS_CONTEXT_KEYS = Object\.freeze/);
+  assert.match(projectionService, /function serviceInputIdentifierValue\(value\)/);
+  assert.match(projectionService, /function serviceInputIdentifiers\(options\)/);
+  assert.match(projectionService, /function serviceInputScope\(options\)/);
   assert.match(projectionService, /function customerAccessContextScope\(context\)/);
   assert.match(projectionService, /function customerAccessContextIdentifierValue\(value\)/);
   assert.match(projectionService, /function customerServiceReportResponseAllowlist\(candidate\)/);
   assert.match(projectionService, /function customerPublicAttachmentResponseAllowlist\(candidate\)/);
   assert.match(projectionService, /context\[key\] !== true/);
   assert.match(projectionService, /!hasOnlyCustomerAccessContextKeys\(context\)/);
+  assert.match(projectionService, /for \(const key of SERVICE_INPUT_IDENTIFIER_KEYS\)/);
+  assert.match(projectionService, /contextScope\.caseId !== identifiers\.caseId/);
+  assert.match(projectionService, /const scope = serviceInputScope\(options\)/);
   assert.match(projectionService, /serviceReport: allowlistedServiceReport/);
   assert.match(projectionService, /serviceReport\.customerReportReference = customerReportReference/);
   assert.match(projectionService, /serviceReport\.serviceSummary = serviceSummary/);
