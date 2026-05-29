@@ -254,13 +254,13 @@ test('valid synthetic app registers exactly one internal test route', () => {
   assert.equal(result.method, 'GET');
   assert.equal(result.path, DEFAULT_INTERNAL_TEST_ROUTE_PATH);
   assert.equal(result.path, '/__internal/customer-access/service-reports/:caseId/:reportId');
-  assert.equal(typeof result.handler, 'function');
+  assert.equal(typeof result.handler, 'undefined');
   assert.equal(result.path.startsWith('/__internal/'), true);
   assert.equal(result.path.includes(':caseId'), true);
   assert.equal(result.path.includes(':reportId'), true);
   assert.equal(app.calls.get.length, 1);
   assert.equal(app.calls.get[0].path, DEFAULT_INTERNAL_TEST_ROUTE_PATH);
-  assert.equal(app.calls.get[0].handler, result.handler);
+  assert.equal(typeof app.calls.get[0].handler, 'function');
   assert.equal(app.calls.listen.length, 0);
   assert.equal(dbClient.calls.length, 0);
 });

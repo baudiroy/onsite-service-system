@@ -107,6 +107,37 @@ function hasOwn(value, key) {
   return isObject(value) && Object.prototype.hasOwnProperty.call(value, key);
 }
 
+function routeParamsSnapshot(req) {
+  return isObject(req) && isObject(req.params) ? { ...req.params } : {};
+}
+
+function restoreReportRouteParams(req, snapshot) {
+  if (!isObject(req) || !hasOwn(snapshot, 'reportId')) {
+    return;
+  }
+
+  req.params = {
+    ...(isObject(req.params) ? req.params : {}),
+    reportId: safeProperty(snapshot, 'reportId'),
+  };
+}
+
+function serviceReportContextMiddleware(customerAccessContextMiddleware) {
+  return function customerAccessServiceReportContextMiddleware(req, res, next) {
+    const routeParams = routeParamsSnapshot(req);
+
+    return customerAccessContextMiddleware(req, res, () => {
+      restoreReportRouteParams(req, routeParams);
+
+      if (typeof next === 'function') {
+        return next();
+      }
+
+      return undefined;
+    });
+  };
+}
+
 function safeRegistrationFailed(reasonCode = 'mount_target_invalid') {
   return {
     registered: false,
@@ -217,10 +248,18 @@ function registerCustomerAccessRoutes(router, options) {
   try {
     const routeOptions = middlewareOptionsFromRouteOptions(options);
     const customerAccessContextMiddleware = buildCustomerAccessContextMiddleware(routeOptions);
+    const customerAccessServiceReportContextMiddleware = serviceReportContextMiddleware(
+      customerAccessContextMiddleware,
+    );
     const reportRouteHandler = createCustomerAccessReportRouteHandler(routeOptions);
 
     registerGet.call(router, CUSTOMER_ACCESS_ROUTE_PATH, customerAccessContextMiddleware, handleCustomerAccessRequest);
-    registerGet.call(router, CUSTOMER_ACCESS_REPORT_ROUTE_PATH, customerAccessContextMiddleware, reportRouteHandler);
+    registerGet.call(
+      router,
+      CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+      customerAccessServiceReportContextMiddleware,
+      reportRouteHandler,
+    );
 
     return safeRegistrationSucceeded();
   } catch (error) {

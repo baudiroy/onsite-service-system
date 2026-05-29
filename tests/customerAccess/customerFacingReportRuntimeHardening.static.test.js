@@ -336,7 +336,13 @@ test('customer access public report route remains param based without new global
   const server = read(FILES.server);
 
   assert.match(route, /CUSTOMER_ACCESS_REPORT_ROUTE_PATH = '\/customer-access\/:caseId\/service-report\/:reportId'/);
-  assert.match(route, /registerGet\.call\(router,\s*CUSTOMER_ACCESS_REPORT_ROUTE_PATH,\s*customerAccessContextMiddleware,\s*reportRouteHandler\)/);
+  assert.match(route, /function routeParamsSnapshot\(req\)/);
+  assert.match(route, /function restoreReportRouteParams\(req, snapshot\)/);
+  assert.match(route, /reportId: safeProperty\(snapshot,\s*'reportId'\)/);
+  assert.match(route, /function serviceReportContextMiddleware\(customerAccessContextMiddleware\)/);
+  assert.match(route, /restoreReportRouteParams\(req,\s*routeParams\)/);
+  assert.match(route, /const customerAccessServiceReportContextMiddleware = serviceReportContextMiddleware/);
+  assert.match(route, /registerGet\.call\(\s*router,\s*CUSTOMER_ACCESS_REPORT_ROUTE_PATH,\s*customerAccessServiceReportContextMiddleware,\s*reportRouteHandler,\s*\)/);
   assert.match(route, /buildCustomerAccessControllerResponse\(req\)/);
   assert.match(route, /handleCustomerServiceReportProjectionRequest\(\{\s*request: req,\s*dbClient,\s*\}\)/);
   assert.match(route, /function hasOwn\(value, key\)/);
@@ -351,7 +357,7 @@ test('customer access public report route remains param based without new global
   assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH/);
   assert.match(route, /try \{\s*const routeOptions = middlewareOptionsFromRouteOptions\(options\)/);
   assert.match(route, /registerGet\.call\(router,\s*CUSTOMER_ACCESS_ROUTE_PATH,\s*customerAccessContextMiddleware,\s*handleCustomerAccessRequest\)/);
-  assert.match(route, /registerGet\.call\(router,\s*CUSTOMER_ACCESS_REPORT_ROUTE_PATH,\s*customerAccessContextMiddleware,\s*reportRouteHandler\)/);
+  assert.match(route, /CUSTOMER_ACCESS_REPORT_ROUTE_PATH,\s*customerAccessServiceReportContextMiddleware,\s*reportRouteHandler/);
   assert.match(route, /catch \(error\) \{\s*return safeRegistrationFailed\('route_registration_failed'\)/);
   assert.match(route, /return safeRegistrationFailed\('mount_target_invalid'\)/);
   assert.match(route, /return safeRegistrationFailed\('db_client_invalid'\)/);

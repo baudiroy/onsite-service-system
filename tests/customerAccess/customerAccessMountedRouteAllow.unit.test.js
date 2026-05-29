@@ -70,9 +70,11 @@ function verifiedSyntheticRequest() {
       lineUserId: 'line_user_test_001',
       customerVisibleData: {
         serviceReport: {
+          caseNo: 'CASE-TEST-001',
           publicReportId: 'report_public_test_001',
           status: 'available',
           finalAppointmentId: 'appt_final_test_001',
+          summary: 'Customer-safe synthetic summary',
           internalNote: 'should-not-leak',
           auditLog: { event: 'should-not-leak' },
           aiRawPayload: { prompt: 'should-not-leak' },
@@ -146,15 +148,19 @@ test('mounted customer access route returns allow envelope with verified synthet
   assert.deepEqual(Object.keys(body), ['status', 'messageKey', 'customerVisible', 'data']);
   assert.deepEqual(Object.keys(body.data), ['serviceReport']);
   assert.deepEqual(Object.keys(body.data.serviceReport), [
+    'caseNo',
     'finalAppointmentId',
     'publicReportId',
     'status',
+    'summary',
   ]);
   assert.deepEqual(body.data, {
     serviceReport: {
+      caseNo: 'CASE-TEST-001',
       finalAppointmentId: 'appt_final_test_001',
       publicReportId: 'report_public_test_001',
       status: 'available',
+      summary: 'Customer-safe synthetic summary',
     },
   });
   assert.deepEqual(req.customerAccessContextInput, originalReq.customerAccessContextInput);

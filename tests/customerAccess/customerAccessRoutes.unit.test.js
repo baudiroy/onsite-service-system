@@ -12,6 +12,7 @@ const {
 function createSyntheticRouter() {
   return {
     routes: [],
+    listenCalls: [],
     get(path, ...handlers) {
       this.routes.push({
         method: 'GET',
@@ -19,6 +20,10 @@ function createSyntheticRouter() {
         handlers,
       });
       return this;
+    },
+    listen(...args) {
+      this.listenCalls.push(args);
+      throw new Error('synthetic route test must not start listener');
     },
   };
 }
@@ -97,8 +102,11 @@ function authorizedContextInput() {
     customerVisiblePolicyPassed: true,
     customerVisibleData: {
       serviceReport: {
+        caseNo: 'CASE-ROUTE-001',
+        finalAppointmentId: 'appt_final_route_001',
         publicReportId: 'report_public_route_001',
         status: 'available',
+        summary: 'Customer-safe case overview route summary',
       },
     },
   };
@@ -248,6 +256,17 @@ const forbiddenValues = [
   'raw request stack should not leak',
   'select secret_should_not_leak',
   'Bearer token_should_not_leak',
+  'raw_request_should_not_leak',
+  'raw_headers_should_not_leak',
+  'raw_body_should_not_leak',
+  'raw_cookie_should_not_leak',
+  'raw_auth_should_not_leak',
+  'raw_user_should_not_leak',
+  'raw_session_should_not_leak',
+  'raw_channel_should_not_leak',
+  'raw_access_should_not_leak',
+  'provider_payload_should_not_leak',
+  'debug_sql_should_not_leak',
 ];
 
 function assertSafeResponse(response) {
@@ -376,6 +395,104 @@ test('registered middleware and handler are functions', () => {
     assert.equal(typeof route.handlers[0], 'function');
     assert.equal(typeof route.handlers[route.handlers.length - 1], 'function');
   }
+});
+
+test('synthetic mounted router dispatches both accepted customer access routes without server listener', async () => {
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([reportRow()]);
+  const summary = registerCustomerAccessRoutes(router, {
+    dbClient,
+    repository: allowRepository(),
+  });
+
+  const baseRouteResult = invokeRoute(
+    router.routes[0],
+    {
+      params: {
+        caseId: 'case_route_001',
+      },
+      query: {
+        caseId: 'case_query_override',
+      },
+      body: {
+        rawBody: 'raw_body_should_not_leak',
+      },
+      headers: {
+        authorization: 'Bearer token_should_not_leak',
+      },
+      cookies: {
+        session: 'raw_cookie_should_not_leak',
+      },
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  );
+  const reportRouteResult = await invokeRouteAsync(
+    router.routes[1],
+    {
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+      request: {
+        raw: 'raw_request_should_not_leak',
+      },
+      rawHeaders: ['raw_headers_should_not_leak'],
+      query: {
+        reportId: 'report_query_alias_should_not_win',
+      },
+      body: {
+        provider_payload: 'provider_payload_should_not_leak',
+      },
+      headers: {
+        authorization: 'Bearer token_should_not_leak',
+      },
+      cookies: {
+        session: 'raw_cookie_should_not_leak',
+      },
+      auth: {
+        raw: 'raw_auth_should_not_leak',
+      },
+      user: {
+        raw: 'raw_user_should_not_leak',
+      },
+      session: {
+        raw: 'raw_session_should_not_leak',
+      },
+      channel: {
+        raw: 'raw_channel_should_not_leak',
+      },
+      access: {
+        raw: 'raw_access_should_not_leak',
+      },
+      debug: {
+        sql: 'debug_sql_should_not_leak',
+      },
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  );
+
+  assert.deepEqual(summary, expectedRegistrationSummary());
+  assert.deepEqual(router.listenCalls, []);
+  assert.deepEqual(router.routes.map((route) => `${route.method} ${route.path}`), [
+    'GET /customer-access/:caseId',
+    'GET /customer-access/:caseId/service-report/:reportId',
+  ]);
+  assert.equal(baseRouteResult.nextCallCount, 1);
+  assert.deepEqual(baseRouteResult.res.calls.status, [200]);
+  assert.equal(baseRouteResult.body.status, 'allow');
+  assert.equal(reportRouteResult.nextCallCount, 1);
+  assert.deepEqual(reportRouteResult.res.calls.status, [200]);
+  assert.equal(reportRouteResult.body.status, 'allow');
+  assert.equal(dbClient.calls.length, 1);
+  assert.deepEqual(dbClient.calls[0].values, [
+    'org_route_001',
+    'customer_route_001',
+    'case_route_001',
+    'report_public_route_001',
+  ]);
+  assertSafeResponse(baseRouteResult.body);
+  assertSafeResponse(reportRouteResult.body);
+  assertSafeResponse(dbClient.calls[0]);
 });
 
 test('invalid or missing router returns sanitized failure without external side effect', () => {
@@ -672,8 +789,11 @@ test('case overview route allows only params caseId with middleware customerAcce
   assert.equal(body.status, 'allow');
   assert.deepEqual(body.data, {
     serviceReport: {
+      caseNo: 'CASE-ROUTE-001',
+      finalAppointmentId: 'appt_final_route_001',
       publicReportId: 'report_public_route_001',
       status: 'available',
+      summary: 'Customer-safe case overview route summary',
     },
   });
   assertSafeResponse(body);
@@ -953,6 +1073,94 @@ test('service report route uses only caseId and reportId route params for projec
     'case_route_001',
     'report_public_route_001',
   ]);
+  assertSafeResponse(body);
+  assertSafeResponse(dbClient.calls[0]);
+});
+
+test('service report route rejects missing malformed or alias-only identifiers before projection query', async () => {
+  for (const params of [
+    { caseId: 'case_route_001' },
+    { reportId: 'report_public_route_001' },
+    { caseId: '', reportId: 'report_public_route_001' },
+    { caseId: 'case_route_001', reportId: '' },
+    { caseId: "case_route_001' or '1'='1", reportId: 'report_public_route_001' },
+    { caseId: 'case_route_001', reportId: 'report_public_route_001;select secret_should_not_leak' },
+    { caseId: 'Bearer token_should_not_leak', reportId: 'report_public_route_001' },
+  ]) {
+    const router = createSyntheticRouter();
+    const dbClient = createSyntheticDbClient([reportRow()]);
+    registerCustomerAccessRoutes(router, { dbClient, repository: allowRepository() });
+
+    const { body, nextCallCount, res } = await invokeRouteAsync(
+      router.routes[1],
+      {
+        params,
+        query: {
+          caseId: 'case_query_alias_should_not_win',
+          reportId: 'report_query_alias_should_not_win',
+        },
+        body: {
+          caseId: 'case_body_alias_should_not_win',
+          reportId: 'report_body_alias_should_not_win',
+        },
+        headers: {
+          'x-case-id': 'case_header_alias_should_not_win',
+          'x-report-id': 'report_header_alias_should_not_win',
+          authorization: 'Bearer token_should_not_leak',
+        },
+        cookies: {
+          caseId: 'case_cookie_override',
+          reportId: 'report_cookie_alias_should_not_win',
+        },
+        customerAccessContextInput: authorizedContextInput(),
+      },
+    );
+
+    assert.equal(nextCallCount, 1);
+    assert.deepEqual(res.calls.status, [404]);
+    assert.deepEqual(body, {
+      status: 'deny',
+      messageKey: 'customerAccess.unavailable',
+      customerVisible: false,
+      data: null,
+      error: {
+        messageKey: 'customerAccess.unavailable',
+      },
+    });
+    assert.equal(dbClient.calls.length, 0);
+    assertSafeResponse(body);
+  }
+});
+
+test('service report route not found projection returns sanitized unavailable without existence leak', async () => {
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([]);
+
+  registerCustomerAccessRoutes(router, { dbClient, repository: allowRepository() });
+
+  const { body, nextCallCount, res } = await invokeRouteAsync(
+    router.routes[1],
+    {
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  );
+
+  assert.equal(nextCallCount, 1);
+  assert.deepEqual(res.calls.status, [404]);
+  assert.deepEqual(body, {
+    status: 'deny',
+    messageKey: 'customerAccess.unavailable',
+    customerVisible: false,
+    data: null,
+    error: {
+      messageKey: 'customerAccess.unavailable',
+    },
+  });
+  assert.equal(dbClient.calls.length, 1);
   assertSafeResponse(body);
 });
 
