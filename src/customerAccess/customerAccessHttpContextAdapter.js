@@ -27,12 +27,38 @@ function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isPlainObject(value) {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  if (
+    value instanceof Date ||
+    value instanceof Error ||
+    (typeof Buffer !== 'undefined' && Buffer.isBuffer(value))
+  ) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null;
+}
+
+function safeProperty(value, key) {
+  try {
+    return value ? value[key] : undefined;
+  } catch (error) {
+    return undefined;
+  }
+}
+
 function sanitizeCustomerVisibleData(value) {
   if (Array.isArray(value)) {
     return value.map(sanitizeCustomerVisibleData);
   }
 
-  if (!isObject(value)) {
+  if (!isPlainObject(value)) {
     return value;
   }
 
@@ -85,52 +111,69 @@ function stringValue(value) {
 }
 
 function contextFromInput(input) {
-  if (!isObject(input.customerAccessContext)) {
-    return input;
+  const caseId = stringValue(safeProperty(input, 'caseId'));
+  const customerAccessContext = safeProperty(input, 'customerAccessContext');
+
+  if (!caseId || !isPlainObject(customerAccessContext)) {
+    return undefined;
+  }
+
+  const params = safeProperty(customerAccessContext, 'params');
+
+  if (!isPlainObject(params) || stringValue(safeProperty(params, 'caseId')) !== caseId) {
+    return undefined;
   }
 
   return {
     params: {
-      caseId: input.caseId,
+      caseId,
     },
-    auth: isObject(input.customerAccessContext.auth) ? input.customerAccessContext.auth : {},
-    channel: isObject(input.customerAccessContext.channel) ? input.customerAccessContext.channel : {},
-    access: isObject(input.customerAccessContext.access) ? input.customerAccessContext.access : {},
-    customerVisibleData: isObject(input.customerAccessContext.customerVisibleData)
-      ? input.customerAccessContext.customerVisibleData
+    auth: isPlainObject(safeProperty(customerAccessContext, 'auth'))
+      ? safeProperty(customerAccessContext, 'auth')
+      : {},
+    channel: isPlainObject(safeProperty(customerAccessContext, 'channel'))
+      ? safeProperty(customerAccessContext, 'channel')
+      : {},
+    access: isPlainObject(safeProperty(customerAccessContext, 'access'))
+      ? safeProperty(customerAccessContext, 'access')
+      : {},
+    customerVisibleData: isPlainObject(safeProperty(customerAccessContext, 'customerVisibleData'))
+      ? safeProperty(customerAccessContext, 'customerVisibleData')
       : {},
   };
 }
 
 function mapCustomerAccessHttpContext(input) {
-  if (!isObject(input)) {
+  if (!isPlainObject(input)) {
     return emptyRequestLikeInput();
   }
 
   const context = contextFromInput(input);
-  const params = isObject(context.params) ? context.params : {};
-  const auth = isObject(context.auth) ? context.auth : {};
-  const channel = isObject(context.channel) ? context.channel : {};
-  const access = isObject(context.access) ? context.access : {};
-  const organizationId = stringValue(auth.organizationId);
-  const caseId = stringValue(params.caseId);
-  const customerId = stringValue(auth.customerId);
-  const lineChannelId = stringValue(channel.lineChannelId);
-  const lineUserId = stringValue(channel.lineUserId);
+  const params = isPlainObject(safeProperty(context, 'params')) ? safeProperty(context, 'params') : {};
+  const auth = isPlainObject(safeProperty(context, 'auth')) ? safeProperty(context, 'auth') : {};
+  const channel = isPlainObject(safeProperty(context, 'channel')) ? safeProperty(context, 'channel') : {};
+  const access = isPlainObject(safeProperty(context, 'access')) ? safeProperty(context, 'access') : {};
+  const organizationId = stringValue(safeProperty(auth, 'organizationId'));
+  const caseId = stringValue(safeProperty(params, 'caseId'));
+  const customerId = stringValue(safeProperty(auth, 'customerId'));
+  const lineChannelId = stringValue(safeProperty(channel, 'lineChannelId'));
+  const lineUserId = stringValue(safeProperty(channel, 'lineUserId'));
 
   return {
     organizationId,
     caseId,
     customerId,
-    isCustomerIdentityVerified: auth.customerIdentityVerified === true,
-    isCaseLinkedToCustomer: Boolean(caseId) && access.caseLinkedToCustomer === true,
-    isPublicationAllowed: access.publicationAllowed === true,
-    isCustomerVisiblePolicyPassed: access.customerVisiblePolicyPassed === true,
-    organizationScopeMatches: access.organizationScopeMatched === true,
+    isCustomerIdentityVerified: safeProperty(auth, 'customerIdentityVerified') === true,
+    isCaseLinkedToCustomer: Boolean(caseId) && safeProperty(access, 'caseLinkedToCustomer') === true,
+    isPublicationAllowed: safeProperty(access, 'publicationAllowed') === true,
+    isCustomerVisiblePolicyPassed: safeProperty(access, 'customerVisiblePolicyPassed') === true,
+    organizationScopeMatches: safeProperty(access, 'organizationScopeMatched') === true,
     channelIdentityPresent: Boolean(lineChannelId && lineUserId),
     scopedChannelIdentityPresent: Boolean(organizationId && lineChannelId && lineUserId),
     customerVisibleData: sanitizeCustomerVisibleData(
-      isObject(context.customerVisibleData) ? context.customerVisibleData : {},
+      isPlainObject(safeProperty(context, 'customerVisibleData'))
+        ? safeProperty(context, 'customerVisibleData')
+        : {},
     ),
   };
 }

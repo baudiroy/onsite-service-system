@@ -74,6 +74,10 @@ function isPlainEnvelopeObject(value) {
   return prototype === Object.prototype || prototype === null;
 }
 
+function plainEnvelopeObjectOrEmpty(value) {
+  return isPlainEnvelopeObject(value) ? value : {};
+}
+
 function safeDenyEnvelope() {
   return {
     status: SAFE_DENY_ENVELOPE.status,
@@ -164,11 +168,11 @@ function safeEnvelopeFromFacadeResult(facadeResult) {
 function sanitizedCustomerAccessContextFromRequest(request, caseId) {
   const context = safeProperty(request, 'customerAccessContext');
 
-  if (!isPlainObject(context)) {
+  if (!isPlainEnvelopeObject(context)) {
     return undefined;
   }
 
-  const contextParams = objectOrEmpty(safeProperty(context, 'params'));
+  const contextParams = plainEnvelopeObjectOrEmpty(safeProperty(context, 'params'));
   const contextCaseId = safeIdentifierValue(safeProperty(contextParams, 'caseId'));
 
   if (!contextCaseId || contextCaseId !== caseId) {
@@ -179,10 +183,10 @@ function sanitizedCustomerAccessContextFromRequest(request, caseId) {
     params: {
       caseId,
     },
-    auth: objectOrEmpty(safeProperty(context, 'auth')),
-    channel: objectOrEmpty(safeProperty(context, 'channel')),
-    access: objectOrEmpty(safeProperty(context, 'access')),
-    customerVisibleData: objectOrEmpty(safeProperty(context, 'customerVisibleData')),
+    auth: plainEnvelopeObjectOrEmpty(safeProperty(context, 'auth')),
+    channel: plainEnvelopeObjectOrEmpty(safeProperty(context, 'channel')),
+    access: plainEnvelopeObjectOrEmpty(safeProperty(context, 'access')),
+    customerVisibleData: plainEnvelopeObjectOrEmpty(safeProperty(context, 'customerVisibleData')),
   };
 }
 
@@ -198,7 +202,7 @@ function buildCustomerAccessOverviewInput(req) {
     : undefined;
 
   if (!caseId || !customerAccessContext) {
-    return {};
+    return undefined;
   }
 
   return {
@@ -217,7 +221,13 @@ function buildCustomerAccessControllerResponseWithOptions(req, options) {
     : buildCustomerAccessHttpResponse;
 
   try {
-    const facadeResult = facade(buildCustomerAccessOverviewInput(req));
+    const overviewInput = buildCustomerAccessOverviewInput(req);
+
+    if (!overviewInput) {
+      return safeDenyEnvelope();
+    }
+
+    const facadeResult = facade(overviewInput);
 
     return safeEnvelopeFromFacadeResult(facadeResult);
   } catch (error) {

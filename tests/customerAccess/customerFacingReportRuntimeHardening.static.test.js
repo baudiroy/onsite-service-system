@@ -204,17 +204,23 @@ test('case overview HTTP boundary uses params-only caseId and customerAccessCont
   assert.match(controller, /function safeEnvelopeFromFacadeResult\(facadeResult\)/);
   assert.match(controller, /function safeAllowEnvelopeFromFacadeResult\(facadeResult\)/);
   assert.match(controller, /const SERVICE_REPORT_RESPONSE_KEYS = Object\.freeze/);
-  assert.match(controller, /const facadeResult = facade\(buildCustomerAccessOverviewInput\(req\)\)/);
+  assert.match(controller, /const overviewInput = buildCustomerAccessOverviewInput\(req\)/);
+  assert.match(controller, /if \(!overviewInput\) \{\s*return safeDenyEnvelope\(\);\s*\}/);
+  assert.match(controller, /const facadeResult = facade\(overviewInput\)/);
   assert.match(controller, /return safeEnvelopeFromFacadeResult\(facadeResult\)/);
   assert.match(controller, /catch \(error\) \{\s*return safeDenyEnvelope\(\);\s*\}/);
   assert.match(controller, /facadeResult\.catch\(\(\) => undefined\)/);
   assert.match(controller, /contextCaseId !== caseId/);
+  assert.match(controller, /isPlainEnvelopeObject\(context\)/);
   assert.match(httpContextAdapter, /function contextFromInput\(input\)/);
-  assert.match(httpContextAdapter, /input\.customerAccessContext/);
-  assert.match(httpContextAdapter, /caseId: input\.caseId/);
+  assert.match(httpContextAdapter, /safeProperty\(input,\s*'customerAccessContext'\)/);
+  assert.match(httpContextAdapter, /const caseId = stringValue\(safeProperty\(input,\s*'caseId'\)\)/);
+  assert.match(httpContextAdapter, /stringValue\(safeProperty\(params,\s*'caseId'\)\) !== caseId/);
+  assert.match(httpContextAdapter, /isPlainObject\(customerAccessContext\)/);
   assert.match(httpContextAdapter, /isSuspicious|select|bearer|authorization|token/);
   assert.doesNotMatch(controller, /return buildCustomerAccessHttpResponse\(buildCustomerAccessOverviewInput\(req\)\)/);
   assert.doesNotMatch(controller, /return facadeResult|return result|json\(facadeResult\)|\.\.\.\s*facadeResult/);
+  assert.doesNotMatch(httpContextAdapter, /return input;/);
   assert.doesNotMatch(
     controller,
     /request\.(auth|channel|access|customerVisibleData)|params:\s*request\.params|auth:\s*request\.auth|channel:\s*request\.channel|access:\s*request\.access|customerVisibleData:\s*request\.customerVisibleData/,

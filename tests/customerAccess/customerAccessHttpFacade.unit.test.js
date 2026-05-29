@@ -47,6 +47,10 @@ const forbiddenValues = [
   'MISSING_CASE_LINKAGE',
   'PUBLICATION_NOT_ALLOWED',
   'CUSTOMER_VISIBLE_POLICY_FAILED',
+  'raw_context_should_not_leak',
+  'headers_should_not_leak',
+  'cookies_should_not_leak',
+  'private_admin_only_should_not_leak',
 ];
 
 function assertSafeResponse(response) {
@@ -70,8 +74,23 @@ function assertGenericDeny(response) {
   assertSafeResponse(response);
 }
 
-test('valid verified HTTP-like context returns allow envelope', () => {
-  const response = buildCustomerAccessHttpResponse(validContext());
+function validDto(context = validContext(), overrides = {}) {
+  return {
+    caseId: 'case-synthetic',
+    customerAccessContext: {
+      params: { caseId: 'case-synthetic' },
+      auth: context.auth,
+      channel: context.channel,
+      access: context.access,
+      customerVisibleData: context.customerVisibleData,
+      ...(overrides.customerAccessContext || {}),
+    },
+    ...(overrides.input || {}),
+  };
+}
+
+test('valid verified case overview DTO returns allow envelope', () => {
+  const response = buildCustomerAccessHttpResponse(validDto());
 
   assert.deepEqual(response, {
     status: 'allow',
@@ -97,21 +116,22 @@ test('missing organization id returns generic safe-deny envelope', () => {
   const context = validContext();
   delete context.auth.organizationId;
 
-  assertGenericDeny(buildCustomerAccessHttpResponse(context));
+  assertGenericDeny(buildCustomerAccessHttpResponse(validDto(context)));
 });
 
 test('missing case id returns generic safe-deny envelope', () => {
-  const context = validContext();
-  delete context.params.caseId;
-
-  assertGenericDeny(buildCustomerAccessHttpResponse(context));
+  assertGenericDeny(buildCustomerAccessHttpResponse(validDto(validContext(), {
+    customerAccessContext: {
+      params: {},
+    },
+  })));
 });
 
 test('unverified customer identity returns generic safe-deny envelope', () => {
   const context = validContext();
   context.auth.customerIdentityVerified = false;
 
-  assertGenericDeny(buildCustomerAccessHttpResponse(context));
+  assertGenericDeny(buildCustomerAccessHttpResponse(validDto(context)));
 });
 
 test('raw phone only returns generic safe-deny envelope', () => {
@@ -161,21 +181,21 @@ test('missing Case linkage returns generic safe-deny envelope', () => {
   const context = validContext();
   context.access.caseLinkedToCustomer = false;
 
-  assertGenericDeny(buildCustomerAccessHttpResponse(context));
+  assertGenericDeny(buildCustomerAccessHttpResponse(validDto(context)));
 });
 
 test('publication not allowed returns generic safe-deny envelope', () => {
   const context = validContext();
   context.access.publicationAllowed = false;
 
-  assertGenericDeny(buildCustomerAccessHttpResponse(context));
+  assertGenericDeny(buildCustomerAccessHttpResponse(validDto(context)));
 });
 
 test('customer-visible policy failure returns generic safe-deny envelope', () => {
   const context = validContext();
   context.access.customerVisiblePolicyPassed = false;
 
-  assertGenericDeny(buildCustomerAccessHttpResponse(context));
+  assertGenericDeny(buildCustomerAccessHttpResponse(validDto(context)));
 });
 
 test('allow envelope strips forbidden customer-visible fields', () => {
@@ -189,7 +209,7 @@ test('allow envelope strips forbidden customer-visible fields', () => {
   context.customerVisibleData.serviceReport.internalBillingData = 'internal billing data should never leak';
   context.customerVisibleData.serviceReport.maskedPhone = '09xx-xxx-678';
 
-  const response = buildCustomerAccessHttpResponse(context);
+  const response = buildCustomerAccessHttpResponse(validDto(context));
 
   assert.deepEqual(response.data, {
     serviceReport: {
@@ -208,10 +228,48 @@ test('input object is not mutated and finalAppointmentId is not modified', () =>
   context.rawPhone = '0912-345-678';
   const before = JSON.parse(JSON.stringify(context));
 
-  const response = buildCustomerAccessHttpResponse(context);
+  const response = buildCustomerAccessHttpResponse(validDto(context));
 
   assert.deepEqual(context, before);
   assert.equal(context.customerVisibleData.serviceReport.finalAppointmentId, 'appointment-final-001');
   assert.equal(response.data.serviceReport.finalAppointmentId, 'appointment-final-001');
   assertSafeResponse(response);
+});
+
+test('malformed facade DTO input returns generic safe-deny without raw value leak', () => {
+  class ClassContext {
+    constructor() {
+      this.params = { caseId: 'case-synthetic' };
+    }
+  }
+
+  for (const candidate of [
+    null,
+    undefined,
+    [],
+    'raw_context_should_not_leak',
+    new Date('2026-05-30T00:00:00.000Z'),
+    new Error('raw_context_should_not_leak'),
+    Buffer.from('raw_context_should_not_leak'),
+    { then() {} },
+    new ClassContext(),
+  ]) {
+    assertGenericDeny(buildCustomerAccessHttpResponse({
+      caseId: 'case-synthetic',
+      customerAccessContext: candidate,
+      query: { caseId: 'case_query_override' },
+      body: { caseId: 'case_body_override' },
+      headers: { authorization: 'Bearer token_should_not_leak' },
+      cookies: { token: 'token should never leak' },
+    }));
+  }
+});
+
+test('facade DTO caseId and customerAccessContext caseId mismatch returns safe-deny', () => {
+  assertGenericDeny(buildCustomerAccessHttpResponse(validDto(validContext(), {
+    input: { caseId: 'case-synthetic' },
+    customerAccessContext: {
+      params: { caseId: 'case-other' },
+    },
+  })));
 });

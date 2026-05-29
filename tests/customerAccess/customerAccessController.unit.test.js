@@ -188,6 +188,32 @@ test('valid verified request returns allow envelope', () => {
   ]);
 });
 
+test('valid request passes exact case overview DTO keys to facade', () => {
+  const facadeInputs = [];
+  const response = buildCustomerAccessControllerResponse(
+    validReq(),
+    injectedFacade((input) => {
+      facadeInputs.push(input);
+      return validFacadeAllowResult();
+    }),
+  );
+
+  assert.equal(facadeInputs.length, 1);
+  assert.deepEqual(Object.keys(facadeInputs[0]), ['caseId', 'customerAccessContext']);
+  assert.equal(facadeInputs[0].caseId, 'case-synthetic');
+  assert.deepEqual(Object.keys(facadeInputs[0].customerAccessContext), [
+    'params',
+    'auth',
+    'channel',
+    'access',
+    'customerVisibleData',
+  ]);
+  assert.deepEqual(facadeInputs[0].customerAccessContext.params, { caseId: 'case-synthetic' });
+  assert.equal(JSON.stringify(facadeInputs[0]).includes('case_query_override'), false);
+  assert.equal(response.status, 'allow');
+  assertSafeResponse(response);
+});
+
 test('missing customerAccessContext returns generic safe-deny despite forged request allow fields', () => {
   const req = validReq();
   delete req.customerAccessContext;
@@ -200,6 +226,42 @@ test('missing customerAccessContext returns generic safe-deny despite forged req
   req.cookies = { caseId: 'case_cookie_override' };
 
   assertGenericDeny(buildCustomerAccessControllerResponse(req));
+});
+
+test('malformed customerAccessContext fails closed before facade call', () => {
+  class ClassContext {
+    constructor() {
+      this.params = { caseId: 'case-synthetic' };
+    }
+  }
+
+  for (const candidate of [
+    null,
+    undefined,
+    'raw_case_payload_should_not_leak',
+    [],
+    new Date('2026-05-30T00:00:00.000Z'),
+    new Error('raw request stack should not leak'),
+    Buffer.from('raw_case_payload_should_not_leak'),
+    { then() {} },
+    new ClassContext(),
+  ]) {
+    const req = validReq();
+    const facadeInputs = [];
+    req.customerAccessContext = candidate;
+    req.query = { caseId: 'case_query_override' };
+    req.body = { caseId: 'case_body_override' };
+    req.headers = { authorization: 'Bearer token_should_not_leak' };
+
+    assertGenericDeny(buildCustomerAccessControllerResponse(
+      req,
+      injectedFacade((input) => {
+        facadeInputs.push(input);
+        return validFacadeAllowResult();
+      }),
+    ));
+    assert.deepEqual(facadeInputs, []);
+  }
 });
 
 test('missing input returns generic safe-deny without exception', () => {
