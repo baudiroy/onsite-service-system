@@ -425,6 +425,10 @@ function valuesMatch(left, right) {
   return Boolean(left && right && left === right);
 }
 
+function rowReportId(row) {
+  return identifierValue(rowValue(row, 'public_report_id', 'publicReportId'));
+}
+
 function rowValue(row, ...keys) {
   for (const key of keys) {
     const value = stringValue(row && row[key]);
@@ -747,7 +751,7 @@ async function getCustomerServiceReportProjection(options = {}) {
       valuesMatch(rowValue(candidate, 'organization_id', 'organizationId'), organizationId) &&
       valuesMatch(rowValue(candidate, 'customer_id', 'customerId'), customerId) &&
       valuesMatch(rowValue(candidate, 'case_id', 'caseId'), caseId) &&
-      valuesMatch(rowValue(candidate, 'public_report_id', 'publicReportId', 'customerReportReference'), reportId)
+      valuesMatch(rowReportId(candidate), reportId)
     ));
     const projection = mapProjection(row);
 

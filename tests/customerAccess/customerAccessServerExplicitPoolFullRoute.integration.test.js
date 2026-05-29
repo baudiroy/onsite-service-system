@@ -812,6 +812,37 @@ test('server explicit async pool service report full route omits malformed custo
   assertNoLeak(response.body);
 });
 
+test('server explicit async pool service report full route requires canonical public report id for row match', async () => {
+  const queryCalls = [];
+  const rows = allAllowRows();
+
+  rows.serviceReportRow = {
+    ...rows.serviceReportRow,
+    public_report_id: undefined,
+    publicReportId: undefined,
+    customerReportReference: 'report_public_full_route_001',
+  };
+
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls, rows),
+  }));
+  const response = await requestApp(
+    bootstrap.app,
+    '/customer-access/case_full_route_001/service-report/report_public_full_route_001',
+  );
+  const directResponse = await handleCustomerServiceReportProjectionRequest({
+    request: authorizedProjectionRequest(),
+    dbClient: createAsyncSyntheticPool([], rows),
+  });
+
+  assert.equal(response.statusCode, 404);
+  assertSafeHttpResponseMetadata(response);
+  assert.equal(response.body.status, 'deny');
+  assert.equal(response.body.messageKey, 'customerAccess.unavailable');
+  assert.deepEqual(response.body, directResponse.body);
+  assertNoLeak(response.body);
+});
+
 test('server explicit async pool service report full route requires row publication fields', async () => {
   const queryCalls = [];
   const rows = allAllowRows();

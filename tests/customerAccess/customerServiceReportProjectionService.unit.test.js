@@ -808,6 +808,25 @@ test('authorized context omits malformed customer report references', async () =
   assertNoSensitiveLeak(output);
 });
 
+test('authorized context requires canonical public report id for row match', async () => {
+  const dbClient = createDbClient([
+    reportRow({
+      public_report_id: undefined,
+      publicReportId: undefined,
+      customerReportReference: 'report_public_projection_001',
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+
+  assertSafeDeny(output);
+  assert.equal(dbClient.calls.length, 1);
+});
+
 test('publication state guard allows only explicit customer-published state before query', async () => {
   const dbClient = createDbClient([reportRow()]);
   const missingPublicationContext = authorizedContext();
