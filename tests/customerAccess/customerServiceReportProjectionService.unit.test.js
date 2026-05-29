@@ -91,11 +91,16 @@ function reportRow(overrides = {}) {
 
 function createDbClient(rows, options = {}) {
   const calls = [];
+  const callArgs = [];
   const mutationCalls = [];
   const dbClient = {
+    callArgs,
     calls,
     mutationCalls,
-    query(querySpec) {
+    query(...args) {
+      const [querySpec] = args;
+
+      callArgs.push(args);
       calls.push(querySpec);
 
       if (Object.prototype.hasOwnProperty.call(options, 'throwWith')) {
@@ -232,6 +237,20 @@ function assertNoForbiddenFragments(output, values) {
 
   for (const value of values) {
     assert.equal(serialized.includes(value), false, `projection leaked ${value}`);
+  }
+}
+
+function assertQueryValuesAreExpectedPrimitives(querySpec) {
+  assert.deepEqual(querySpec.values, [
+    'org_projection_001',
+    'customer_projection_001',
+    'case_projection_001',
+    'report_public_projection_001',
+  ]);
+
+  for (const value of querySpec.values) {
+    assert.equal(typeof value, 'string');
+    assert.equal(Array.isArray(value), false);
   }
 }
 
@@ -2035,11 +2054,75 @@ test('projection is read-only through injected synthetic dbClient query only', a
   assert.equal(dbClient.calls[0].readOnly, true);
   assert.match(dbClient.calls[0].text, /^select /i);
   assert.doesNotMatch(dbClient.calls[0].text, /\binsert\b|\bupdate\b|\bdelete\b|\bdrop\b|\balter\b/i);
-  assert.deepEqual(dbClient.calls[0].values, [
-    'org_projection_001',
-    'customer_projection_001',
-    'case_projection_001',
-    'report_public_projection_001',
+  assertQueryValuesAreExpectedPrimitives(dbClient.calls[0]);
+});
+
+test('valid query invocation uses stable config shape and validated primitive values only', async () => {
+  const dbClient = createDbClient([reportRow()]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext({
+      headers: { authorization: 'Bearer context_header_should_not_bind' },
+      rawPayload: { token: 'context_payload_should_not_bind' },
+    }),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+    request: { headers: { authorization: 'Bearer request_header_should_not_bind' } },
+    headers: { authorization: 'Bearer top_level_header_should_not_bind' },
+    body: { token: 'body_token_should_not_bind' },
+    query: { sql: 'query_sql_should_not_bind' },
+    params: { id: 'params_should_not_bind' },
+    user: { id: 'user_should_not_bind' },
+    session: { id: 'session_should_not_bind' },
+    provider_payload: { id: 'provider_payload_should_not_bind' },
+    raw_payload: { id: 'raw_payload_should_not_bind' },
+    debug: { id: 'debug_should_not_bind' },
+  });
+
+  assert.equal(output.status, 'deny');
+  assert.equal(dbClient.callArgs.length, 0);
+
+  const validDbClient = createDbClient([reportRow()]);
+  const validOutput = await getCustomerServiceReportProjection({
+    dbClient: validDbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+
+  assert.equal(validOutput.status, 'allow');
+  assert.equal(validDbClient.callArgs.length, 1);
+  assert.equal(validDbClient.callArgs[0].length, 1);
+
+  const [querySpec] = validDbClient.callArgs[0];
+
+  assert.deepEqual(Object.keys(querySpec).sort(), ['name', 'readOnly', 'text', 'values']);
+  assert.equal(querySpec.name, 'customerServiceReportProjection');
+  assert.equal(querySpec.readOnly, true);
+  assert.match(querySpec.text, /^select /i);
+  assert.match(querySpec.text, /where organization_id = \$1 and customer_id = \$2 and case_id = \$3 and public_report_id = \$4/);
+  assert.equal(Object.isFrozen(querySpec), true);
+  assert.equal(Array.isArray(querySpec.values), true);
+  assert.equal(Object.isFrozen(querySpec.values), true);
+  assertQueryValuesAreExpectedPrimitives(querySpec);
+
+  for (const value of querySpec.values) {
+    assert.equal(value && typeof value === 'object', false);
+    assert.equal(typeof value === 'function', false);
+  }
+  assertNoForbiddenFragments(validOutput, [
+    'context_header_should_not_bind',
+    'context_payload_should_not_bind',
+    'request_header_should_not_bind',
+    'top_level_header_should_not_bind',
+    'body_token_should_not_bind',
+    'query_sql_should_not_bind',
+    'params_should_not_bind',
+    'user_should_not_bind',
+    'session_should_not_bind',
+    'provider_payload_should_not_bind',
+    'raw_payload_should_not_bind',
+    'debug_should_not_bind',
   ]);
 });
 

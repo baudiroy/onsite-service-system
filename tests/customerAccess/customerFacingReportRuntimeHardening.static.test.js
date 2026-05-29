@@ -93,6 +93,7 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
   assert.match(projectionService, /function serviceInputScope\(options\)/);
   assert.match(projectionService, /function customerAccessContextScope\(context\)/);
   assert.match(projectionService, /function customerAccessContextIdentifierValue\(value\)/);
+  assert.match(projectionService, /function buildQuerySpec\(\{ organizationId, customerId, caseId, reportId \}\)/);
   assert.match(projectionService, /function customerServiceReportResponseAllowlist\(candidate\)/);
   assert.match(projectionService, /function customerPublicAttachmentResponseAllowlist\(candidate\)/);
   assert.match(projectionService, /function rowsFromResult\(result\)/);
@@ -106,6 +107,7 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
   assert.match(projectionService, /for \(const key of SERVICE_INPUT_IDENTIFIER_KEYS\)/);
   assert.match(projectionService, /contextScope\.caseId !== identifiers\.caseId/);
   assert.match(projectionService, /const scope = serviceInputScope\(options\)/);
+  assert.match(projectionService, /values: Object\.freeze\(\[organizationId, customerId, caseId, reportId\]\)/);
   assert.match(projectionService, /if \(!scope\) \{\s*return buildSafeDenyEnvelope\(\);\s*\}\s*const query = dbClientQueryFunction\(dbClient\)/);
   assert.match(projectionService, /const result = await query\.call\(dbClient, querySpec\)/);
   assert.match(projectionService, /if \(!Array\.isArray\(rows\) \|\| rows\.length !== 1\) \{\s*return buildSafeDenyEnvelope\(\);\s*\}/);
