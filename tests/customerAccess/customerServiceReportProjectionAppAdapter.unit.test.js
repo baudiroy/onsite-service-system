@@ -334,6 +334,67 @@ test('registered handler passes only explicit sanitized DTO keys to projection s
   assertNoSensitiveLeak(response);
 });
 
+test('registered handler rejects identifier aliases when required route params are missing', async () => {
+  const app = syntheticApp();
+  const serviceInputs = [];
+  const result = registerCustomerServiceReportProjectionRoute({
+    app,
+    dbClient: dbClientWithRows([reportRow()]),
+    path: '/internal/customer-access/:caseId/service-report/:reportId',
+    projectionService: (input) => {
+      serviceInputs.push(input);
+
+      return {
+        status: 'allow',
+        messageKey: 'customerAccess.serviceReport.available',
+        customerVisible: true,
+        data: {
+          serviceReport: {
+            customerReportReference: 'report_public_adapter_001',
+          },
+        },
+      };
+    },
+  });
+
+  const response = await app.calls.get[0].handler(request({
+    params: {
+      caseId: 'case_adapter_001',
+    },
+    query: {
+      reportId: 'report_query_alias_should_not_win',
+      public_report_id: 'report_query_public_alias_should_not_win',
+    },
+    body: {
+      report_id: 'report_body_alias_should_not_win',
+      public_report_id: 'report_body_public_alias_should_not_win',
+    },
+    headers: {
+      'x-report-id': 'report_header_alias_should_not_win',
+      authorization: 'adapter_authorization_should_not_pass',
+    },
+    cookies: {
+      public_report_id: 'report_cookie_alias_should_not_win',
+    },
+  }));
+
+  assert.equal(result.registered, true);
+  assert.deepEqual(response, {
+    statusCode: 404,
+    body: {
+      status: 'deny',
+      messageKey: 'customerAccess.unavailable',
+      customerVisible: false,
+      data: null,
+      error: {
+        messageKey: 'customerAccess.unavailable',
+      },
+    },
+  });
+  assert.equal(serviceInputs.length, 0);
+  assertNoSensitiveLeak(response);
+});
+
 test('registered handler sanitizes injected projection service throw at HTTP boundary', async () => {
   const app = syntheticApp();
   const result = registerCustomerServiceReportProjectionRoute({

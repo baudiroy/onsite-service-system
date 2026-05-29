@@ -431,14 +431,22 @@ test('query body and headers cannot supply or override route report identifiers'
       },
       query: {
         reportId: 'report_public_handler_001',
+        public_report_id: 'report_public_query_alias_should_not_win',
       },
       body: {
         caseId: 'case_body_override_should_not_win',
         reportId: 'report_body_override_should_not_win',
+        report_id: 'report_body_snake_alias_should_not_win',
+        public_report_id: 'report_public_body_alias_should_not_win',
       },
       headers: {
         'x-case-id': 'case_header_override_should_not_win',
         'x-report-id': 'report_header_override_should_not_win',
+        public_report_id: 'report_public_header_alias_should_not_win',
+      },
+      cookies: {
+        reportId: 'report_cookie_alias_should_not_win',
+        public_report_id: 'report_public_cookie_alias_should_not_win',
       },
     }),
     dbClient,
@@ -460,6 +468,9 @@ test('query body and headers cannot supply or override route report identifiers'
       headers: {
         'x-case-id': 'case_header_override_should_not_win',
         'x-report-id': 'report_header_override_should_not_win',
+      },
+      cookies: {
+        reportId: 'report_cookie_override_should_not_win',
       },
     }),
     dbClient,

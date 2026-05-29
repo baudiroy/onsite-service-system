@@ -13,6 +13,11 @@ const FILES = Object.freeze({
   projectionService: 'src/customerAccess/customerServiceReportProjectionService.js',
   auditBoundary: 'src/customerAccess/customerServiceReportAuditBoundary.js',
   identityLinkResolver: 'src/customerAccess/customerIdentityLinkResolver.js',
+  projectionAppAdapter: 'src/customerAccess/customerServiceReportProjectionAppAdapter.js',
+  routeIndex: 'src/routes/index.js',
+  publicRoutes: 'src/routes/public.routes.js',
+  app: 'src/app.js',
+  server: 'src/server.js',
   doc: 'docs/task-1885-customer-facing-report-runtime-hardening.md',
 });
 
@@ -182,6 +187,39 @@ test('projection HTTP boundary builds an explicit service input allowlist', () =
     projectionHandler,
     /invokeProjectionService\(projectionService,\s*\{\s*request|projectionService\(\s*request|projectionService\(\s*req|customerAccessContext:\s*request\.customerAccessContext/,
   );
+});
+
+test('customer access public report route remains param based without new global mount dependency', () => {
+  const route = read(FILES.route);
+  const routeIndex = read(FILES.routeIndex);
+  const publicRoutes = read(FILES.publicRoutes);
+  const app = read(FILES.app);
+  const server = read(FILES.server);
+
+  assert.match(route, /CUSTOMER_ACCESS_REPORT_ROUTE_PATH = '\/customer-access\/:caseId\/service-report\/:reportId'/);
+  assert.match(route, /router\.get\(CUSTOMER_ACCESS_REPORT_ROUTE_PATH,\s*customerAccessContextMiddleware,\s*reportRouteHandler\)/);
+  assert.match(route, /buildCustomerAccessControllerResponse\(req\)/);
+  assert.match(route, /handleCustomerServiceReportProjectionRequest\(\{\s*request: req,\s*dbClient,\s*\}\)/);
+  assert.match(routeIndex, /registerCustomerAccessRoutesWithOptions\(appRouter,\s*options\.customerAccess\)/);
+
+  for (const [name, source] of [
+    ['public.routes.js', publicRoutes],
+    ['app.js', app],
+    ['server.js', server],
+  ]) {
+    assert.doesNotMatch(source, /customerServiceReportProjection(AppAdapter|Handler)|registerCustomerServiceReportProjectionRoute|mountCustomerAccessInternalTestRoutes/i, name);
+    assert.doesNotMatch(source, /\/customer-access\/:caseId\/service-report\/:reportId/, name);
+  }
+});
+
+test('projection app adapter delegates through handler without passing raw request containers', () => {
+  const appAdapter = read(FILES.projectionAppAdapter);
+
+  assert.match(appAdapter, /createCustomerServiceReportProjectionHandler\(\{\s*dbClient: options\.dbClient,\s*projectionService: options\.projectionService,\s*\}\)/);
+  assert.match(appAdapter, /target\.get\(path,\s*handler\)/);
+  assert.doesNotMatch(appAdapter, /projectionService\(\s*(req|request)|handler\(\s*\{\s*request|customerAccessContext:\s*request\.customerAccessContext/i);
+  assert.doesNotMatch(appAdapter, /request\.(headers|authorization|cookies|query|body|socket|connection|session|user)/);
+  assert.doesNotMatch(appAdapter, /req\.(headers|authorization|cookies|query|body|socket|connection|session|user)/);
 });
 
 test('Task1885 documentation records no DB migration deploy smoke provider AI billing or publication mutation scope', () => {

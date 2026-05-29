@@ -491,6 +491,54 @@ test('service report route allow path returns filtered projection without raw ca
   assertSafeResponse(body);
 });
 
+test('service report route uses only caseId and reportId route params for projection lookup', async () => {
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([reportRow()]);
+  registerCustomerAccessRoutes(router, { dbClient, repository: allowRepository() });
+
+  const { body, nextCallCount, res } = await invokeRouteAsync(
+    router.routes[1],
+    {
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+      query: {
+        caseId: 'case_query_alias_should_not_win',
+        reportId: 'report_query_alias_should_not_win',
+        public_report_id: 'report_query_public_alias_should_not_win',
+      },
+      body: {
+        case_id: 'case_body_alias_should_not_win',
+        report_id: 'report_body_alias_should_not_win',
+        public_report_id: 'report_body_public_alias_should_not_win',
+      },
+      headers: {
+        'x-case-id': 'case_header_alias_should_not_win',
+        'x-report-id': 'report_header_alias_should_not_win',
+        authorization: 'route_authorization_should_not_pass',
+      },
+      cookies: {
+        public_report_id: 'report_cookie_alias_should_not_win',
+        session: 'route_cookie_should_not_pass',
+      },
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  );
+
+  assert.equal(nextCallCount, 1);
+  assert.deepEqual(res.calls.status, [200]);
+  assert.equal(body.status, 'allow');
+  assert.equal(dbClient.calls.length, 1);
+  assert.deepEqual(dbClient.calls[0].values, [
+    'org_route_001',
+    'customer_route_001',
+    'case_route_001',
+    'report_public_route_001',
+  ]);
+  assertSafeResponse(body);
+});
+
 test('service report route writes sanitized allow audit event with injected writer', async () => {
   const router = createSyntheticRouter();
   const dbClient = createSyntheticDbClient([reportRow()]);
