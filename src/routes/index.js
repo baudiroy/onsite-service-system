@@ -17,6 +17,7 @@ const { lineWebhookRouter, lineChannelsRouter, customerLineIdentitiesRouter } = 
 const { organizationsRouter, userOrganizationsRouter } = require('./organizations.routes');
 const { auditLogsRouter } = require('./auditLogs.routes');
 const { dispatchUnitsRouter } = require('./dispatchUnits.routes');
+const { registerDispatchAssignmentRoutes } = require('./dispatchAssignment.routes');
 const { usersRouter } = require('./users.routes');
 const { createEngineerMobileWorkbenchRouter } = require('./engineerMobileWorkbench.routes');
 const { registerEngineerMobileRoutes } = require('./engineerMobileRoutes');
@@ -98,6 +99,7 @@ function createAppRouter(options = {}) {
     ...originalOptions,
     routesEnabled: repairIntakeDraftToCaseAdminRoutesEnabled,
   });
+  registerDispatchAssignmentRoutes(appRouter, options.dispatchAssignment || options.adminDispatch || {});
 
   appRouter.get('/healthz', (req, res) => {
     res.json({
