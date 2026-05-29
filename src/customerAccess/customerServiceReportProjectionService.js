@@ -50,6 +50,18 @@ const ALLOWED_PUBLICATION_STATES = new Set([
   'published',
 ]);
 
+const ALLOWED_ATTACHMENT_VISIBILITY_STATES = new Set([
+  'allowed',
+  'available',
+  'customer-published',
+  'customer_published',
+  'customer-visible',
+  'customer_visible',
+  'public',
+  'published',
+  'visible',
+]);
+
 const DENIED_PUBLICATION_STATES = new Set([
   'disabled',
   'draft',
@@ -58,6 +70,23 @@ const DENIED_PUBLICATION_STATES = new Set([
   'internal-only',
   'internal_only',
   'private',
+  'revoked',
+  'unpublished',
+]);
+
+const DENIED_ATTACHMENT_VISIBILITY_STATES = new Set([
+  'deleted',
+  'denied',
+  'disabled',
+  'draft',
+  'hidden',
+  'internal',
+  'internal-only',
+  'internal_only',
+  'non-public',
+  'non_public',
+  'private',
+  'rejected',
   'revoked',
   'unpublished',
 ]);
@@ -445,12 +474,71 @@ function attachmentValue(value, key) {
   return stringValue(value);
 }
 
+function attachmentVisibilityState(value) {
+  if (!isObject(value)) {
+    return undefined;
+  }
+
+  return normalizedState(value.visibility)
+    || normalizedState(value.visibilityState)
+    || normalizedState(value.visibility_state)
+    || normalizedState(value.publicationState)
+    || normalizedState(value.publication_state)
+    || normalizedState(value.status)
+    || normalizedState(value.state);
+}
+
+function attachmentVisibilityDenied(value) {
+  if (!isObject(value)) {
+    return true;
+  }
+
+  const state = attachmentVisibilityState(value);
+
+  return value.customer_visible === false
+    || value.customerVisible === false
+    || value.public === false
+    || value.publiclyVisible === false
+    || value.publicly_visible === false
+    || value.customerVisiblePolicyPassed === false
+    || value.customer_visible_policy_passed === false
+    || value.internal === true
+    || value.internalOnly === true
+    || value.internal_only === true
+    || value.draft === true
+    || value.deleted === true
+    || value.isDeleted === true
+    || value.is_deleted === true
+    || value.rejected === true
+    || value.revoked === true
+    || value.hidden === true
+    || Boolean(value.deletedAt || value.deleted_at || value.rejectedAt || value.rejected_at)
+    || Boolean(state && DENIED_ATTACHMENT_VISIBILITY_STATES.has(state));
+}
+
+function attachmentVisibilityAllows(value) {
+  if (!isObject(value) || attachmentVisibilityDenied(value)) {
+    return false;
+  }
+
+  const state = attachmentVisibilityState(value);
+
+  return value.customer_visible === true
+    || value.customerVisible === true
+    || value.public === true
+    || value.publiclyVisible === true
+    || value.publicly_visible === true
+    || value.customerVisiblePolicyPassed === true
+    || value.customer_visible_policy_passed === true
+    || Boolean(state && ALLOWED_ATTACHMENT_VISIBILITY_STATES.has(state));
+}
+
 function mapAttachment(value) {
   if (!isObject(value)) {
     return undefined;
   }
 
-  if (value.customer_visible === false || value.customerVisible === false) {
+  if (!attachmentVisibilityAllows(value)) {
     return undefined;
   }
 

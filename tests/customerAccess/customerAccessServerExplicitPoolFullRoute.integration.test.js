@@ -387,6 +387,34 @@ function assertNoLeak(value) {
     'webhook_payload_should_not_leak',
     'billing_internal_should_not_leak',
     'billing_amount_should_not_leak',
+    'storage_key_should_not_leak',
+    'bucket_should_not_leak',
+    'object_path_should_not_leak',
+    'private_url_should_not_leak',
+    'raw_url_should_not_leak',
+    'upload_token_should_not_leak',
+    'download_token_should_not_leak',
+    'checksum_should_not_leak',
+    'etag_should_not_leak',
+    'file_metadata_should_not_leak',
+    'uploader_identity_should_not_leak',
+    'engineer_attachment_note_should_not_leak',
+    'dispatcher_attachment_note_should_not_leak',
+    'provider_attachment_note_should_not_leak',
+    'subcontractor_attachment_note_should_not_leak',
+    'attachment_audit_should_not_leak',
+    'visibility_workflow_should_not_leak',
+    'draft_attachment_should_not_leak',
+    'deleted_attachment_should_not_leak',
+    'rejected_attachment_should_not_leak',
+    'implicit_attachment_should_not_leak',
+    'invalid_attachment_should_not_leak',
+    'attachment_phone_should_not_leak',
+    'attachment_address_should_not_leak',
+    'attachment_contact_should_not_leak',
+    'attachment_billing_should_not_leak',
+    'attachment_settlement_should_not_leak',
+    'attachment_cost_should_not_leak',
     'settlement_internal_should_not_leak',
     'settlement_amount_should_not_leak',
     'cost_amount_should_not_leak',
@@ -399,6 +427,7 @@ function assertNoLeak(value) {
     'raw_customer_contact_should_not_leak',
     'completion_report_approval_should_not_leak',
     'fsr_publication_workflow_should_not_leak',
+    'final_appointment_should_not_leak',
     'appt_should_not_be_in_response',
     'finalAppointmentId',
     'final_appointment_id',
@@ -587,6 +616,123 @@ test('server explicit async pool service report full route omits null empty opti
       },
     },
   });
+  assert.deepEqual(response.body, directResponse.body);
+  assertNoLeak(response.body);
+});
+
+test('server explicit async pool service report full route filters attachment visibility', async () => {
+  const queryCalls = [];
+  const rows = allAllowRows();
+
+  rows.serviceReportRow = {
+    ...rows.serviceReportRow,
+    public_attachments: [
+      {
+        attachment_id: 'att_visible_full_route_001',
+        label: 'Visible full-route photo',
+        mime_type: 'image/jpeg',
+        customer_visible: true,
+        storage_key: 'storage_key_should_not_leak',
+        bucket: 'bucket_should_not_leak',
+        object_path: 'object_path_should_not_leak',
+        signed_url: 'https://signed.example.invalid/secret',
+        private_url: 'private_url_should_not_leak',
+        raw_url: 'raw_url_should_not_leak',
+        upload_token: 'upload_token_should_not_leak',
+        download_token: 'download_token_should_not_leak',
+        checksum: 'checksum_should_not_leak',
+        etag: 'etag_should_not_leak',
+        internal_file_metadata: 'file_metadata_should_not_leak',
+        uploader_internal_identity: 'uploader_identity_should_not_leak',
+        engineer_attachment_note: 'engineer_attachment_note_should_not_leak',
+        dispatcher_note: 'dispatcher_attachment_note_should_not_leak',
+        provider_note: 'provider_attachment_note_should_not_leak',
+        subcontractor_note: 'subcontractor_attachment_note_should_not_leak',
+        audit_metadata: 'attachment_audit_should_not_leak',
+        visibility_workflow: 'visibility_workflow_should_not_leak',
+        raw_phone: 'attachment_phone_should_not_leak',
+        raw_address: 'attachment_address_should_not_leak',
+        raw_contact: 'attachment_contact_should_not_leak',
+        billing_metadata: 'attachment_billing_should_not_leak',
+        settlement_metadata: 'attachment_settlement_should_not_leak',
+        cost_metadata: 'attachment_cost_should_not_leak',
+        final_appointment_id: 'final_appointment_should_not_leak',
+        completion_report_workflow: 'completion_report_approval_should_not_leak',
+        fsr_publication_workflow: 'fsr_publication_workflow_should_not_leak',
+      },
+      {
+        publicAttachmentId: 'att_visible_full_route_002',
+        displayName: 'Visible full-route receipt',
+        mimeType: 'application/pdf',
+        visibility: 'public',
+      },
+      {
+        attachment_id: 'att_implicit_full_route_001',
+        label: 'implicit_attachment_should_not_leak',
+        mime_type: 'image/png',
+      },
+      {
+        attachment_id: 'att_internal_full_route_001',
+        label: 'storage_key_should_not_leak',
+        mime_type: 'image/png',
+        customer_visible: true,
+        internal: true,
+      },
+      {
+        attachment_id: 'att_draft_full_route_001',
+        label: 'draft_attachment_should_not_leak',
+        mime_type: 'image/png',
+        visibility: 'draft',
+      },
+      {
+        attachment_id: 'att_deleted_full_route_001',
+        label: 'deleted_attachment_should_not_leak',
+        mime_type: 'image/png',
+        customer_visible: true,
+        deleted: true,
+      },
+      {
+        attachment_id: 'att_rejected_full_route_001',
+        label: 'rejected_attachment_should_not_leak',
+        mime_type: 'image/png',
+        customer_visible: true,
+        rejected: true,
+      },
+      {
+        customer_visible: true,
+        signed_url: 'https://signed.example.invalid/secret',
+      },
+      null,
+      'invalid_attachment_should_not_leak',
+    ],
+  };
+
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls, rows),
+  }));
+  const response = await requestApp(
+    bootstrap.app,
+    '/customer-access/case_full_route_001/service-report/report_public_full_route_001',
+  );
+  const directResponse = await handleCustomerServiceReportProjectionRequest({
+    request: authorizedProjectionRequest(),
+    dbClient: createAsyncSyntheticPool([], rows),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assertSafeHttpResponseMetadata(response);
+  assert.deepEqual(response.body.data.serviceReport.publicAttachments, [
+    {
+      attachmentId: 'att_visible_full_route_001',
+      label: 'Visible full-route photo',
+      mimeType: 'image/jpeg',
+    },
+    {
+      attachmentId: 'att_visible_full_route_002',
+      label: 'Visible full-route receipt',
+      mimeType: 'application/pdf',
+    },
+  ]);
   assert.deepEqual(response.body, directResponse.body);
   assertNoLeak(response.body);
 });

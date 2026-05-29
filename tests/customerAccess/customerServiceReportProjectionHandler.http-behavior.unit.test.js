@@ -61,6 +61,7 @@ function reportRow(overrides = {}) {
         attachmentId: 'att_public_handler_001',
         label: 'Public service photo',
         mimeType: 'image/jpeg',
+        customerVisible: true,
         signedUrl: 'https://signed.example.invalid/secret',
       },
     ],

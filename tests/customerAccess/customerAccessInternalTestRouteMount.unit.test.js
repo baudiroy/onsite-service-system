@@ -61,6 +61,7 @@ function reportRow(overrides = {}) {
         attachmentId: 'att_public_internal_mount_001',
         label: 'Public internal mount photo',
         mimeType: 'image/jpeg',
+        customerVisible: true,
         signedUrl: 'https://signed.example.invalid/secret',
       },
     ],

@@ -53,6 +53,7 @@ function reportRow(overrides = {}) {
         attachmentId: 'att_public_001',
         label: 'Service photo',
         mimeType: 'image/jpeg',
+        customerVisible: true,
         signedUrl: 'https://signed.example.invalid/secret',
       },
       {
@@ -171,6 +172,34 @@ function assertNoSensitiveLeak(output) {
     'webhook_payload_should_not_leak',
     'audit_metadata_should_not_leak',
     'signed.example.invalid',
+    'storage_key_should_not_leak',
+    'bucket_should_not_leak',
+    'object_path_should_not_leak',
+    'private_url_should_not_leak',
+    'raw_url_should_not_leak',
+    'upload_token_should_not_leak',
+    'download_token_should_not_leak',
+    'checksum_should_not_leak',
+    'etag_should_not_leak',
+    'file_metadata_should_not_leak',
+    'uploader_identity_should_not_leak',
+    'engineer_attachment_note_should_not_leak',
+    'dispatcher_attachment_note_should_not_leak',
+    'provider_attachment_note_should_not_leak',
+    'subcontractor_attachment_note_should_not_leak',
+    'attachment_audit_should_not_leak',
+    'visibility_workflow_should_not_leak',
+    'draft_attachment_should_not_leak',
+    'deleted_attachment_should_not_leak',
+    'rejected_attachment_should_not_leak',
+    'implicit_attachment_should_not_leak',
+    'invalid_attachment_should_not_leak',
+    'attachment_phone_should_not_leak',
+    'attachment_address_should_not_leak',
+    'attachment_contact_should_not_leak',
+    'attachment_billing_should_not_leak',
+    'attachment_settlement_should_not_leak',
+    'attachment_cost_should_not_leak',
     '999',
     'billing_amount_should_not_leak',
     'settlement_amount_should_not_leak',
@@ -184,6 +213,7 @@ function assertNoSensitiveLeak(output) {
     'raw_customer_contact_should_not_leak',
     'completion_report_approval_should_not_leak',
     'fsr_publication_workflow_should_not_leak',
+    'final_appointment_should_not_leak',
   ]) {
     assert.equal(serialized.includes(value), false, `projection leaked ${value}`);
   }
@@ -410,6 +440,155 @@ test('authorized context returns only allowlisted customer-visible projection', 
   });
   assertStableAllowEnvelopeShape(output);
   assertNoSensitiveLeak(output);
+});
+
+test('publicAttachments include only explicitly customer-visible metadata', async () => {
+  const dbClient = createDbClient([
+    reportRow({
+      publicAttachments: [
+        {
+          attachmentId: 'att_visible_001',
+          label: 'Visible photo',
+          mimeType: 'image/jpeg',
+          customer_visible: true,
+          storageKey: 'storage_key_should_not_leak',
+          bucket: 'bucket_should_not_leak',
+          objectPath: 'object_path_should_not_leak',
+          signedUrl: 'https://signed.example.invalid/secret',
+          privateUrl: 'private_url_should_not_leak',
+          rawUrl: 'raw_url_should_not_leak',
+          uploadToken: 'upload_token_should_not_leak',
+          downloadToken: 'download_token_should_not_leak',
+          checksum: 'checksum_should_not_leak',
+          etag: 'etag_should_not_leak',
+          internalFileMetadata: 'file_metadata_should_not_leak',
+          uploaderInternalIdentity: 'uploader_identity_should_not_leak',
+          engineerAttachmentNote: 'engineer_attachment_note_should_not_leak',
+          dispatcherNote: 'dispatcher_attachment_note_should_not_leak',
+          providerNote: 'provider_attachment_note_should_not_leak',
+          subcontractorNote: 'subcontractor_attachment_note_should_not_leak',
+          auditMetadata: 'attachment_audit_should_not_leak',
+          visibilityWorkflow: 'visibility_workflow_should_not_leak',
+          rawPhone: 'attachment_phone_should_not_leak',
+          rawAddress: 'attachment_address_should_not_leak',
+          rawContact: 'attachment_contact_should_not_leak',
+          billingMetadata: 'attachment_billing_should_not_leak',
+          settlementMetadata: 'attachment_settlement_should_not_leak',
+          costMetadata: 'attachment_cost_should_not_leak',
+          finalAppointmentId: 'final_appointment_should_not_leak',
+          completionReportWorkflow: 'completion_report_approval_should_not_leak',
+          fsrPublicationWorkflow: 'fsr_publication_workflow_should_not_leak',
+        },
+        {
+          publicAttachmentId: 'att_visible_002',
+          displayName: 'Visible receipt',
+          mime_type: 'application/pdf',
+          visibility: 'customer_visible',
+        },
+        {
+          attachmentId: 'att_implicit_001',
+          label: 'implicit_attachment_should_not_leak',
+          mimeType: 'image/png',
+        },
+        {
+          attachmentId: 'att_private_001',
+          label: 'private_url_should_not_leak',
+          mimeType: 'image/png',
+          customer_visible: false,
+        },
+        {
+          attachmentId: 'att_internal_001',
+          label: 'storage_key_should_not_leak',
+          mimeType: 'image/png',
+          customerVisible: true,
+          internal: true,
+        },
+        {
+          attachmentId: 'att_draft_001',
+          label: 'draft_attachment_should_not_leak',
+          mimeType: 'image/png',
+          visibility: 'draft',
+        },
+        {
+          attachmentId: 'att_deleted_001',
+          label: 'deleted_attachment_should_not_leak',
+          mimeType: 'image/png',
+          customerVisible: true,
+          deleted: true,
+        },
+        {
+          attachmentId: 'att_rejected_001',
+          label: 'rejected_attachment_should_not_leak',
+          mimeType: 'image/png',
+          customerVisible: true,
+          rejected: true,
+        },
+        {
+          customerVisible: true,
+          signedUrl: 'https://signed.example.invalid/secret',
+        },
+        null,
+        'invalid_attachment_should_not_leak',
+      ],
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+
+  assert.equal(output.status, 'allow');
+  assert.deepEqual(output.data.serviceReport.publicAttachments, [
+    {
+      attachmentId: 'att_visible_001',
+      label: 'Visible photo',
+      mimeType: 'image/jpeg',
+    },
+    {
+      attachmentId: 'att_visible_002',
+      label: 'Visible receipt',
+      mimeType: 'application/pdf',
+    },
+  ]);
+  assertNoSensitiveLeak(output);
+});
+
+test('invalid publicAttachments collections are omitted without placeholders', async () => {
+  for (const publicAttachments of [
+    undefined,
+    null,
+    {},
+    'not-array',
+    [],
+    [
+      {
+        attachmentId: 'att_denied_001',
+        label: 'implicit_attachment_should_not_leak',
+        mimeType: 'image/png',
+      },
+      {
+        customerVisible: true,
+        signedUrl: 'https://signed.example.invalid/secret',
+      },
+    ],
+  ]) {
+    const dbClient = createDbClient([reportRow({ publicAttachments })]);
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assert.equal(output.status, 'allow');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(output.data.serviceReport, 'publicAttachments'),
+      false,
+    );
+    assertNoSensitiveLeak(output);
+  }
 });
 
 test('authorized context omits null empty optional DTO fields without adding placeholders', async () => {
