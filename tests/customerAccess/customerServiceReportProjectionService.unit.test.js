@@ -262,6 +262,73 @@ test('authorized context returns only allowlisted customer-visible projection', 
   assertNoSensitiveLeak(output);
 });
 
+test('filtered DTO never exposes raw case appointment report or organization internals', async () => {
+  const forbiddenValues = [
+    'raw_case_payload_should_not_leak',
+    'raw_case_row_should_not_leak',
+    'raw_appointment_row_should_not_leak',
+    'raw_completion_report_should_not_leak',
+    'raw_field_service_report_should_not_leak',
+    'organization_internal_should_not_leak',
+    'assignment_internal_should_not_leak',
+    'audit_internal_should_not_leak',
+    'billing_internal_should_not_leak',
+    'provider_payload_should_not_leak',
+    'technician_private_should_not_leak',
+    'final_appointment_should_not_leak',
+  ];
+  const dbClient = createDbClient([
+    reportRow({
+      rawCasePayload: 'raw_case_payload_should_not_leak',
+      rawCaseRow: 'raw_case_row_should_not_leak',
+      rawAppointmentRow: 'raw_appointment_row_should_not_leak',
+      rawCompletionReport: 'raw_completion_report_should_not_leak',
+      rawFieldServiceReport: 'raw_field_service_report_should_not_leak',
+      organizationInternalFields: 'organization_internal_should_not_leak',
+      assignmentInternals: 'assignment_internal_should_not_leak',
+      auditInternals: 'audit_internal_should_not_leak',
+      billingInternals: 'billing_internal_should_not_leak',
+      providerPayload: 'provider_payload_should_not_leak',
+      technicianPrivateNote: 'technician_private_should_not_leak',
+      finalAppointmentId: 'final_appointment_should_not_leak',
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+
+  assert.equal(output.status, 'allow');
+  assert.deepEqual(Object.keys(output.data.serviceReport).sort(), [
+    'appointmentWindow',
+    'caseReference',
+    'completionTime',
+    'customerReportReference',
+    'engineerDisplayName',
+    'publicAttachments',
+    'serviceStatus',
+    'serviceSummary',
+  ].sort());
+  assert.deepEqual(Object.keys(output.data.serviceReport.publicAttachments[0]).sort(), [
+    'attachmentId',
+    'label',
+    'mimeType',
+  ].sort());
+  assertNoSensitiveLeak(output);
+
+  const serialized = JSON.stringify(output);
+
+  for (const forbiddenValue of forbiddenValues) {
+    assert.equal(
+      serialized.includes(forbiddenValue),
+      false,
+      `projection leaked forbidden internal value: ${forbiddenValue}`,
+    );
+  }
+});
+
 test('projection is read-only through injected synthetic dbClient query only', async () => {
   const dbClient = createDbClient([reportRow()]);
   const output = await getCustomerServiceReportProjection({
