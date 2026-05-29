@@ -228,8 +228,50 @@ function assertNoSensitiveLeak(output) {
     'completion_report_approval_should_not_leak',
     'fsr_publication_workflow_should_not_leak',
     'database sql',
+    'service throw should not leak',
+    'service rejection should not leak',
+    'raw_service_result_should_not_leak',
+    'raw nested row should not leak',
+    'provider payload should not leak',
+    'internal field should not leak',
   ]) {
     assert.equal(serialized.includes(forbidden), false, `handler response leaked ${forbidden}`);
+  }
+}
+
+function assertForbiddenBoundaryKeysAbsent(output) {
+  const serialized = JSON.stringify(output);
+
+  for (const forbidden of [
+    '"raw"',
+    '"row"',
+    '"rows"',
+    '"payload"',
+    '"result"',
+    '"reportRow"',
+    '"dbRow"',
+    '"internal_notes"',
+    '"engineer_notes"',
+    '"diagnosis_notes"',
+    '"completion_notes"',
+    '"private_report_body"',
+    '"ai_draft_summary"',
+    '"provider_payload"',
+    '"raw_payload"',
+    '"debug"',
+    '"stack"',
+    '"sql"',
+    '"token"',
+    '"authorization"',
+    '"headers"',
+    '"customer_phone_raw"',
+    '"customer_address_raw"',
+    '"line_user_id"',
+    '"storage_key"',
+    '"bucket"',
+    '"internal_path"',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `handler response leaked boundary key ${forbidden}`);
   }
 }
 
@@ -485,6 +527,181 @@ test('valid handler response omits null empty optional DTO fields safely', async
     },
   });
   assertNoSensitiveLeak(response);
+});
+
+test('valid injected allow and safe-deny service results preserve HTTP response behavior', async () => {
+  const allowEnvelope = {
+    status: 'allow',
+    messageKey: 'customerAccess.serviceReport.available',
+    customerVisible: true,
+    data: {
+      serviceReport: {
+        customerReportReference: 'report_public_handler_001',
+        caseReference: 'CASE-HANDLER-001',
+        serviceStatus: 'Completed',
+        appointmentWindow: '2026-05-22 14:00-16:00',
+        engineerDisplayName: 'Engineer Handler',
+        serviceSummary: 'Customer-safe handler service summary',
+        completionTime: '2026-05-22T08:00:00.000Z',
+        publicAttachments: [
+          {
+            attachmentId: 'att_public_handler_001',
+            label: 'Public service photo',
+            mimeType: 'image/jpeg',
+          },
+        ],
+      },
+    },
+  };
+  const denyEnvelope = {
+    status: 'deny',
+    messageKey: 'customerAccess.unavailable',
+    customerVisible: false,
+    data: null,
+    error: {
+      messageKey: 'customerAccess.unavailable',
+    },
+  };
+
+  const allowResponse = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    projectionService: () => allowEnvelope,
+  });
+  const denyResponse = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    projectionService: () => denyEnvelope,
+  });
+
+  assert.equal(allowResponse.statusCode, 200);
+  assert.deepEqual(allowResponse.body, allowEnvelope);
+  assertStableHandlerDtoShape(allowResponse);
+  assert.equal(denyResponse.statusCode, 404);
+  assert.deepEqual(denyResponse.body, denyEnvelope);
+  assertNoSensitiveLeak(allowResponse);
+  assertNoSensitiveLeak(denyResponse);
+});
+
+test('projection service throw and rejection return sanitized HTTP safe-deny without raw error leak', async () => {
+  const throwingResponse = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    projectionService: () => {
+      const error = new Error('service throw should not leak select secret token_should_not_leak');
+      error.cause = {
+        headers: {
+          authorization: 'authorization_should_not_leak',
+        },
+        provider_payload: 'provider payload should not leak',
+        dbRow: 'raw_service_result_should_not_leak',
+      };
+      throw error;
+    },
+  });
+  const rejectingResponse = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    projectionService: () => Promise.reject(new Error(
+      'service rejection should not leak sql token headers provider_payload',
+    )),
+  });
+
+  assertGenericSafeDeny(throwingResponse);
+  assertGenericSafeDeny(rejectingResponse);
+  assertForbiddenBoundaryKeysAbsent(throwingResponse);
+  assertForbiddenBoundaryKeysAbsent(rejectingResponse);
+});
+
+test('malformed projection service results return sanitized HTTP safe-deny without raw result leak', async () => {
+  class ProjectionResult {
+    constructor() {
+      this.status = 'allow';
+      this.raw = 'raw_service_result_should_not_leak';
+    }
+  }
+
+  const malformedPlainObject = {
+    status: 'allow',
+    messageKey: 'customerAccess.serviceReport.available',
+    customerVisible: true,
+    data: {
+      serviceReport: {
+        customerReportReference: 'report_public_handler_001',
+        serviceSummary: 'Customer-safe handler service summary',
+      },
+      row: {
+        raw: 'raw nested row should not leak',
+      },
+    },
+  };
+
+  for (const candidate of [
+    null,
+    undefined,
+    [],
+    'raw_service_result_should_not_leak',
+    123,
+    true,
+    new Date('2026-05-22T08:00:00.000Z'),
+    new Error('raw_service_result_should_not_leak'),
+    { type: 'Buffer', data: [114, 97, 119] },
+    Promise.resolve({ raw: 'raw_service_result_should_not_leak' }),
+    { then() {}, raw: 'raw_service_result_should_not_leak' },
+    new ProjectionResult(),
+    { status: 'allow' },
+    malformedPlainObject,
+  ]) {
+    const response = await handleCustomerServiceReportProjectionRequest({
+      request: request(),
+      projectionService: () => candidate,
+    });
+
+    assertGenericSafeDeny(response);
+    assertForbiddenBoundaryKeysAbsent(response);
+  }
+});
+
+test('unsafe nested service payload fields are never serialized into HTTP JSON', async () => {
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    projectionService: () => ({
+      status: 'allow',
+      messageKey: 'customerAccess.serviceReport.available',
+      customerVisible: true,
+      raw: 'raw_service_result_should_not_leak',
+      row: 'raw_service_result_should_not_leak',
+      rows: ['raw_service_result_should_not_leak'],
+      payload: { provider_payload: 'provider payload should not leak' },
+      result: { debug: 'debug_marker_should_not_leak' },
+      reportRow: { sql: 'select secret' },
+      dbRow: { token: 'token_should_not_leak' },
+      headers: {
+        authorization: 'authorization_should_not_leak',
+      },
+      data: {
+        row: {
+          internal_notes: 'internal field should not leak',
+          engineer_notes: 'internal field should not leak',
+          diagnosis_notes: 'internal field should not leak',
+          completion_notes: 'internal field should not leak',
+          private_report_body: 'internal field should not leak',
+          ai_draft_summary: 'internal field should not leak',
+          raw_payload: 'raw_service_result_should_not_leak',
+          customer_phone_raw: '0912345678',
+          customer_address_raw: 'No. 1 Secret Road',
+          line_user_id: 'line_user_should_not_leak',
+          storage_key: 'storage_key_should_not_leak',
+          bucket: 'bucket_should_not_leak',
+          internal_path: 'internal_path_should_not_leak',
+          stack: 'stack should not leak',
+        },
+        serviceReport: {
+          customerReportReference: 'report_public_handler_001',
+          serviceSummary: 'Customer-safe handler service summary',
+        },
+      },
+    }),
+  });
+
+  assertGenericSafeDeny(response);
+  assertForbiddenBoundaryKeysAbsent(response);
 });
 
 test('projection DB query selects internal scope and publication fields required by post-filter', async () => {

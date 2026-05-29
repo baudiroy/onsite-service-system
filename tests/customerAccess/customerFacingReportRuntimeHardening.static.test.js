@@ -121,6 +121,25 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
   );
 });
 
+test('projection HTTP boundary validates service envelopes before serialization', () => {
+  const projectionHandler = read(FILES.projectionHandler);
+
+  assert.match(projectionHandler, /function safeHttpEnvelopeFromServiceResult\(serviceResult\)/);
+  assert.match(projectionHandler, /function isSafeAllowEnvelope\(envelope\)/);
+  assert.match(projectionHandler, /function isSafeDenyEnvelope\(envelope\)/);
+  assert.match(projectionHandler, /function invokeProjectionService\(projectionService, input\)/);
+  assert.match(projectionHandler, /const HTTP_ENVELOPE_KEYS = Object\.freeze/);
+  assert.match(projectionHandler, /const SERVICE_REPORT_KEYS = Object\.freeze/);
+  assert.match(projectionHandler, /const PUBLIC_ATTACHMENT_KEYS = Object\.freeze/);
+  assert.match(projectionHandler, /isThenable\(serviceResult\)/);
+  assert.match(projectionHandler, /envelope = safeDenyEnvelope\(\);/);
+  assert.match(projectionHandler, /envelope = safeHttpEnvelopeFromServiceResult\(serviceResult\);/);
+  assert.doesNotMatch(
+    projectionHandler,
+    /body:\s*serviceResult|body:\s*result|body:\s*raw|json\(serviceResult\)|json\(result\)|\.\.\.\s*serviceResult|\.\.\.\s*result/,
+  );
+});
+
 test('Task1885 documentation records no DB migration deploy smoke provider AI billing or publication mutation scope', () => {
   const doc = read(FILES.doc);
 

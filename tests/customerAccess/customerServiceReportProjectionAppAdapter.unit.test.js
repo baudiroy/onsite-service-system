@@ -139,6 +139,8 @@ function assertNoSensitiveLeak(output) {
     'token_should_not_leak',
     'database sql',
     'route token',
+    'adapter projection service should not leak',
+    'raw_adapter_result_should_not_leak',
   ]) {
     assert.equal(serialized.includes(forbidden), false, `adapter output leaked ${forbidden}`);
   }
@@ -222,6 +224,77 @@ test('registered handler preserves Task909 safe allow behavior through synthetic
     },
   });
   assert.equal(dbClient.calls.length, 1);
+  assertNoSensitiveLeak(response);
+});
+
+test('registered handler sanitizes injected projection service throw at HTTP boundary', async () => {
+  const app = syntheticApp();
+  const result = registerCustomerServiceReportProjectionRoute({
+    app,
+    dbClient: dbClientWithRows([reportRow()]),
+    path: '/internal/customer-access/:caseId/service-report',
+    projectionService: () => {
+      throw new Error('adapter projection service should not leak sql token_should_not_leak');
+    },
+  });
+
+  const response = await app.calls.get[0].handler(request());
+
+  assert.equal(result.registered, true);
+  assert.deepEqual(response, {
+    statusCode: 404,
+    body: {
+      status: 'deny',
+      messageKey: 'customerAccess.unavailable',
+      customerVisible: false,
+      data: null,
+      error: {
+        messageKey: 'customerAccess.unavailable',
+      },
+    },
+  });
+  assertNoSensitiveLeak(response);
+});
+
+test('registered handler sanitizes malformed injected projection service result at HTTP boundary', async () => {
+  const app = syntheticApp();
+  const result = registerCustomerServiceReportProjectionRoute({
+    app,
+    dbClient: dbClientWithRows([reportRow()]),
+    path: '/internal/customer-access/:caseId/service-report',
+    projectionService: () => ({
+      status: 'allow',
+      messageKey: 'customerAccess.serviceReport.available',
+      customerVisible: true,
+      data: {
+        serviceReport: {
+          customerReportReference: 'report_public_adapter_001',
+          serviceSummary: 'Customer-safe adapter service summary',
+          dbRow: 'raw_adapter_result_should_not_leak',
+        },
+      },
+      raw: 'raw_adapter_result_should_not_leak',
+      headers: {
+        authorization: 'token_should_not_leak',
+      },
+    }),
+  });
+
+  const response = await app.calls.get[0].handler(request());
+
+  assert.equal(result.registered, true);
+  assert.deepEqual(response, {
+    statusCode: 404,
+    body: {
+      status: 'deny',
+      messageKey: 'customerAccess.unavailable',
+      customerVisible: false,
+      data: null,
+      error: {
+        messageKey: 'customerAccess.unavailable',
+      },
+    },
+  });
   assertNoSensitiveLeak(response);
 });
 

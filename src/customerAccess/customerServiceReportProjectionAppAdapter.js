@@ -41,6 +41,7 @@ function registerCustomerServiceReportProjectionRoute(options = {}) {
   const path = stringValue(options.path) || DEFAULT_INTERNAL_PROJECTION_PATH;
   const handler = createCustomerServiceReportProjectionHandler({
     dbClient: options.dbClient,
+    projectionService: options.projectionService,
   });
 
   try {
