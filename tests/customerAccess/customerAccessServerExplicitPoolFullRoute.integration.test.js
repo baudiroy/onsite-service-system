@@ -16,14 +16,14 @@ const {
 const repoRoot = path.resolve(__dirname, '../..');
 const serverFile = path.join(repoRoot, 'src/server.js');
 
-function createRequest(pathname) {
+function createRequest(pathname, method = 'GET') {
   const req = new Readable({
     read() {
       this.push(null);
     },
   });
 
-  req.method = 'GET';
+  req.method = method;
   req.url = pathname;
   req.originalUrl = pathname;
   req.headers = {};
@@ -73,9 +73,9 @@ function createResponse() {
   return res;
 }
 
-function requestApp(app, pathname) {
+function requestApp(app, pathname, options = {}) {
   return new Promise((resolve, reject) => {
-    const req = createRequest(pathname);
+    const req = createRequest(pathname, options.method || 'GET');
     const res = createResponse();
 
     res.on('finish', () => {
@@ -398,6 +398,43 @@ test('server explicit async pool service report full route passes allow context 
 
   assert.equal(directResponse.statusCode, 200);
   assert.deepEqual(response.body, directResponse.body);
+  assertNoLeak(response.body);
+});
+
+test('server explicit pool service report route rejects unsupported method without querying projection', async () => {
+  const queryCalls = [];
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls),
+  }));
+
+  const response = await requestApp(
+    bootstrap.app,
+    '/customer-access/case_full_route_001/service-report/report_public_full_route_001',
+    { method: 'POST' },
+  );
+
+  assert.deepEqual(queryCalls, []);
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.body.error.code, 'NOT_FOUND');
+  assert.match(response.body.error.message, /Route not found: POST/);
+  assertNoLeak(response.body);
+});
+
+test('server explicit pool malformed service report path stays not-found without projection query', async () => {
+  const queryCalls = [];
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls),
+  }));
+
+  const response = await requestApp(
+    bootstrap.app,
+    '/customer-access/case_full_route_001/service-report',
+  );
+
+  assert.deepEqual(queryCalls, []);
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.body.error.code, 'NOT_FOUND');
+  assert.match(response.body.error.message, /Route not found: GET/);
   assertNoLeak(response.body);
 });
 
