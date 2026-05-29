@@ -337,6 +337,36 @@ test('customer access context middleware rebuilds downstream context from explic
   assert.doesNotMatch(middleware, /req\.headers|req\.body|req\.query|req\.cookies|req\.session|req\.user|req\.socket|req\.connection/);
 });
 
+test('Task2113 audit side-channel remains case-overview only without service-report route-registration or middleware adapter integration', () => {
+  const route = read(FILES.route);
+  const controller = read(FILES.customerAccessController);
+  const middleware = read(FILES.customerAccessContextMiddleware);
+  const projectionHandler = read(FILES.projectionHandler);
+  const projectionAppAdapter = read(FILES.projectionAppAdapter);
+  const auditBoundary = read(FILES.auditBoundary);
+
+  assert.match(controller, /customerAccessAuditWriterAdapter/);
+  assert.match(controller, /writeCustomerAccessAuditEvent/);
+  assert.match(controller, /customer_access\.case_overview\.allow/);
+  assert.match(controller, /customer_access\.case_overview\.deny/);
+
+  for (const [name, source] of [
+    ['customerAccessRoutes.js', route],
+    ['customerAccessContextMiddleware.js', middleware],
+    ['customerServiceReportProjectionHandler.js', projectionHandler],
+    ['customerServiceReportProjectionAppAdapter.js', projectionAppAdapter],
+    ['customerServiceReportAuditBoundary.js', auditBoundary],
+  ]) {
+    assert.doesNotMatch(source, /customerAccessAuditWriterAdapter|writeCustomerAccessAuditEvent/, name);
+    assert.doesNotMatch(source, /customer_access\.case_overview\.(allow|deny)/, name);
+  }
+
+  assert.doesNotMatch(route, /buildCustomerAccessAuditEvent|customer_access\.service_report|customer_access\.route_registration/);
+  assert.doesNotMatch(middleware, /buildCustomerAccessAuditEvent|auditWriter|customer_access\./);
+  assert.doesNotMatch(projectionHandler, /buildCustomerAccessAuditEvent|customer_access\.service_report/);
+  assert.doesNotMatch(projectionAppAdapter, /buildCustomerAccessAuditEvent|customer_access\.service_report/);
+});
+
 test('customer access public report route remains param based without new global mount dependency', () => {
   const route = read(FILES.route);
   const routeIndex = read(FILES.routeIndex);

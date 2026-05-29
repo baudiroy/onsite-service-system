@@ -1055,6 +1055,58 @@ test('audit writer throw reject or malformed result never changes customer respo
   }
 });
 
+test('audit writer failure does not alter facade failure safe-deny responses', async () => {
+  const rawError = new Error('writer stack_should_not_leak');
+  const facadeFailureCases = [
+    () => {
+      throw new Error('select secret_should_not_leak');
+    },
+    () => Promise.reject(new Error('Bearer token_should_not_leak')),
+    () => ({
+      status: 'allow',
+      messageKey: 'customerAccess.available',
+      customerVisible: true,
+      data: {
+        raw: 'raw_case_payload_should_not_leak',
+      },
+    }),
+  ];
+  const auditWriters = [
+    () => {
+      throw rawError;
+    },
+    async () => {
+      throw rawError;
+    },
+    () => ({
+      ok: true,
+      status: 'recorded',
+      auditWritten: false,
+      persisted: true,
+      raw: 'audit log should never leak',
+    }),
+  ];
+
+  for (const buildCustomerAccessHttpResponse of facadeFailureCases) {
+    for (const auditWriter of auditWriters) {
+      const response = buildCustomerAccessControllerResponse(
+        validReq(),
+        {
+          buildCustomerAccessHttpResponse,
+          auditWriter,
+        },
+      );
+
+      await Promise.resolve();
+
+      assertGenericDeny(response);
+      assert.equal(JSON.stringify(response).includes('auditWritten'), false);
+      assert.equal(JSON.stringify(response).includes('stack_should_not_leak'), false);
+      assert.equal(JSON.stringify(response).includes('Bearer token_should_not_leak'), false);
+    }
+  }
+});
+
 test('case overview audit event does not include raw request context facade or private fields', () => {
   const req = validReq();
   const auditEvents = [];

@@ -116,6 +116,17 @@ function assertNoForbiddenFields(body) {
   for (const value of forbiddenValues) {
     assert.equal(serialized.includes(value), false, `allow response leaked forbidden value: ${value}`);
   }
+
+  for (const auditValue of [
+    'customer_access.case_overview.allow',
+    'customer_access.case_overview.deny',
+    'auditWritten',
+    'auditEvent',
+    'persisted',
+    'writer',
+  ]) {
+    assert.equal(serialized.includes(auditValue), false, `allow response leaked audit value: ${auditValue}`);
+  }
 }
 
 test('central router exposes GET /customer-access/:caseId', () => {
@@ -179,6 +190,17 @@ test('mounted allow response preserves finalAppointmentId without modifying it',
 
   assert.equal(req.customerAccessContextInput.customerVisibleData.serviceReport.finalAppointmentId, 'appt_final_test_001');
   assert.equal(body.data.serviceReport.finalAppointmentId, 'appt_final_test_001');
+});
+
+test('mounted allow route has no default audit side-channel output or dependency', () => {
+  const { body, handlers, res } = invokeMountedRoute(verifiedSyntheticRequest());
+
+  assert.equal(handlers[handlers.length - 1].name, 'handleCustomerAccessRequest');
+  assert.equal(body.status, 'allow');
+  assert.deepEqual(res.calls.status, [200]);
+  assertNoForbiddenFields(body);
+  assert.equal(Object.prototype.hasOwnProperty.call(body, 'auditEvent'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(body, 'auditWritten'), false);
 });
 
 function requireSpecifiers(source) {

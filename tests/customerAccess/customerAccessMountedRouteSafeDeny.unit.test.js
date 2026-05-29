@@ -72,6 +72,17 @@ function assertNoSensitiveLeak(body) {
   for (const value of forbiddenLeakValues) {
     assert.equal(serialized.includes(value), false, `safe-deny response leaked ${value}`);
   }
+
+  for (const auditValue of [
+    'customer_access.case_overview.allow',
+    'customer_access.case_overview.deny',
+    'auditWritten',
+    'auditEvent',
+    'persisted',
+    'writer',
+  ]) {
+    assert.equal(serialized.includes(auditValue), false, `safe-deny response leaked audit value: ${auditValue}`);
+  }
 }
 
 test('central router exposes GET /customer-access/:caseId', () => {
@@ -139,6 +150,16 @@ test('mounted safe-deny does not expose case, customer, org, identity, or public
   assert.deepEqual(res.calls.status, [404]);
   assert.deepEqual(Object.keys(body.error), ['messageKey']);
   assertNoSensitiveLeak(body);
+});
+
+test('mounted safe-deny route has no default audit side-channel output or dependency', () => {
+  const { body, res } = invokeMountedRoute({ params: { caseId: 'case-synthetic' } });
+
+  assert.deepEqual(res.calls.status, [404]);
+  assert.equal(body.status, 'deny');
+  assertNoSensitiveLeak(body);
+  assert.equal(Object.prototype.hasOwnProperty.call(body, 'auditEvent'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(body, 'auditWritten'), false);
 });
 
 test('test imports central router only and does not import server bootstrap', () => {
