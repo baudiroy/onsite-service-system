@@ -631,7 +631,7 @@ function mapProjection(row) {
 
   const serviceReport = {};
   const customerReportReference = rowValue(row, 'customerReportReference', 'public_report_id', 'publicReportId');
-  const caseReference = rowValue(row, 'caseReference', 'case_display_id', 'caseDisplayId', 'customer_case_reference');
+  const caseReference = customerDisplayValue(rowValue(row, 'caseReference', 'case_display_id', 'caseDisplayId', 'customer_case_reference'));
   const serviceStatus = customerDisplayValue(rowValue(row, 'serviceStatus', 'service_status_display', 'serviceStatusDisplay', 'statusDisplay'));
   const appointmentWindow = customerDisplayValue(rowValue(row, 'appointmentWindow', 'appointment_window', 'appointmentDisplayTimeWindow'));
   const engineerDisplayName = customerDisplayValue(rowValue(row, 'engineerDisplayName', 'engineer_display_name'));
