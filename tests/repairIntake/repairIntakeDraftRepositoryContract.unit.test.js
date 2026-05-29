@@ -260,6 +260,64 @@ test('factory accepts the repository-like object directly', async () => {
   assertNoUnsafeText(result);
 });
 
+test('contract preserves safe draft-boundary fields and strips confirmed duplicate markers', async () => {
+  const contract = createRepairIntakeDraftRepositoryContract({
+    draftRepository: {
+      findDraftForConversion: async () => ({
+        draftId: 'draft_task1888',
+        organizationId: 'org_task1888',
+        tenantId: 'tenant_task1888',
+        status: 'ready_for_conversion',
+        source: 'repair_intake',
+        sourceRef: 'source_task1888',
+        intakeSource: 'manual',
+        brandId: 'brand_task1888',
+        serviceProviderId: 'provider_task1888',
+        duplicateStatus: 'possible_duplicate',
+        duplicateCandidate: {
+          candidateId: 'dup_candidate_task1888',
+          candidateRef: 'dup_ref_task1888',
+          status: 'candidate',
+          confirmedDuplicate: true,
+          caseId: 'case_should_not_escape',
+          phone: '+886900001072',
+        },
+        reporterRef: { id: 'reporter_ref_task1888', role: 'reporter', phone: '+886900001072' },
+        customerRef: { id: 'customer_ref_task1888', role: 'customer', address: 'unsafe contract address' },
+        billingContactRef: { id: 'billing_ref_task1888', role: 'billing', token: 'unsafe token' },
+        onSiteContactOverrideRef: { id: 'site_ref_task1888', role: 'onsite', lineUserId: 'unsafe_contract_line' },
+        contactRoleSeparation: 'reviewed',
+        platformAccepted: true,
+        importAccepted: true,
+        caseId: 'case_should_not_escape',
+        finalAppointmentId: 'unsafe_contract_final',
+      }),
+    },
+  });
+
+  const result = await contract.findDraftForConversion({ draftId: 'draft_task1888' });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.brandId, 'brand_task1888');
+  assert.equal(result.serviceProviderId, 'provider_task1888');
+  assert.equal(result.duplicateStatus, 'possible_duplicate');
+  assert.deepEqual(result.duplicateCandidate, {
+    candidateId: 'dup_candidate_task1888',
+    candidateRef: 'dup_ref_task1888',
+    status: 'candidate',
+  });
+  assert.deepEqual(result.reporterRef, { id: 'reporter_ref_task1888', role: 'reporter' });
+  assert.deepEqual(result.customerRef, { id: 'customer_ref_task1888', role: 'customer' });
+  assert.deepEqual(result.billingContactRef, { id: 'billing_ref_task1888', role: 'billing' });
+  assert.deepEqual(result.onSiteContactOverrideRef, { id: 'site_ref_task1888', role: 'onsite' });
+  assert.equal(result.contactRoleSeparation, 'reviewed');
+  assert.equal(result.platformAccepted, true);
+  assert.equal(result.importAccepted, true);
+  assert.equal(JSON.stringify(result).includes('confirmedDuplicate'), false);
+  assert.equal(JSON.stringify(result).includes('case_should_not_escape'), false);
+  assertNoUnsafeText(result);
+});
+
 test('invalid lookup input fails closed before repository call', async () => {
   for (const invalidInput of [undefined, null, 'input', 42, true, [], () => {}, {}]) {
     const calls = [];

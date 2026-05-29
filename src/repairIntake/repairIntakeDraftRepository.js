@@ -3,6 +3,14 @@
 const UNSAFE_FIELD_NAMES = new Set([
   'address',
   'authorization',
+  'caseid',
+  'case_id',
+  'caseno',
+  'case_no',
+  'caseref',
+  'case_ref',
+  'confirmedduplicate',
+  'confirmed_duplicate',
   'cookie',
   'customer',
   'customerdata',
@@ -100,6 +108,76 @@ function safeArray(value) {
     : [];
 }
 
+function booleanValue(value) {
+  return value === true || value === false ? value : undefined;
+}
+
+function firstStringFrom(source, keys) {
+  if (!isPlainObject(source)) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = safeString(source[key]);
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function safeOptionalValue(value) {
+  const asString = safeString(value);
+
+  if (asString) {
+    return asString;
+  }
+
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const sanitized = safeObject(value);
+
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+function firstOptionalValue(source, keys) {
+  if (!isPlainObject(source)) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = safeOptionalValue(source[key]);
+
+    if (value !== undefined) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function safeDuplicateCandidate(value) {
+  if (!isPlainObject(value)) {
+    return undefined;
+  }
+
+  const candidate = sanitizeNestedValue({
+    candidateId: safeString(value.candidateId || value.candidate_id) || undefined,
+    candidateRef: safeString(value.candidateRef || value.candidate_ref) || undefined,
+    matchScore: typeof value.matchScore === 'number' ? value.matchScore : undefined,
+    reasonCode: safeString(value.reasonCode || value.reason_code) || undefined,
+    source: safeString(value.source) || undefined,
+    sourceRef: safeString(value.sourceRef || value.source_ref) || undefined,
+    status: safeString(value.status) || undefined,
+  });
+
+  return Object.keys(candidate).length > 0 ? candidate : undefined;
+}
+
 function createLookup(input) {
   if (!isPlainObject(input)) {
     throw new RepairIntakeDraftRepositoryError(
@@ -183,6 +261,9 @@ function mapDraftRow(row) {
     return null;
   }
 
+  const metadata = safeObject(row.safe_metadata);
+  const summary = safeObject(row.safe_summary);
+
   return sanitizeNestedValue({
     draftId: safeString(row.id),
     organizationId: safeString(row.organization_id),
@@ -191,8 +272,32 @@ function mapDraftRow(row) {
     source: safeString(row.source),
     sourceRef: safeString(row.source_ref),
     intakeSource: safeString(row.intake_source),
-    summary: safeObject(row.safe_summary),
-    metadata: safeObject(row.safe_metadata),
+    brandId: firstStringFrom(metadata, ['brandId', 'brand_id'])
+      || firstStringFrom(summary, ['brandId', 'brand_id']),
+    serviceProviderId: firstStringFrom(metadata, ['serviceProviderId', 'service_provider_id', 'providerId', 'provider_id'])
+      || firstStringFrom(summary, ['serviceProviderId', 'service_provider_id', 'providerId', 'provider_id']),
+    duplicateStatus: firstStringFrom(metadata, ['duplicateStatus', 'duplicate_status', 'dedupeStatus', 'dedupe_status']),
+    duplicateCandidate: safeDuplicateCandidate(metadata.duplicateCandidate || metadata.duplicate_candidate),
+    reporterRef: firstOptionalValue(metadata, ['reporterRef', 'reporter_ref']),
+    customerRef: firstOptionalValue(metadata, ['customerRef', 'customer_ref']),
+    billingContactRef: firstOptionalValue(metadata, ['billingContactRef', 'billing_contact_ref']),
+    onSiteContactOverrideRef: firstOptionalValue(metadata, ['onSiteContactOverrideRef', 'on_site_contact_override_ref']),
+    contactRoleSeparation: firstStringFrom(metadata, [
+      'contactRoleSeparation',
+      'contact_role_separation',
+      'reporterCustomerBillingContactSeparation',
+      'reporter_customer_billing_contact_separation',
+    ]),
+    platformAccepted: booleanValue(metadata.platformAccepted)
+      ?? booleanValue(metadata.platform_accepted)
+      ?? booleanValue(metadata.humanAccepted)
+      ?? booleanValue(metadata.human_accepted),
+    importAccepted: booleanValue(metadata.importAccepted)
+      ?? booleanValue(metadata.import_accepted)
+      ?? booleanValue(metadata.stagingAccepted)
+      ?? booleanValue(metadata.staging_accepted),
+    summary,
+    metadata,
     warnings: safeArray(row.validation_errors_safe),
   });
 }

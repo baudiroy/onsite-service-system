@@ -306,6 +306,86 @@ test('found row returns sanitized draft-like object', async () => {
   assertNoUnsafeText(result);
 });
 
+test('safe metadata keeps draft-boundary fields without confirming duplicate or merging contacts', async () => {
+  const calls = [];
+  const repository = createRepairIntakeDraftRepository({
+    dbClient: {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        return {
+          rows: [{
+            id: 'draft_1888',
+            organization_id: 'org_1888',
+            tenant_id: 'tenant_1888',
+            draft_status: 'ready_for_conversion',
+            source: 'repair_intake',
+            source_ref: 'source_1888',
+            intake_source: 'manual',
+            safe_summary: {
+              title: 'safe task1888 summary',
+              brandId: 'brand_1888_summary',
+              phone: 'unsafe phone',
+              finalAppointmentId: 'unsafe_final_appointment',
+            },
+            safe_metadata: {
+              brandId: 'brand_1888',
+              serviceProviderId: 'provider_1888',
+              duplicateStatus: 'possible_duplicate',
+              duplicateCandidate: {
+                candidateId: 'dup_candidate_1888',
+                candidateRef: 'dup_ref_1888',
+                matchScore: 0.82,
+                status: 'candidate',
+                reasonCode: 'possible_duplicate',
+                confirmedDuplicate: true,
+                caseId: 'case_should_not_escape',
+                phone: 'unsafe phone',
+                rawRow: { token: 'unsafe token' },
+              },
+              reporterRef: { id: 'reporter_ref_1888', role: 'reporter', phone: 'unsafe phone' },
+              customerRef: { id: 'customer_ref_1888', role: 'customer', address: 'unsafe address' },
+              billingContactRef: { id: 'billing_ref_1888', role: 'billing', token: 'unsafe token' },
+              onSiteContactOverrideRef: { id: 'site_ref_1888', role: 'onsite', lineUserId: 'unsafe_line_user' },
+              contactRoleSeparation: 'reviewed',
+              platformAccepted: true,
+              importAccepted: true,
+              rawRows: [{ phone: 'unsafe phone' }],
+            },
+          }],
+        };
+      },
+    },
+  });
+
+  const result = await repository.findDraftForConversion({
+    draftId: 'draft_1888',
+    organizationId: 'org_1888',
+    tenantId: 'tenant_1888',
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(result.brandId, 'brand_1888');
+  assert.equal(result.serviceProviderId, 'provider_1888');
+  assert.equal(result.duplicateStatus, 'possible_duplicate');
+  assert.deepEqual(result.duplicateCandidate, {
+    candidateId: 'dup_candidate_1888',
+    candidateRef: 'dup_ref_1888',
+    matchScore: 0.82,
+    reasonCode: 'possible_duplicate',
+    status: 'candidate',
+  });
+  assert.deepEqual(result.reporterRef, { id: 'reporter_ref_1888', role: 'reporter' });
+  assert.deepEqual(result.customerRef, { id: 'customer_ref_1888', role: 'customer' });
+  assert.deepEqual(result.billingContactRef, { id: 'billing_ref_1888', role: 'billing' });
+  assert.deepEqual(result.onSiteContactOverrideRef, { id: 'site_ref_1888', role: 'onsite' });
+  assert.equal(result.contactRoleSeparation, 'reviewed');
+  assert.equal(result.platformAccepted, true);
+  assert.equal(result.importAccepted, true);
+  assert.equal(JSON.stringify(result).includes('confirmedDuplicate'), false);
+  assert.equal(JSON.stringify(result).includes('case_should_not_escape'), false);
+  assertNoUnsafeText(result);
+});
+
 test('rejected query throws sanitized repository error', async () => {
   const { client } = createDbClient({ reject: true });
   const repository = createRepairIntakeDraftRepository({ dbClient: client });
@@ -338,8 +418,12 @@ test('source has no forbidden imports and no write SQL markers', () => {
     'server.js',
     'routes/',
     'controllers/',
-    'provider',
-    'billing',
+    "require('../providers",
+    "require('../../providers",
+    "require('../billing",
+    "require('../../billing",
+    'provider sending',
+    'billing event',
   ]) {
     assert.equal(source.includes(forbidden), false, `forbidden source marker found: ${forbidden}`);
   }

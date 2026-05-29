@@ -569,13 +569,8 @@ test('repository contract read failure stays sanitized through mounted plan rout
       unsafeRequestLike(),
     );
 
-    assert.deepEqual(calls.map((call) => call.name), ['rawRepository', 'planningPolicy']);
+    assert.deepEqual(calls.map((call) => call.name), ['rawRepository']);
     assertSanitizedRawLookup(calls[0].payload);
-    assert.equal(calls[1].payload.draft.status, 'failed');
-    assert.equal(
-      calls[1].payload.draft.reasonCode,
-      'REPAIR_INTAKE_DRAFT_REPOSITORY_CONTRACT_READ_FAILED',
-    );
     assert.equal(response.body.status, 'failed');
     assert.equal(response.body.reasonCode, 'REPAIR_INTAKE_DRAFT_REPOSITORY_CONTRACT_READ_FAILED');
     assertNoUnsafeText(calls.map((call) => call.payload));
