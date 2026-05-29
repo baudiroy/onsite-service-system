@@ -14,6 +14,8 @@ const FILES = Object.freeze({
   customerAccessHttpContextAdapter: 'src/customerAccess/customerAccessHttpContextAdapter.js',
   projectionHandler: 'src/customerAccess/customerServiceReportProjectionHandler.js',
   projectionService: 'src/customerAccess/customerServiceReportProjectionService.js',
+  customerAccessDbAdapter: 'src/customerAccess/customerAccessDbAdapter.js',
+  customerAccessContextRepository: 'src/customerAccess/customerAccessContextRepository.js',
   auditBoundary: 'src/customerAccess/customerServiceReportAuditBoundary.js',
   identityLinkResolver: 'src/customerAccess/customerIdentityLinkResolver.js',
   internalTestRouteMount: 'src/customerAccess/customerAccessInternalTestRouteMount.js',
@@ -376,6 +378,24 @@ test('Task2120 audit side-channel remains bounded to accepted customer access HT
   assert.doesNotMatch(route, /customer_access\.service_report\.(allow|deny)/);
   assert.doesNotMatch(middleware, /buildCustomerAccessAuditEvent|auditWriter|customer_access\./);
   assert.doesNotMatch(projectionAppAdapter, /customerAccessAuditWriterAdapter|writeCustomerAccessAuditEvent|buildCustomerAccessAuditEvent|customer_access\.service_report/);
+});
+
+test('route-registration audit does not spread to context middleware DB repository or query layers', () => {
+  const middleware = read(FILES.customerAccessContextMiddleware);
+  const projectionService = read(FILES.projectionService);
+  const dbAdapter = read(FILES.customerAccessDbAdapter);
+  const contextRepository = read(FILES.customerAccessContextRepository);
+
+  for (const [name, source] of [
+    ['customerAccessContextMiddleware.js', middleware],
+    ['customerServiceReportProjectionService.js', projectionService],
+    ['customerAccessDbAdapter.js', dbAdapter],
+    ['customerAccessContextRepository.js', contextRepository],
+  ]) {
+    assert.doesNotMatch(source, /customerAccessAuditWriterAdapter|writeCustomerAccessAuditEvent/, name);
+    assert.doesNotMatch(source, /buildCustomerAccessAuditEvent|customer_access\.route_registration/, name);
+    assert.doesNotMatch(source, /auditWriter|auditEvent|auditWritten|persisted/, name);
+  }
 });
 
 test('customer access public report route remains param based without new global mount dependency', () => {

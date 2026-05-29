@@ -1124,6 +1124,39 @@ test('route registration audit writer failure never changes registration summary
     for (const event of candidate.auditEvents) {
       assertAuditSafe(event);
     }
+
+    candidate.auditEvents = [];
+
+    const routeFailureRouter = {
+      get(path) {
+        throw new Error(`${path} raw_writer_route_failure_should_not_leak token_should_not_leak`);
+      },
+    };
+    const routeFailureSummary = registerCustomerAccessRoutes(routeFailureRouter, {
+      dbClient: createSyntheticDbClient([reportRow()]),
+      auditWriter: candidate.writer.bind(candidate),
+    });
+
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+
+    assert.deepEqual(
+      routeFailureSummary,
+      expectedRegistrationFailure('route_registration_failed'),
+      `${candidate.name} route failure`,
+    );
+    assertNoAuditSummaryOutput(routeFailureSummary);
+    assertNoRouteRegistrationSummaryLeak(routeFailureSummary);
+    assert.equal(candidate.auditEvents.length, 1, `${candidate.name} route failure`);
+    assertRouteRegistrationAuditEvent(candidate.auditEvents[0], {
+      eventType: 'customer_access.route_registration.failure',
+      decision: 'failure',
+      route: CUSTOMER_ACCESS_ROUTE_PATH,
+      reasonCode: 'route_registration_failed',
+      dependencyValid: true,
+      registrationResult: 'failure',
+    });
   }
 });
 
