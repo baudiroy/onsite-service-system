@@ -21,60 +21,15 @@ const ACCESS_KEYS = Object.freeze([
   'publicationAllowed',
   'customerVisiblePolicyPassed',
 ]);
-const CUSTOMER_VISIBLE_DATA_FORBIDDEN_KEYS = new Set([
-  'address',
-  'aiRawPayload',
-  'ai_draft_summary',
-  'ai_generated_summary',
-  'authorization',
-  'billingInternalData',
-  'body',
-  'channelSecret',
-  'connection',
-  'cookie',
-  'cookies',
-  'debug',
-  'diagnosis_notes',
-  'engineer_notes',
-  'env',
-  'fullAddress',
-  'fullPhone',
-  'headers',
-  'internalBillingData',
-  'internalNote',
-  'internalPolicyDetails',
-  'internalSettlementData',
-  'lineAccessToken',
-  'lineProfile',
-  'lineUserId',
-  'line_user_id',
-  'phone',
-  'policyDetails',
-  'policyEngineResult',
-  'policyRuleList',
-  'providerPayload',
-  'providerRawPayload',
-  'rawAddress',
-  'rawBody',
-  'rawHeaders',
-  'rawLineId',
-  'rawLineUserId',
-  'rawPhone',
-  'rawPolicyResult',
-  'rawRequest',
-  'raw_payload',
-  'refreshToken',
-  'request',
-  'req',
-  'ruleList',
-  'secret',
-  'session',
-  'sessionSecret',
-  'socket',
-  'stack',
-  'token',
-  'user',
-  'zeabur',
+const CUSTOMER_VISIBLE_DATA_KEYS = Object.freeze([
+  'serviceReport',
+]);
+const CUSTOMER_VISIBLE_SERVICE_REPORT_KEYS = Object.freeze([
+  'caseNo',
+  'finalAppointmentId',
+  'publicReportId',
+  'status',
+  'summary',
 ]);
 
 function isObject(value) {
@@ -147,6 +102,19 @@ function safeBoolean(value) {
   return value === true;
 }
 
+function isUnsafeCustomerVisibleString(value) {
+  return /(?:['"`;=]|--|\/\*|\*\/|\bselect\b|\binsert\b|\bupdate\b|\bdelete\b|\bdrop\b|\bunion\b|\bbearer\b|\bauthorization\b|\bcookie\b|\bset-cookie\b|\btoken\b|\bjwt\b|\bapi[-_ ]?key\b|\bheader\b|\bstack\b|\bat\s+\w+\s*\()/i
+    .test(value);
+}
+
+function isSafeCustomerVisibleValue(value) {
+  if (value === null || ['number', 'boolean'].includes(typeof value)) {
+    return true;
+  }
+
+  return typeof value === 'string' && !isUnsafeCustomerVisibleString(value);
+}
+
 function sanitizedParams(value) {
   const params = objectOrEmpty(value);
   const caseId = safeIdentifierValue(safeProperty(params, 'caseId'));
@@ -177,26 +145,28 @@ function sanitizedAccess(value) {
   };
 }
 
-function sanitizeCustomerVisibleData(value) {
-  if (Array.isArray(value)) {
-    return value.map(sanitizeCustomerVisibleData);
-  }
+function sanitizedCustomerVisibleServiceReport(value) {
+  const source = objectOrEmpty(value);
+  const serviceReport = {};
 
-  if (!isPlainObject(value)) {
-    return value;
-  }
+  for (const key of CUSTOMER_VISIBLE_SERVICE_REPORT_KEYS) {
+    const fieldValue = safeProperty(source, key);
 
-  const sanitized = {};
-
-  for (const [key, childValue] of Object.entries(value)) {
-    if (CUSTOMER_VISIBLE_DATA_FORBIDDEN_KEYS.has(key)) {
-      continue;
+    if (isSafeCustomerVisibleValue(fieldValue)) {
+      serviceReport[key] = fieldValue;
     }
-
-    sanitized[key] = sanitizeCustomerVisibleData(childValue);
   }
 
-  return sanitized;
+  return serviceReport;
+}
+
+function sanitizedCustomerVisibleData(value) {
+  const source = objectOrEmpty(value);
+  const serviceReport = sanitizedCustomerVisibleServiceReport(
+    safeProperty(source, 'serviceReport'),
+  );
+
+  return Object.keys(serviceReport).length > 0 ? { serviceReport } : {};
 }
 
 function sanitizedCustomerAccessContext(context) {
@@ -207,7 +177,7 @@ function sanitizedCustomerAccessContext(context) {
     auth: sanitizedAuth(safeProperty(safeContext, 'auth')),
     channel: {},
     access: sanitizedAccess(safeProperty(safeContext, 'access')),
-    customerVisibleData: sanitizeCustomerVisibleData(
+    customerVisibleData: sanitizedCustomerVisibleData(
       objectOrEmpty(safeProperty(safeContext, 'customerVisibleData')),
     ),
   };
@@ -221,9 +191,26 @@ function inputFromMiddleware(getInput, req, res) {
   }
 }
 
+function sanitizedInputForContext(input) {
+  if (!isPlainObject(input)) {
+    return undefined;
+  }
+
+  if (!hasOwn(input, 'customerVisibleData')) {
+    return input;
+  }
+
+  return {
+    ...input,
+    customerVisibleData: isPlainObject(safeProperty(input, 'customerVisibleData'))
+      ? safeProperty(input, 'customerVisibleData')
+      : {},
+  };
+}
+
 function contextFromMiddlewareInput(input, repository) {
   try {
-    return buildCustomerAccessContext(input, { repository });
+    return buildCustomerAccessContext(sanitizedInputForContext(input), { repository });
   } catch (error) {
     return buildCustomerAccessContext();
   }

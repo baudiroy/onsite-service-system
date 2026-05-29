@@ -36,6 +36,11 @@ const forbiddenValues = [
   'org_graph_should_not_leak',
   'subcontractor_should_not_leak',
   'debug_should_not_leak',
+  'unknown_customer_visible_should_not_leak',
+  'unknown_nested_should_not_leak',
+  'select customer_visible_should_not_leak',
+  'Bearer customer_visible_should_not_leak',
+  'at customerVisibleFrame (internal.js:1)',
 ];
 
 function validContextInput() {
@@ -434,6 +439,118 @@ test('middleware output strips sensitive identity policy and debug details from 
     },
   });
   assertNoForbiddenValues(req.customerAccessContext);
+});
+
+test('middleware customerVisibleData emits only explicit deep allowlist keys', () => {
+  const input = validContextInput();
+  input.customerVisibleData = {
+    unknownTopLevel: 'unknown_customer_visible_should_not_leak',
+    serviceReport: {
+      caseNo: 'CASE-001',
+      finalAppointmentId: 'appt_final_test_001',
+      publicReportId: 'report_public_test_001',
+      status: 'available',
+      summary: 'Service completed.',
+      displayName: 'unknown_nested_should_not_leak',
+      arbitraryCustomerData: 'unknown_nested_should_not_leak',
+    },
+  };
+  const req = {
+    customerAccessContextInput: input,
+  };
+
+  invokeMiddleware(req);
+
+  assert.deepEqual(req.customerAccessContext.customerVisibleData, {
+    serviceReport: {
+      caseNo: 'CASE-001',
+      finalAppointmentId: 'appt_final_test_001',
+      publicReportId: 'report_public_test_001',
+      status: 'available',
+      summary: 'Service completed.',
+    },
+  });
+  assert.deepEqual(Object.keys(req.customerAccessContext.customerVisibleData), ['serviceReport']);
+  assert.deepEqual(Object.keys(req.customerAccessContext.customerVisibleData.serviceReport), [
+    'caseNo',
+    'finalAppointmentId',
+    'publicReportId',
+    'status',
+    'summary',
+  ]);
+  assertNoForbiddenValues(req.customerAccessContext);
+});
+
+test('middleware customerVisibleData malformed sources and values are omitted safely', () => {
+  class UnsafeCustomerVisibleData {
+    constructor() {
+      this.serviceReport = { summary: 'unknown_nested_should_not_leak' };
+    }
+  }
+
+  const malformedSources = [
+    null,
+    undefined,
+    [],
+    'unknown_customer_visible_should_not_leak',
+    123,
+    true,
+    new Date('2026-05-30T00:00:00.000Z'),
+    new Error('unknown_customer_visible_should_not_leak'),
+    Buffer.from('unknown_customer_visible_should_not_leak'),
+    { then() {} },
+    () => 'unknown_customer_visible_should_not_leak',
+    new UnsafeCustomerVisibleData(),
+  ];
+
+  for (const candidate of malformedSources) {
+    const input = validContextInput();
+    input.customerVisibleData = candidate;
+    const req = {
+      customerAccessContextInput: input,
+    };
+
+    invokeMiddleware(req);
+
+    assert.deepEqual(req.customerAccessContext.customerVisibleData, {});
+    assertNoForbiddenValues(req.customerAccessContext);
+  }
+
+  const unsafeFieldValues = [
+    {},
+    [],
+    new Error('unknown_nested_should_not_leak'),
+    new Date('2026-05-30T00:00:00.000Z'),
+    Buffer.from('unknown_nested_should_not_leak'),
+    { then() {} },
+    () => 'unknown_nested_should_not_leak',
+    new UnsafeCustomerVisibleData(),
+    'select customer_visible_should_not_leak',
+    'Bearer customer_visible_should_not_leak',
+    'authorization header should not leak',
+    'at customerVisibleFrame (internal.js:1)',
+  ];
+
+  for (const candidate of unsafeFieldValues) {
+    const input = validContextInput();
+    input.customerVisibleData = {
+      serviceReport: {
+        caseNo: candidate,
+        finalAppointmentId: candidate,
+        publicReportId: candidate,
+        status: candidate,
+        summary: candidate,
+      },
+    };
+    const req = {
+      customerAccessContextInput: input,
+    };
+
+    invokeMiddleware(req);
+
+    assert.deepEqual(req.customerAccessContext.customerVisibleData, {});
+    assertNoForbiddenValues(req.customerAccessContext);
+  }
 });
 
 test('middleware fail-closes when getInput throws without leaking raw error', () => {
