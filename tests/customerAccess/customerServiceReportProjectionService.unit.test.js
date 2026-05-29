@@ -217,6 +217,7 @@ function assertNoSensitiveLeak(output) {
     'completion_time_token_should_not_leak',
     'service_status_token_should_not_leak',
     'engineer_display_token_should_not_leak',
+    'appointment_window_token_should_not_leak',
   ]) {
     assert.equal(serialized.includes(value), false, `projection leaked ${value}`);
   }
@@ -737,6 +738,27 @@ test('authorized context omits malformed engineer display names', async () => {
   assert.equal(output.status, 'allow');
   assert.equal(
     Object.prototype.hasOwnProperty.call(output.data.serviceReport, 'engineerDisplayName'),
+    false,
+  );
+  assertNoSensitiveLeak(output);
+});
+
+test('authorized context omits malformed appointment windows', async () => {
+  const dbClient = createDbClient([
+    reportRow({
+      appointment_window: 'appointment_window_token_should_not_leak select secret from cases',
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+
+  assert.equal(output.status, 'allow');
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(output.data.serviceReport, 'appointmentWindow'),
     false,
   );
   assertNoSensitiveLeak(output);
