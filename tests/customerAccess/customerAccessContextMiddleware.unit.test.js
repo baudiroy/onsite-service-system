@@ -8,6 +8,36 @@ const {
   buildCustomerAccessContextMiddleware,
 } = require('../../src/customerAccess/customerAccessContextMiddleware');
 
+const forbiddenValues = [
+  'raw_request_should_not_leak',
+  'headers_should_not_leak',
+  'raw_headers_should_not_leak',
+  'body_should_not_leak',
+  'raw_body_should_not_leak',
+  'query_should_not_leak',
+  'cookies_should_not_leak',
+  'socket_should_not_leak',
+  'connection_should_not_leak',
+  'ip_should_not_leak',
+  'user_should_not_leak',
+  'session_should_not_leak',
+  'authorization_should_not_leak',
+  'provider_payload_should_not_leak',
+  'env_should_not_leak',
+  '0912-345-678',
+  '台北市信義區測試路1號',
+  'line_user_test_001',
+  'token_should_not_leak',
+  'secret_should_not_leak',
+  'policy_result_should_not_leak',
+  'policy_rule_should_not_leak',
+  'deny_reason_should_not_leak',
+  'entitlement_should_not_leak',
+  'org_graph_should_not_leak',
+  'subcontractor_should_not_leak',
+  'debug_should_not_leak',
+];
+
 function validContextInput() {
   return {
     organizationId: 'org_test_001',
@@ -40,6 +70,18 @@ function invokeMiddleware(req) {
   return nextCallCount;
 }
 
+function assertNoForbiddenValues(value) {
+  const serialized = JSON.stringify(value);
+
+  for (const forbiddenValue of forbiddenValues) {
+    assert.equal(
+      serialized.includes(forbiddenValue),
+      false,
+      `middleware output leaked forbidden value: ${forbiddenValue}`,
+    );
+  }
+}
+
 test('middleware builder returns function', () => {
   const middleware = buildCustomerAccessContextMiddleware();
 
@@ -62,10 +104,7 @@ test('valid req.customerAccessContextInput populates controller-compatible req f
     customerId: 'customer_test_001',
     customerIdentityVerified: true,
   });
-  assert.deepEqual(req.channel, {
-    lineChannelId: 'line_channel_test_001',
-    lineUserId: 'line_user_test_001',
-  });
+  assert.deepEqual(req.channel, {});
   assert.deepEqual(req.access, {
     organizationScopeMatched: true,
     caseLinkedToCustomer: true,
@@ -79,6 +118,36 @@ test('valid req.customerAccessContextInput populates controller-compatible req f
       finalAppointmentId: 'appt_final_test_001',
     },
   });
+  assert.deepEqual(Object.keys(req.customerAccessContext), [
+    'params',
+    'auth',
+    'channel',
+    'access',
+    'customerVisibleData',
+  ]);
+  assert.deepEqual(req.customerAccessContext, {
+    params: { caseId: 'case_test_001' },
+    auth: {
+      organizationId: 'org_test_001',
+      customerId: 'customer_test_001',
+      customerIdentityVerified: true,
+    },
+    channel: {},
+    access: {
+      organizationScopeMatched: true,
+      caseLinkedToCustomer: true,
+      publicationAllowed: true,
+      customerVisiblePolicyPassed: true,
+    },
+    customerVisibleData: {
+      serviceReport: {
+        publicReportId: 'report_public_test_001',
+        status: 'available',
+        finalAppointmentId: 'appt_final_test_001',
+      },
+    },
+  });
+  assertNoForbiddenValues(req.customerAccessContext);
 });
 
 test('missing context input populates fail-closed req fields', () => {
@@ -178,10 +247,7 @@ test('organization, line channel, and line user id alone do not become verified 
   invokeMiddleware(req);
 
   assert.equal(req.auth.customerIdentityVerified, false);
-  assert.deepEqual(req.channel, {
-    lineChannelId: 'line_channel_test_001',
-    lineUserId: 'line_user_test_001',
-  });
+  assert.deepEqual(req.channel, {});
   assert.equal(req.access.caseLinkedToCustomer, false);
 });
 
@@ -263,4 +329,142 @@ test('applyCustomerAccessContextToRequest performs bounded request mutation', ()
   assert.deepEqual(req.customerAccessRouteParams, { caseId: 'case_route_original' });
   assert.deepEqual(req.params, { caseId: 'case_route_original' });
   assert.deepEqual(req.auth, { customerIdentityVerified: false });
+});
+
+test('middleware output omits raw request auth session user and provider containers', () => {
+  const req = {
+    params: {
+      caseId: 'case_route_original',
+      raw: 'raw_request_should_not_leak',
+    },
+    auth: {
+      authorization: 'authorization_should_not_leak',
+      token: 'token_should_not_leak',
+    },
+    headers: { authorization: 'authorization_should_not_leak' },
+    rawHeaders: ['authorization', 'raw_headers_should_not_leak'],
+    body: { raw: 'body_should_not_leak' },
+    rawBody: 'raw_body_should_not_leak',
+    query: { raw: 'query_should_not_leak' },
+    cookies: { session: 'cookies_should_not_leak' },
+    socket: { remoteAddress: 'socket_should_not_leak' },
+    connection: { id: 'connection_should_not_leak' },
+    ip: 'ip_should_not_leak',
+    user: { id: 'user_should_not_leak' },
+    session: { id: 'session_should_not_leak' },
+    providerPayload: { raw: 'provider_payload_should_not_leak' },
+    env: { ZEABUR: 'env_should_not_leak' },
+    customerAccessContextInput: validContextInput(),
+  };
+
+  invokeMiddleware(req);
+
+  assert.deepEqual(req.params, { caseId: 'case_route_original' });
+  assert.deepEqual(req.customerAccessRouteParams, { caseId: 'case_route_original' });
+  assert.deepEqual(req.auth, {
+    organizationId: 'org_test_001',
+    customerId: 'customer_test_001',
+    customerIdentityVerified: true,
+  });
+  assert.deepEqual(req.channel, {});
+  assert.deepEqual(Object.keys(req.customerAccessContext), [
+    'params',
+    'auth',
+    'channel',
+    'access',
+    'customerVisibleData',
+  ]);
+  assertNoForbiddenValues(req.customerAccessContext);
+  assertNoForbiddenValues({
+    params: req.params,
+    auth: req.auth,
+    channel: req.channel,
+    access: req.access,
+    customerVisibleData: req.customerVisibleData,
+  });
+});
+
+test('middleware output strips sensitive identity policy and debug details from context', () => {
+  const input = validContextInput();
+  input.phone = '0912-345-678';
+  input.rawPhone = '0912-345-678';
+  input.customer_phone_raw = '0912-345-678';
+  input.address = '台北市信義區測試路1號';
+  input.rawAddress = '台北市信義區測試路1號';
+  input.customer_address_raw = '台北市信義區測試路1號';
+  input.authorization = 'authorization_should_not_leak';
+  input.token = 'token_should_not_leak';
+  input.sessionSecret = 'secret_should_not_leak';
+  input.policyEngineResult = { reason: 'policy_result_should_not_leak' };
+  input.policyRuleList = ['policy_rule_should_not_leak'];
+  input.internalDenyReason = 'deny_reason_should_not_leak';
+  input.entitlementDetails = 'entitlement_should_not_leak';
+  input.organizationGraph = 'org_graph_should_not_leak';
+  input.subcontractorDetails = 'subcontractor_should_not_leak';
+  input.debug = 'debug_should_not_leak';
+  input.customerVisibleData.serviceReport.rawRequest = 'raw_request_should_not_leak';
+  input.customerVisibleData.serviceReport.policyEngineResult = 'policy_result_should_not_leak';
+  input.customerVisibleData.serviceReport.policyRuleList = 'policy_rule_should_not_leak';
+  input.customerVisibleData.serviceReport.debug = 'debug_should_not_leak';
+  input.customerVisibleData.serviceReport.authorization = 'authorization_should_not_leak';
+  input.customerVisibleData.serviceReport.sessionSecret = 'secret_should_not_leak';
+  const req = {
+    customerAccessContextInput: input,
+  };
+
+  invokeMiddleware(req);
+
+  assert.deepEqual(req.customerAccessContext.auth, {
+    organizationId: 'org_test_001',
+    customerId: 'customer_test_001',
+    customerIdentityVerified: true,
+  });
+  assert.deepEqual(req.customerAccessContext.channel, {});
+  assert.deepEqual(req.customerAccessContext.access, {
+    organizationScopeMatched: true,
+    caseLinkedToCustomer: true,
+    publicationAllowed: true,
+    customerVisiblePolicyPassed: true,
+  });
+  assert.deepEqual(req.customerAccessContext.customerVisibleData, {
+    serviceReport: {
+      publicReportId: 'report_public_test_001',
+      status: 'available',
+      finalAppointmentId: 'appt_final_test_001',
+    },
+  });
+  assertNoForbiddenValues(req.customerAccessContext);
+});
+
+test('middleware fail-closes when getInput throws without leaking raw error', () => {
+  const rawError = new Error('raw_request_should_not_leak');
+  const middleware = buildCustomerAccessContextMiddleware({
+    getInput() {
+      throw rawError;
+    },
+  });
+  const req = {
+    params: { caseId: 'case_test_001' },
+  };
+  let nextCallCount = 0;
+
+  assert.doesNotThrow(() => middleware(req, {}, () => {
+    nextCallCount += 1;
+  }));
+  assert.equal(nextCallCount, 1);
+  assert.deepEqual(req.customerAccessContext, {
+    params: {},
+    auth: {
+      customerIdentityVerified: false,
+    },
+    channel: {},
+    access: {
+      organizationScopeMatched: false,
+      caseLinkedToCustomer: false,
+      publicationAllowed: false,
+      customerVisiblePolicyPassed: false,
+    },
+    customerVisibleData: {},
+  });
+  assertNoForbiddenValues(req.customerAccessContext);
 });

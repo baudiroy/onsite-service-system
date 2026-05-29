@@ -10,6 +10,7 @@ const repoRoot = path.resolve(__dirname, '../..');
 const FILES = Object.freeze({
   route: 'src/routes/customerAccessRoutes.js',
   customerAccessController: 'src/controllers/customerAccessController.js',
+  customerAccessContextMiddleware: 'src/customerAccess/customerAccessContextMiddleware.js',
   customerAccessHttpContextAdapter: 'src/customerAccess/customerAccessHttpContextAdapter.js',
   projectionHandler: 'src/customerAccess/customerServiceReportProjectionHandler.js',
   projectionService: 'src/customerAccess/customerServiceReportProjectionService.js',
@@ -254,6 +255,43 @@ test('case overview HTTP boundary uses params-only caseId and customerAccessCont
     controller,
     /request\.(query|body|headers|cookies|user|session|socket|connection)|req\.(query|body|headers|cookies|user|session|socket|connection)/,
   );
+});
+
+test('customer access context middleware rebuilds downstream context from explicit allowlist', () => {
+  const middleware = read(FILES.customerAccessContextMiddleware);
+
+  assert.match(middleware, /const CUSTOMER_ACCESS_CONTEXT_SECTIONS = Object\.freeze\(\[/);
+  assert.match(middleware, /'params'/);
+  assert.match(middleware, /'auth'/);
+  assert.match(middleware, /'channel'/);
+  assert.match(middleware, /'access'/);
+  assert.match(middleware, /'customerVisibleData'/);
+  assert.match(middleware, /const AUTH_KEYS = Object\.freeze\(\[/);
+  assert.match(middleware, /'organizationId'/);
+  assert.match(middleware, /'customerId'/);
+  assert.match(middleware, /'customerIdentityVerified'/);
+  assert.match(middleware, /const ACCESS_KEYS = Object\.freeze\(\[/);
+  assert.match(middleware, /'organizationScopeMatched'/);
+  assert.match(middleware, /'caseLinkedToCustomer'/);
+  assert.match(middleware, /'publicationAllowed'/);
+  assert.match(middleware, /'customerVisiblePolicyPassed'/);
+  assert.match(middleware, /function sanitizedCustomerAccessContext\(context\)/);
+  assert.match(middleware, /params: sanitizedParams\(safeProperty\(safeContext,\s*'params'\)\)/);
+  assert.match(middleware, /auth: sanitizedAuth\(safeProperty\(safeContext,\s*'auth'\)\)/);
+  assert.match(middleware, /channel: \{\}/);
+  assert.match(middleware, /access: sanitizedAccess\(safeProperty\(safeContext,\s*'access'\)\)/);
+  assert.match(middleware, /customerVisibleData: sanitizeCustomerVisibleData/);
+  assert.match(middleware, /function inputFromMiddleware\(getInput, req, res\)/);
+  assert.match(middleware, /function contextFromMiddlewareInput\(input, repository\)/);
+  assert.match(middleware, /const routeParams = hasOwn\(req,\s*'customerAccessRouteParams'\)/);
+  assert.match(middleware, /req\.params = \{\s*\.\.\.safeContext\.params,\s*\.\.\.routeParams,\s*\};/);
+  assert.match(middleware, /req\.auth = safeContext\.auth/);
+  assert.match(middleware, /req\.channel = safeContext\.channel/);
+  assert.match(middleware, /req\.access = safeContext\.access/);
+  assert.match(middleware, /req\.customerAccessContext = safeContext/);
+  assert.doesNotMatch(middleware, /\.\.\.objectOrEmpty\(req\.(auth|channel|access)\)/);
+  assert.doesNotMatch(middleware, /req\.customerAccessContext = context|req\.customerAccessContext = isObject/);
+  assert.doesNotMatch(middleware, /req\.headers|req\.body|req\.query|req\.cookies|req\.session|req\.user|req\.socket|req\.connection/);
 });
 
 test('customer access public report route remains param based without new global mount dependency', () => {
