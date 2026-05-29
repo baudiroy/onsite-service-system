@@ -56,6 +56,7 @@ function eligibleDraft(overrides = {}) {
     serviceProviderId: 'provider_task947',
     serviceType: 'onsite',
     priority: 'normal',
+    duplicateStatus: 'cleared',
     contactRoleSeparation: 'complete',
     platformAccepted: true,
     reporterRef: { refId: 'reporter_ref_task947', type: 'reporter' },

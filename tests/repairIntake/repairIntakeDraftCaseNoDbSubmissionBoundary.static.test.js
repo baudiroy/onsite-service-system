@@ -8,6 +8,7 @@ const test = require('node:test');
 const SRC_DIR = path.join(__dirname, '../../src/repairIntake');
 
 const EXPECTED_MODULES = [
+  'repairIntakeDuplicateCandidateGuard.js',
   'repairIntakeDraftCaseCandidateBuilder.js',
   'repairIntakeDraftCaseCreatorInputNormalizer.js',
   'repairIntakeDraftCaseEligibility.js',
@@ -98,7 +99,10 @@ function importSpecifiers(source) {
 
 test('covers every current repair intake draft-to-case no-DB submission module', () => {
   const actualModules = fs.readdirSync(SRC_DIR)
-    .filter((fileName) => /^repairIntakeDraftCase.*\.js$/.test(fileName))
+    .filter((fileName) => (
+      /^repairIntakeDraftCase.*\.js$/.test(fileName)
+      || fileName === 'repairIntakeDuplicateCandidateGuard.js'
+    ))
     .filter((fileName) => !LATER_PHASE_RUNTIME_MODULES.includes(fileName))
     .sort();
 
@@ -119,7 +123,11 @@ test('covered modules only import accepted local no-DB submission modules', () =
     const specifiers = importSpecifiers(readModule(fileName));
 
     for (const specifier of specifiers) {
-      assert.match(specifier, /^\.\/repairIntakeDraftCase[A-Za-z0-9]+$/, `${fileName} imports non-local module ${specifier}`);
+      assert.match(
+        specifier,
+        /^\.\/(?:repairIntakeDraftCase[A-Za-z0-9]+|repairIntakeDuplicateCandidateGuard)$/,
+        `${fileName} imports non-local module ${specifier}`,
+      );
 
       for (const pattern of FORBIDDEN_IMPORT_SPECIFIERS) {
         assert.equal(pattern.test(specifier), false, `${fileName} imports forbidden dependency ${specifier}`);

@@ -128,6 +128,33 @@ test('unresolved duplicate needs review', () => {
   });
 });
 
+test('duplicate candidate stays advisory even when duplicate status was cleared', () => {
+  assertEnvelope(evaluateRepairIntakeDraftCaseEligibility({
+    draft: eligibleDraft({
+      duplicateStatus: 'cleared',
+      duplicateCandidate: {
+        candidateRef: 'draft_candidate_task1890',
+        confirmedDuplicate: true,
+        caseId: 'case_should_not_copy',
+      },
+    }),
+  }), {
+    status: 'needs_review',
+    reasonCode: 'duplicate_candidate_review_required',
+    requiredActions: ['review_duplicate_candidate'],
+  });
+});
+
+test('missing duplicate signal requires review instead of silently allowing promotion', () => {
+  assertEnvelope(evaluateRepairIntakeDraftCaseEligibility({
+    draft: eligibleDraft({ duplicateStatus: undefined }),
+  }), {
+    status: 'needs_review',
+    reasonCode: 'duplicate_signal_missing',
+    requiredActions: ['review_duplicate_candidate_status'],
+  });
+});
+
 test('confirmed duplicate blocks Case promotion', () => {
   assertEnvelope(evaluateRepairIntakeDraftCaseEligibility({
     draft: eligibleDraft({ duplicateStatus: 'confirmed_duplicate' }),

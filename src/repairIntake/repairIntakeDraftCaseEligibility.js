@@ -1,5 +1,9 @@
 'use strict';
 
+const {
+  evaluateRepairIntakeDuplicateCandidateGuard,
+} = require('./repairIntakeDuplicateCandidateGuard');
+
 const SUPPORTED_SOURCES = new Set([
   'app',
   'brand_api',
@@ -24,17 +28,6 @@ const STAGED_IMPORT_SOURCES = new Set([
   'brand_api',
   'csv_import',
   'excel_import',
-]);
-
-const UNRESOLVED_DUPLICATE_STATUSES = new Set([
-  'possible_duplicate',
-  'pending_review',
-  'unresolved',
-]);
-
-const CONFIRMED_DUPLICATE_STATUSES = new Set([
-  'confirmed_duplicate',
-  'duplicate',
 ]);
 
 function isObject(value) {
@@ -119,10 +112,6 @@ function hasServiceContext(draft) {
     'responsibleOrganizationId',
     'responsible_organization_id',
   ]));
-}
-
-function duplicateStatusOf(draft) {
-  return normalizedString(draft.duplicateStatus || draft.duplicate_status || draft.dedupeStatus || draft.dedupe_status);
 }
 
 function platformAccepted(draft) {
@@ -216,14 +205,14 @@ function evaluateRepairIntakeDraftCaseEligibility(input) {
     return result('needs_review', 'missing_service_context', ['confirm_brand_or_service_provider_context']);
   }
 
-  const duplicateStatus = duplicateStatusOf(draft);
+  const duplicateGuard = evaluateRepairIntakeDuplicateCandidateGuard({ draft });
 
-  if (UNRESOLVED_DUPLICATE_STATUSES.has(duplicateStatus)) {
-    return result('needs_review', 'duplicate_unresolved', ['resolve_duplicate_review']);
+  if (duplicateGuard.status === 'blocked') {
+    return result('blocked', duplicateGuard.reasonCode, duplicateGuard.requiredActions);
   }
 
-  if (CONFIRMED_DUPLICATE_STATUSES.has(duplicateStatus)) {
-    return result('blocked', 'duplicate_confirmed', ['link_or_close_duplicate_draft']);
+  if (duplicateGuard.status === 'review_required') {
+    return result('needs_review', duplicateGuard.reasonCode, duplicateGuard.requiredActions);
   }
 
   if (!contactRolesReady(draft)) {
