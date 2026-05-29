@@ -283,7 +283,7 @@ test('route registration with dbClient does not call dbClient at registration ti
     },
   });
 
-  assert.equal(router.routes.length, 1);
+  assert.equal(router.routes.length, 2);
   assert.equal(callCount, 0);
 });
 
@@ -346,9 +346,10 @@ test('route module imports DB adapter but no real DB, transaction, existing repo
     '../customerAccess/customerAccessDbAdapter',
     '../customerAccess/customerAccessContextMiddleware',
     '../controllers/customerAccessController',
+    '../customerAccess/customerServiceReportProjectionHandler',
   ]);
   assert.doesNotMatch(source, /pg|pool|transaction|begin|commit|rollback/i);
-  assert.doesNotMatch(source, /repositories?|services?|src\/db/i);
+  assert.doesNotMatch(source, /\.\.\/services(?:\/|')|\/repositories?\/|src\/db/i);
 });
 
 test('route path remains /customer-access/:caseId', () => {

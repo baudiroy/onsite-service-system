@@ -271,6 +271,7 @@ test('route and middleware imports do not include server bootstrap, DB, provider
     '../customerAccess/customerAccessDbAdapter',
     '../customerAccess/customerAccessContextMiddleware',
     '../controllers/customerAccessController',
+    '../customerAccess/customerServiceReportProjectionHandler',
   ]);
   assert.deepEqual(requireSpecifiers(middlewareSource), [
     './customerAccessContextProvider',

@@ -84,14 +84,16 @@ test('exports getCustomerAccessRouteDefinitions', () => {
   assert.equal(typeof getCustomerAccessRouteDefinitions, 'function');
 });
 
-test('registry registers route through synthetic router', () => {
+test('registry registers customer access routes through synthetic router', () => {
   const router = createSyntheticRouter();
 
   const returnedRouter = registerCustomerAccessModuleRoutes(router);
 
   assert.equal(returnedRouter, router);
-  assert.equal(router.routes.length, 1);
-  assert.equal(router.routes[0].method, 'GET');
+  assert.deepEqual(router.routes.map((route) => `${route.method} ${route.path}`), [
+    'GET /customer-access/:caseId',
+    'GET /customer-access/:caseId/service-report/:reportId',
+  ]);
 });
 
 test('registered route path includes caseId param and handler is function', () => {
@@ -114,6 +116,11 @@ test('metadata returns customer access route path and method without sensitive d
       module: 'customerAccess',
       method: 'GET',
       path: '/customer-access/:caseId',
+    },
+    {
+      module: 'customerAccess',
+      method: 'GET',
+      path: '/customer-access/:caseId/service-report/:reportId',
     },
   ]);
   assertSafePayload(definitions);

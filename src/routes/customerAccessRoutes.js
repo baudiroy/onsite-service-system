@@ -2,9 +2,26 @@
 
 const { createCustomerAccessDbAdapter } = require('../customerAccess/customerAccessDbAdapter');
 const { buildCustomerAccessContextMiddleware } = require('../customerAccess/customerAccessContextMiddleware');
-const { handleCustomerAccessRequest } = require('../controllers/customerAccessController');
+const {
+  buildCustomerAccessControllerResponse,
+  handleCustomerAccessRequest,
+} = require('../controllers/customerAccessController');
+const {
+  createCustomerServiceReportProjectionHandler,
+} = require('../customerAccess/customerServiceReportProjectionHandler');
 
 const CUSTOMER_ACCESS_ROUTE_PATH = '/customer-access/:caseId';
+const CUSTOMER_ACCESS_REPORT_ROUTE_PATH = '/customer-access/:caseId/service-report/:reportId';
+const SAFE_DENY_ENVELOPE = Object.freeze({
+  status: 'deny',
+  messageKey: 'customerAccess.unavailable',
+  customerVisible: false,
+  data: null,
+  error: Object.freeze({
+    messageKey: 'customerAccess.unavailable',
+  }),
+});
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -57,21 +74,63 @@ function middlewareOptionsFromRouteOptions(options) {
   return options;
 }
 
+function dbClientFromRouteOptions(options) {
+  if (!isObject(options)) {
+    return undefined;
+  }
+
+  if (options.dbClient && typeof options.dbClient['query'] === 'function') {
+    return options.dbClient;
+  }
+
+  return undefined;
+}
+
+function writeSafeDeny(res) {
+  if (res && typeof res.status === 'function' && typeof res.json === 'function') {
+    return res.status(404).json(SAFE_DENY_ENVELOPE);
+  }
+
+  return {
+    statusCode: 404,
+    body: SAFE_DENY_ENVELOPE,
+  };
+}
+
+function createCustomerAccessReportRouteHandler(options) {
+  const projectionHandler = createCustomerServiceReportProjectionHandler({
+    dbClient: dbClientFromRouteOptions(options),
+  });
+
+  return async function handleCustomerAccessReportRequest(req, res) {
+    const accessEnvelope = buildCustomerAccessControllerResponse(req);
+
+    if (!accessEnvelope || accessEnvelope.status !== 'allow') {
+      return writeSafeDeny(res);
+    }
+
+    return projectionHandler(req, res);
+  };
+}
+
 function registerCustomerAccessRoutes(router, options) {
   if (!router || typeof router.get !== 'function') {
     return router;
   }
 
-  const customerAccessContextMiddleware = buildCustomerAccessContextMiddleware(
-    middlewareOptionsFromRouteOptions(options),
-  );
+  const routeOptions = middlewareOptionsFromRouteOptions(options);
+  const customerAccessContextMiddleware = buildCustomerAccessContextMiddleware(routeOptions);
+  const reportRouteHandler = createCustomerAccessReportRouteHandler(routeOptions);
 
   router.get(CUSTOMER_ACCESS_ROUTE_PATH, customerAccessContextMiddleware, handleCustomerAccessRequest);
+  router.get(CUSTOMER_ACCESS_REPORT_ROUTE_PATH, customerAccessContextMiddleware, reportRouteHandler);
 
   return router;
 }
 
 module.exports = {
+  CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
   CUSTOMER_ACCESS_ROUTE_PATH,
+  createCustomerAccessReportRouteHandler,
   registerCustomerAccessRoutes,
 };

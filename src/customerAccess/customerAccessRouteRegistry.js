@@ -1,6 +1,7 @@
 'use strict';
 
 const {
+  CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
   CUSTOMER_ACCESS_ROUTE_PATH,
   registerCustomerAccessRoutes,
 } = require('../routes/customerAccessRoutes');
@@ -15,6 +16,11 @@ function getCustomerAccessRouteDefinitions() {
       module: 'customerAccess',
       method: 'GET',
       path: CUSTOMER_ACCESS_ROUTE_PATH,
+    },
+    {
+      module: 'customerAccess',
+      method: 'GET',
+      path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
     },
   ];
 }

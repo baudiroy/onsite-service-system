@@ -47,11 +47,17 @@ test('customer access route wires middleware before controller on GET case path'
   const specifiers = requireSpecifiers(source);
 
   assert.equal(source.includes("const CUSTOMER_ACCESS_ROUTE_PATH = '/customer-access/:caseId';"), true);
+  assert.equal(
+    source.includes("const CUSTOMER_ACCESS_REPORT_ROUTE_PATH = '/customer-access/:caseId/service-report/:reportId';"),
+    true,
+  );
   assert.match(source, /router\.get\(CUSTOMER_ACCESS_ROUTE_PATH, customerAccessContextMiddleware, handleCustomerAccessRequest\);/);
+  assert.match(source, /router\.get\(CUSTOMER_ACCESS_REPORT_ROUTE_PATH, customerAccessContextMiddleware, reportRouteHandler\);/);
   assert.deepEqual(specifiers, [
     '../customerAccess/customerAccessDbAdapter',
     '../customerAccess/customerAccessContextMiddleware',
     '../controllers/customerAccessController',
+    '../customerAccess/customerServiceReportProjectionHandler',
   ]);
 });
 
@@ -78,7 +84,16 @@ test('runtime route chain does not import projection service migration provider 
     const specifiers = requireSpecifiers(source);
     const serializedSpecifiers = JSON.stringify(specifiers);
 
-    assert.equal(serializedSpecifiers.includes('customerServiceReportProjection'), false, file);
+    if (file === FILES.route) {
+      assert.equal(
+        specifiers.includes('../customerAccess/customerServiceReportProjectionHandler'),
+        true,
+        file,
+      );
+      assert.equal(serializedSpecifiers.includes('customerServiceReportProjectionService'), false, file);
+    } else {
+      assert.equal(serializedSpecifiers.includes('customerServiceReportProjection'), false, file);
+    }
     assert.equal(serializedSpecifiers.includes('migrations'), false, file);
     assert.equal(serializedSpecifiers.includes('provider'), false, file);
     assert.equal(serializedSpecifiers.includes('OpenAI'), false, file);

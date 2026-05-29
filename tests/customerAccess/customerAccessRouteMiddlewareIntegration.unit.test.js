@@ -213,5 +213,6 @@ test('route module requires only bounded customer access adapter, context middle
     '../customerAccess/customerAccessDbAdapter',
     '../customerAccess/customerAccessContextMiddleware',
     '../controllers/customerAccessController',
+    '../customerAccess/customerServiceReportProjectionHandler',
   ]);
 });

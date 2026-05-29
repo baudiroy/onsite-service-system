@@ -335,6 +335,7 @@ test('route and executor imports do not include server bootstrap, real DB, provi
     '../customerAccess/customerAccessDbAdapter',
     '../customerAccess/customerAccessContextMiddleware',
     '../controllers/customerAccessController',
+    '../customerAccess/customerServiceReportProjectionHandler',
   ]);
   assert.deepEqual(requireSpecifiers(executorSource), []);
   assert.doesNotMatch(`${routeSource}\n${executorSource}`, /pg|pool|transaction|begin|commit|rollback/i);

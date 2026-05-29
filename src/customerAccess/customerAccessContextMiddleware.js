@@ -39,6 +39,7 @@ function applyCustomerAccessContextToRequest(req, context) {
     ...objectOrEmpty(safeContext.access),
   };
   req.customerVisibleData = objectOrEmpty(safeContext.customerVisibleData);
+  req.customerAccessContext = safeContext;
 
   return req;
 }
