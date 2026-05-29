@@ -486,6 +486,24 @@ test('publicAttachments include only explicitly customer-visible metadata', asyn
           visibility: 'customer_visible',
         },
         {
+          attachmentId: 'att_visible_003',
+          label: 'Visible attachment without trusted MIME',
+          mimeType: 'text/html; charset=utf-8',
+          customerVisible: true,
+        },
+        {
+          attachmentId: 'https://signed.example.invalid/secret',
+          label: 'invalid_attachment_should_not_leak',
+          mimeType: 'image/png',
+          customerVisible: true,
+        },
+        {
+          attachment_id: '../internal/private',
+          label: 'invalid_attachment_should_not_leak',
+          mime_type: 'image/png',
+          visibility: 'public',
+        },
+        {
           attachmentId: 'att_implicit_001',
           label: 'implicit_attachment_should_not_leak',
           mimeType: 'image/png',
@@ -550,6 +568,10 @@ test('publicAttachments include only explicitly customer-visible metadata', asyn
       attachmentId: 'att_visible_002',
       label: 'Visible receipt',
       mimeType: 'application/pdf',
+    },
+    {
+      attachmentId: 'att_visible_003',
+      label: 'Visible attachment without trusted MIME',
     },
   ]);
   assertNoSensitiveLeak(output);

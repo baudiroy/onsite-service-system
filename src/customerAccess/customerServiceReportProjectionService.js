@@ -474,6 +474,14 @@ function attachmentValue(value, key) {
   return stringValue(value);
 }
 
+function attachmentMimeTypeValue(value) {
+  const candidate = stringValue(value);
+
+  return candidate && /^[A-Za-z0-9][A-Za-z0-9.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9.+-]{0,126}$/.test(candidate)
+    ? candidate
+    : undefined;
+}
+
 function attachmentVisibilityState(value) {
   if (!isObject(value)) {
     return undefined;
@@ -543,13 +551,15 @@ function mapAttachment(value) {
   }
 
   const attachment = {};
-  const attachmentId = attachmentValue(value.attachmentId || value.attachment_id || value.publicAttachmentId, 'attachmentId');
+  const attachmentId = identifierValue(value.attachmentId || value.attachment_id || value.publicAttachmentId);
   const label = attachmentValue(value.label || value.displayName || value.fileName, 'label');
-  const mimeType = attachmentValue(value.mimeType || value.mime_type, 'mimeType');
+  const mimeType = attachmentMimeTypeValue(value.mimeType || value.mime_type);
 
-  if (attachmentId) {
-    attachment.attachmentId = attachmentId;
+  if (!attachmentId) {
+    return undefined;
   }
+
+  attachment.attachmentId = attachmentId;
 
   if (label) {
     attachment.label = label;
