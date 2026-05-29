@@ -354,6 +354,46 @@ test('service report route returns safe-deny before projection when resolver gat
   assertSafeResponse(body);
 });
 
+test('customer access unavailable responses intentionally use app-level 404 stealth safe-deny', async () => {
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([reportRow()]);
+
+  registerCustomerAccessRoutes(router, { dbClient, repository: denyRepository() });
+
+  const baseRouteResult = invokeRoute(
+    router.routes[0],
+    { params: { caseId: 'case_route_001' } },
+  );
+  const reportRouteResult = await invokeRouteAsync(
+    router.routes[1],
+    {
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+    },
+  );
+
+  assert.equal(router.routes[0].path, CUSTOMER_ACCESS_ROUTE_PATH);
+  assert.equal(router.routes[1].path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
+
+  for (const result of [baseRouteResult, reportRouteResult]) {
+    assert.deepEqual(result.res.calls.status, [404]);
+    assert.deepEqual(result.body, {
+      status: 'deny',
+      messageKey: 'customerAccess.unavailable',
+      customerVisible: false,
+      data: null,
+      error: {
+        messageKey: 'customerAccess.unavailable',
+      },
+    });
+    assertSafeResponse(result.body);
+  }
+
+  assert.equal(dbClient.calls.length, 0);
+});
+
 test('service report route allow path returns filtered projection without raw case data', async () => {
   const router = createSyntheticRouter();
   const dbClient = createSyntheticDbClient([reportRow()]);
