@@ -257,6 +257,35 @@ function createAsyncSyntheticPool(queryCalls, rowsOverride) {
   };
 }
 
+function createProjectionFailurePool(queryCalls, projectionResult) {
+  const safeCalls = Array.isArray(queryCalls) ? queryCalls : [];
+  const syntheticPool = createSyntheticPool(queryCalls);
+
+  return {
+    query(sql, params) {
+      const sqlText = typeof sql === 'string' ? sql : sql && sql.text;
+      const sqlParams = Array.isArray(params)
+        ? params
+        : (Array.isArray(sql && sql.values) ? sql.values : params);
+      const isProjectionQuery = String(sqlText).includes('public_report_id = $4')
+        && Array.isArray(sqlParams)
+        && sqlParams.length === 4;
+
+      if (!isProjectionQuery) {
+        return syntheticPool.query(sql, params);
+      }
+
+      safeCalls.push({ sql: sqlText, params: sqlParams });
+
+      if (typeof projectionResult === 'function') {
+        return projectionResult(sql, params);
+      }
+
+      return projectionResult;
+    },
+  };
+}
+
 function createMalformedResultPool(queryCalls) {
   const safeCalls = Array.isArray(queryCalls) ? queryCalls : [];
 
@@ -313,6 +342,10 @@ function assertNoLeak(value) {
     'raw_address_should_not_leak',
     'line_user_should_not_leak',
     'internal_pool_error_should_not_leak',
+    'connector_internal_should_not_leak',
+    'projection_query_config_should_not_leak',
+    'raw_projection_row_should_not_leak',
+    'stack_should_not_leak',
     'internal_note_should_not_leak',
     'audit_log_should_not_leak',
     'ai_raw_payload_should_not_leak',
@@ -532,6 +565,48 @@ test('server explicit pool query params cannot override service report route par
     'report_public_full_route_001',
   ]);
   assertNoLeak(response.body);
+});
+
+test('server explicit pool projection failures return safe-deny without raw internals', async () => {
+  for (const projectionResult of [
+    () => {
+      throw new Error(
+        'connector_internal_should_not_leak select secret projection_query_config_should_not_leak',
+      );
+    },
+    () => Promise.reject(new Error(
+      'connector_internal_should_not_leak stack_should_not_leak postgres://db-url-should-not-leak',
+    )),
+    { rows: [] },
+    {
+      row: {
+        rawProjectionRow: 'raw_projection_row_should_not_leak',
+        stack: 'stack_should_not_leak',
+        sql: 'select secret',
+      },
+    },
+  ]) {
+    const queryCalls = [];
+    const bootstrap = createServerBootstrap(enabledOptions({
+      customerAccessPool: createProjectionFailurePool(queryCalls, projectionResult),
+    }));
+
+    const response = await requestApp(
+      bootstrap.app,
+      '/customer-access/case_full_route_001/service-report/report_public_full_route_001',
+    );
+    const projectionCalls = queryCalls.filter((call) => (
+      String(call.sql).includes('public_report_id = $4') &&
+      Array.isArray(call.params) &&
+      call.params.length === 4
+    ));
+
+    assert.equal(projectionCalls.length, 1);
+    assert.equal(response.statusCode, 404);
+    assertSafeHttpResponseMetadata(response);
+    assert.equal(response.body.status, 'deny');
+    assertNoLeak(response.body);
+  }
 });
 
 test('allow response strips internal report and sensitive fields', async () => {

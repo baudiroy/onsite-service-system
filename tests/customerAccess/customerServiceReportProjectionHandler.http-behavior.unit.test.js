@@ -165,6 +165,9 @@ function assertNoSensitiveLeak(output) {
     'technician note should not leak',
     'dispatch note should not leak',
     'select secret',
+    'projection_query_config_should_not_leak',
+    'raw_projection_row_should_not_leak',
+    'connector_internal_should_not_leak',
     'stack should not leak',
     'token_should_not_leak',
     'provider_should_not_leak',
@@ -425,6 +428,47 @@ test('query throw returns generic safe-deny without stack SQL or raw error leaka
 
   assertGenericSafeDeny(response);
   assert.equal(dbClient.calls.length, 1);
+});
+
+test('query rejection and malformed projection result return generic safe-deny without internals', async () => {
+  const rejectingDbClient = {
+    calls: [],
+    query(querySpec) {
+      this.calls.push(querySpec);
+
+      return Promise.reject(new Error(
+        'connector_internal_should_not_leak select secret projection_query_config_should_not_leak',
+      ));
+    },
+  };
+  const malformedResultDbClient = {
+    calls: [],
+    query(querySpec) {
+      this.calls.push(querySpec);
+
+      return {
+        row: {
+          rawProjectionRow: 'raw_projection_row_should_not_leak',
+          stack: 'stack should not leak',
+          sql: 'select secret',
+        },
+      };
+    },
+  };
+
+  const rejectedResponse = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient: rejectingDbClient,
+  });
+  const malformedResponse = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient: malformedResultDbClient,
+  });
+
+  assertGenericSafeDeny(rejectedResponse);
+  assertGenericSafeDeny(malformedResponse);
+  assert.equal(rejectingDbClient.calls.length, 1);
+  assert.equal(malformedResultDbClient.calls.length, 1);
 });
 
 test('handler factory writes synthetic res status and json without listen or route registration', async () => {
