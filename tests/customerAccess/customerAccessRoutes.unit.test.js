@@ -535,6 +535,107 @@ test('registration summary cross-checks exactly with synthetic mounted dispatch 
   assertNoRouteRegistrationSummaryLeak(summary);
 });
 
+test('production mount readiness gate uses only injected get target and explicit dbClient', () => {
+  const calls = {
+    get: [],
+    listen: [],
+    post: [],
+    use: [],
+  };
+  const productionReadyTarget = {
+    rawTarget: 'raw_target_should_not_leak',
+    get(path, ...handlers) {
+      calls.get.push({
+        path,
+        handlers,
+      });
+      return this;
+    },
+    listen(...args) {
+      calls.listen.push(args);
+      throw new Error('production readiness guard must not start a listener');
+    },
+    post(...args) {
+      calls.post.push(args);
+      throw new Error('production readiness guard must not register POST routes');
+    },
+    use(...args) {
+      calls.use.push(args);
+      throw new Error('production readiness guard must not use global mounts');
+    },
+  };
+  const dbClient = createSyntheticDbClient([reportRow()]);
+  const summary = registerCustomerAccessRoutes(productionReadyTarget, {
+    dbClient,
+    repository: allowRepository(),
+    providerDebug: 'provider_should_not_leak',
+    zeaburEnv: 'zeabur_should_not_leak',
+  });
+
+  assert.deepEqual(summary, expectedRegistrationSummary());
+  assert.deepEqual(calls.get.map((call) => call.path), [
+    '/customer-access/:caseId',
+    '/customer-access/:caseId/service-report/:reportId',
+  ]);
+  assert.equal(calls.get.every((call) => call.handlers.every((handler) => typeof handler === 'function')), true);
+  assert.deepEqual(calls.listen, []);
+  assert.deepEqual(calls.post, []);
+  assert.deepEqual(calls.use, []);
+  assert.equal(dbClient.calls.length, 0);
+  assertSummaryMatchesRegisteredRoutes(summary, {
+    routes: calls.get.map((call) => ({
+      method: 'GET',
+      path: call.path,
+      handlers: call.handlers,
+    })),
+  });
+  assertNoRouteRegistrationSummaryLeak(summary);
+});
+
+test('production mount readiness dependency failures stay sanitized before public route registration', () => {
+  const malformedTargets = [
+    undefined,
+    null,
+    {},
+    { get: 'not function', rawTarget: 'raw_target_should_not_leak' },
+  ];
+  const malformedDbClients = [
+    null,
+    {},
+    { query: 'not function' },
+    {
+      query: null,
+      connectionString: 'postgres://user:password@localhost/customer_access_should_not_leak',
+      sql: 'select secret_should_not_leak',
+      token: 'Bearer token_should_not_leak',
+    },
+  ];
+
+  for (const target of malformedTargets) {
+    const summary = registerCustomerAccessRoutes(target, {
+      dbClient: createSyntheticDbClient([reportRow()]),
+    });
+
+    assert.deepEqual(summary, expectedRegistrationFailure('mount_target_invalid'));
+    assert.equal(typeof summary.routes, 'undefined');
+    assertNoRouteRegistrationSummaryLeak(summary);
+  }
+
+  for (const dbClient of malformedDbClients) {
+    const router = createSyntheticRouter();
+    const summary = registerCustomerAccessRoutes(router, {
+      dbClient,
+      projectionService: 'projection_service_should_not_leak',
+      providerDebug: 'provider_should_not_leak',
+    });
+
+    assert.deepEqual(summary, expectedRegistrationFailure('db_client_invalid'));
+    assert.equal(router.routes.length, 0);
+    assert.equal(typeof summary.routes, 'undefined');
+    assertNoRouteRegistrationSummaryLeak(summary);
+  }
+});
+
 test('failure summaries omit routes partial registrations and raw failure details', () => {
   const firstRouteThrow = {
     routes: [],

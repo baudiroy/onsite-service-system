@@ -383,6 +383,54 @@ test('customer access public report route remains param based without new global
   }
 });
 
+test('customer access production mount readiness guard stays injected only without production bootstrap work', () => {
+  const route = read(FILES.route);
+  const publicRoutes = read(FILES.publicRoutes);
+  const app = read(FILES.app);
+  const server = read(FILES.server);
+  const routeSpecifiers = JSON.stringify(requireSpecifiers(route));
+
+  assert.match(route, /function registerCustomerAccessRoutes\(router, options\)/);
+  assert.match(route, /const registerGet = safeProperty\(router,\s*'get'\)/);
+  assert.match(route, /typeof registerGet !== 'function'/);
+  assert.match(route, /safeRegistrationFailed\('mount_target_invalid'\)/);
+  assert.match(route, /function hasValidExplicitDbClient\(options\)/);
+  assert.match(route, /safeRegistrationFailed\('db_client_invalid'\)/);
+  assert.match(route, /registerGet\.call\(router,\s*CUSTOMER_ACCESS_ROUTE_PATH/);
+  assert.match(route, /registerGet\.call\(\s*router,\s*CUSTOMER_ACCESS_REPORT_ROUTE_PATH/);
+  assert.match(route, /function safeRegistrationSucceeded\(\)/);
+  assert.match(route, /registered: true,\s*routes: \[/);
+  assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_ROUTE_PATH/);
+  assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH/);
+  const safeRegistrationSucceededSource = route.match(
+    /function safeRegistrationSucceeded\(\) \{[\s\S]*?\n\}/,
+  )[0];
+  assert.doesNotMatch(routeSpecifiers, /src\/app|src\/server|public\.routes|routes\/index/i);
+  assert.doesNotMatch(
+    routeSpecifiers,
+    /(^|[/"'])(pg|knex|sequelize|prisma|mysql2?|sqlite3?|typeorm|mongoose|redis)($|[/"'])|database|pool|connection|env|zeabur|provider|openai|rag|billing|stripe|line|sms|email/i,
+  );
+  assert.doesNotMatch(
+    route,
+    /process\.env|DATABASE_URL|JWT_SECRET|new Pool|createPool|Pool\(|new Client\(|connect\(|\.listen\s*\(|app\.listen|server\.listen|express\s*\(|Router\s*\(|fetch\(|axios|http\.request|https\.request|smoke|healthz|provider|openai|rag|billing|stripe|line|sms|email/i,
+  );
+  assert.doesNotMatch(route, /\/__internal\/customer-access/);
+  assert.doesNotMatch(route, /return router;|return target;|return app;/);
+  assert.doesNotMatch(
+    safeRegistrationSucceededSource,
+    /routes:\s*router|routes:\s*target|handler:|dbClient:|projectionService:/,
+  );
+
+  for (const [name, source] of [
+    ['public.routes.js', publicRoutes],
+    ['app.js', app],
+    ['server.js', server],
+  ]) {
+    assert.doesNotMatch(source, /\/customer-access\/:caseId|\/customer-access/i, name);
+    assert.doesNotMatch(source, /registerCustomerAccessRoutes|customerAccessRoutes|customerAccessRouteRegistry/i, name);
+  }
+});
+
 test('projection app adapter delegates through handler without passing raw request containers', () => {
   const appAdapter = read(FILES.projectionAppAdapter);
 
