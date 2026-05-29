@@ -66,8 +66,6 @@ function baseInput(overrides = {}) {
       routeMatched: true,
       contextPresent: true,
       identifierValid: true,
-      dependencyValid: true,
-      registrationResult: 'success',
     },
     ...overrides,
   };
@@ -200,8 +198,6 @@ test('normalizes a full valid service report audit event without extra keys', ()
         routeMatched: true,
         contextPresent: true,
         identifierValid: true,
-        dependencyValid: true,
-        registrationResult: 'success',
       },
     },
   });
@@ -264,8 +260,6 @@ test('returned audit events and metadata are isolated across calls without outpu
       routeMatched: true,
       contextPresent: true,
       identifierValid: true,
-      dependencyValid: true,
-      registrationResult: 'success',
     },
   });
   const first = buildCustomerAccessAuditEvent(input);
@@ -280,7 +274,6 @@ test('returned audit events and metadata are isolated across calls without outpu
 
   first.auditEvent.eventType = 'mutated_event_type_should_not_leak';
   first.auditEvent.metadata.routeMatched = false;
-  first.auditEvent.metadata.registrationResult = 'mutated_metadata_should_not_leak';
 
   const third = buildCustomerAccessAuditEvent(input);
 
@@ -289,15 +282,11 @@ test('returned audit events and metadata are isolated across calls without outpu
     routeMatched: true,
     contextPresent: true,
     identifierValid: true,
-    dependencyValid: true,
-    registrationResult: 'success',
   });
   assert.equal(second.auditEvent.eventType, 'customer_access.service_report.allow');
   assert.equal(second.auditEvent.metadata.routeMatched, true);
-  assert.equal(second.auditEvent.metadata.registrationResult, 'success');
   assert.equal(third.auditEvent.eventType, 'customer_access.service_report.allow');
   assert.equal(third.auditEvent.metadata.routeMatched, true);
-  assert.equal(third.auditEvent.metadata.registrationResult, 'success');
   assertNoLeak(second);
   assertNoLeak(third);
 });
@@ -359,7 +348,7 @@ test('sensitive raw containers and unknown fields are stripped from audit output
   assertNoLeak(result);
 });
 
-test('metadata allows only safe primitive diagnostic flags and labels', () => {
+test('service metadata allows only event-appropriate safe primitive diagnostic flags', () => {
   const result = buildCustomerAccessAuditEvent(baseInput({
     metadata: {
       routeMatched: false,
@@ -378,14 +367,87 @@ test('metadata allows only safe primitive diagnostic flags and labels', () => {
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.auditEvent.metadata, {
-    routeMatched: false,
     contextPresent: true,
-    identifierValid: false,
-    dependencyValid: true,
-    registrationResult: 'failure',
   });
   assertAllowedAuditEventKeys(result.auditEvent);
   assertNoLeak(result);
+});
+
+test('route registration metadata allows only dependency and registration result labels', () => {
+  const success = buildCustomerAccessAuditEvent(baseInput({
+    eventType: 'customer_access.route_registration.success',
+    decision: 'success',
+    route: '/customer-access/:caseId',
+    source: 'customer_access_route_registration',
+    metadata: {
+      routeMatched: true,
+      contextPresent: true,
+      identifierValid: true,
+      dependencyValid: true,
+      registrationResult: 'success',
+    },
+  }));
+  const failure = buildCustomerAccessAuditEvent(baseInput({
+    eventType: 'customer_access.route_registration.failure',
+    decision: 'failure',
+    route: '/customer-access/:caseId/service-report/:reportId',
+    source: 'customer_access_route_registration',
+    reasonCode: 'route_registration_failed',
+    metadata: {
+      routeMatched: false,
+      contextPresent: false,
+      identifierValid: false,
+      dependencyValid: false,
+      registrationResult: 'failure',
+    },
+  }));
+
+  assert.equal(success.ok, true);
+  assert.deepEqual(success.auditEvent.metadata, {
+    dependencyValid: true,
+    registrationResult: 'success',
+  });
+  assert.equal(failure.ok, true);
+  assert.deepEqual(failure.auditEvent.metadata, {
+    dependencyValid: false,
+    registrationResult: 'failure',
+  });
+  assertNoLeak(success);
+  assertNoLeak(failure);
+});
+
+test('metadata matrix omits strict boolean strings numbers and contradictory values', () => {
+  const serviceAllow = buildCustomerAccessAuditEvent(baseInput({
+    eventType: 'customer_access.service_report.allow',
+    decision: 'allow',
+    metadata: {
+      routeMatched: false,
+      contextPresent: 'true',
+      identifierValid: 1,
+      dependencyValid: true,
+      registrationResult: 'success',
+      raw: 'nested_metadata_should_not_leak',
+    },
+  }));
+  const registrationSuccess = buildCustomerAccessAuditEvent(baseInput({
+    eventType: 'customer_access.route_registration.success',
+    decision: 'success',
+    route: '/customer-access/:caseId',
+    source: 'customer_access_route_registration',
+    metadata: {
+      dependencyValid: false,
+      registrationResult: 'failure',
+      routeMatched: true,
+      raw: 'nested_metadata_should_not_leak',
+    },
+  }));
+
+  assert.equal(serviceAllow.ok, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(serviceAllow.auditEvent, 'metadata'), false);
+  assert.equal(registrationSuccess.ok, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(registrationSuccess.auditEvent, 'metadata'), false);
+  assertNoLeak(serviceAllow);
+  assertNoLeak(registrationSuccess);
 });
 
 test('matrix-invalid allowed fields fail closed without leaking raw values', () => {

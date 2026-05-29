@@ -61,6 +61,36 @@ const VALID_INVALID_RESULT_REASON_CODES = new Set([
   'invalid_source',
 ]);
 const VALID_REGISTRATION_RESULTS = new Set(['success', 'failure', 'invalid', 'skipped', 'unavailable']);
+const EVENT_METADATA_MATRIX = Object.freeze({
+  'customer_access.case_overview.allow': Object.freeze([
+    'routeMatched',
+    'contextPresent',
+    'identifierValid',
+  ]),
+  'customer_access.case_overview.deny': Object.freeze([
+    'routeMatched',
+    'contextPresent',
+    'identifierValid',
+  ]),
+  'customer_access.service_report.allow': Object.freeze([
+    'routeMatched',
+    'contextPresent',
+    'identifierValid',
+  ]),
+  'customer_access.service_report.deny': Object.freeze([
+    'routeMatched',
+    'contextPresent',
+    'identifierValid',
+  ]),
+  'customer_access.route_registration.success': Object.freeze([
+    'dependencyValid',
+    'registrationResult',
+  ]),
+  'customer_access.route_registration.failure': Object.freeze([
+    'dependencyValid',
+    'registrationResult',
+  ]),
+});
 const EVENT_MATRIX = Object.freeze({
   'customer_access.case_overview.allow': Object.freeze({
     decision: 'allow',
@@ -180,7 +210,51 @@ function decisionFromEventType(eventType) {
   return undefined;
 }
 
-function sanitizedMetadata(value) {
+function metadataKeyAllowed(eventType, key) {
+  const allowedKeys = EVENT_METADATA_MATRIX[eventType];
+
+  return Array.isArray(allowedKeys) && allowedKeys.includes(key);
+}
+
+function metadataBooleanAllowed(eventType, key, value) {
+  if (!metadataKeyAllowed(eventType, key) || (value !== true && value !== false)) {
+    return false;
+  }
+
+  if (eventType.endsWith('.allow') && value === false) {
+    return false;
+  }
+
+  if (eventType === 'customer_access.route_registration.success' && key === 'dependencyValid') {
+    return value === true;
+  }
+
+  return true;
+}
+
+function metadataRegistrationResult(eventType, value) {
+  if (!metadataKeyAllowed(eventType, 'registrationResult')) {
+    return undefined;
+  }
+
+  const registrationResult = safeSetValue(value, VALID_REGISTRATION_RESULTS);
+
+  if (!registrationResult) {
+    return undefined;
+  }
+
+  if (eventType === 'customer_access.route_registration.success') {
+    return registrationResult === 'success' ? registrationResult : undefined;
+  }
+
+  if (eventType === 'customer_access.route_registration.failure') {
+    return registrationResult === 'success' ? undefined : registrationResult;
+  }
+
+  return undefined;
+}
+
+function sanitizedMetadata(value, eventType) {
   if (!isPlainObject(value)) {
     return undefined;
   }
@@ -188,12 +262,12 @@ function sanitizedMetadata(value) {
   const metadata = {};
 
   for (const key of ['routeMatched', 'contextPresent', 'identifierValid', 'dependencyValid']) {
-    if (value[key] === true || value[key] === false) {
+    if (metadataBooleanAllowed(eventType, key, value[key])) {
       metadata[key] = value[key];
     }
   }
 
-  const registrationResult = safeSetValue(value.registrationResult, VALID_REGISTRATION_RESULTS);
+  const registrationResult = metadataRegistrationResult(eventType, value.registrationResult);
 
   if (registrationResult) {
     metadata.registrationResult = registrationResult;
@@ -355,7 +429,7 @@ function buildCustomerAccessAuditEvent(input) {
     route: matrixFields.route,
     method: matrixFields.method,
     source: matrixFields.source,
-    metadata: sanitizedMetadata(input.metadata),
+    metadata: sanitizedMetadata(input.metadata, eventType),
   };
 
   for (const key of CUSTOMER_ACCESS_AUDIT_EVENT_KEYS) {
