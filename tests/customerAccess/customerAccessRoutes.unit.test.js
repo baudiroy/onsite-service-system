@@ -568,3 +568,91 @@ test('service report route audit writer failure remains sanitized and customer-i
   assertSafeResponse(body);
   assertAuditSafe(auditEvents[0]);
 });
+
+test('service report route missing projection dbClient stays 404 safe-deny and audits requestId', async () => {
+  const router = createSyntheticRouter();
+  const auditEvents = [];
+
+  registerCustomerAccessRoutes(router, {
+    repository: allowRepository(),
+    auditWriter(event) {
+      auditEvents.push(event);
+    },
+  });
+
+  const { body, nextCallCount, res } = await invokeRouteAsync(
+    router.routes[1],
+    {
+      requestId: 'request_route_harden_001',
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  );
+
+  assert.equal(nextCallCount, 1);
+  assert.deepEqual(res.calls.status, [404]);
+  assert.deepEqual(body, {
+    status: 'deny',
+    messageKey: 'customerAccess.unavailable',
+    customerVisible: false,
+    data: null,
+    error: {
+      messageKey: 'customerAccess.unavailable',
+    },
+  });
+  assert.equal(auditEvents.length, 1);
+  assert.equal(auditEvents[0].outcome, 'deny');
+  assert.equal(auditEvents[0].decision.status, 'deny');
+  assert.equal(auditEvents[0].requestId, 'request_route_harden_001');
+  assert.equal(auditEvents[0].caseId, 'case_route_001');
+  assert.equal(auditEvents[0].reportId, 'report_public_route_001');
+  assertSafeResponse(body);
+  assertAuditSafe(auditEvents[0]);
+});
+
+test('service report route projection query failure remains sanitized and customer-invisible', async () => {
+  const router = createSyntheticRouter();
+  const auditEvents = [];
+  const dbClient = {
+    calls: [],
+    query(querySpec) {
+      this.calls.push(querySpec);
+      throw new Error('database hostname token_should_not_leak');
+    },
+  };
+
+  registerCustomerAccessRoutes(router, {
+    dbClient,
+    repository: allowRepository(),
+    auditWriter(event) {
+      auditEvents.push(event);
+    },
+  });
+
+  const { body, res } = await invokeRouteAsync(
+    router.routes[1],
+    {
+      requestId: 'request_route_harden_002',
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  );
+
+  assert.deepEqual(res.calls.status, [404]);
+  assert.equal(body.status, 'deny');
+  assert.equal(body.messageKey, 'customerAccess.unavailable');
+  assert.equal(JSON.stringify(body).includes('database hostname'), false);
+  assert.equal(JSON.stringify(body).includes('token_should_not_leak'), false);
+  assert.equal(dbClient.calls.length, 1);
+  assert.equal(auditEvents.length, 1);
+  assert.equal(auditEvents[0].outcome, 'deny');
+  assert.equal(auditEvents[0].requestId, 'request_route_harden_002');
+  assertSafeResponse(body);
+  assertAuditSafe(auditEvents[0]);
+});

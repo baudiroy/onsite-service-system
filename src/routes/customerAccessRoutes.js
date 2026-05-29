@@ -106,16 +106,34 @@ function writeSafeDeny(res) {
   };
 }
 
+async function buildServiceReportProjectionResponse(req, dbClient) {
+  try {
+    return await handleCustomerServiceReportProjectionRequest({
+      request: req,
+      dbClient,
+    });
+  } catch (error) {
+    return {
+      statusCode: 404,
+      body: SAFE_DENY_ENVELOPE,
+    };
+  }
+}
+
 function createCustomerAccessReportRouteHandler(options) {
   const dbClient = dbClientFromRouteOptions(options);
   const auditWriter = auditWriterFromRouteOptions(options);
 
   async function recordAccessAudit(req, responseBody) {
-    await recordCustomerServiceReportAuditEvent({
-      auditWriter,
-      request: req,
-      responseBody,
-    });
+    try {
+      await recordCustomerServiceReportAuditEvent({
+        auditWriter,
+        request: req,
+        responseBody,
+      });
+    } catch (error) {
+      // Audit must never make the customer-facing safe-deny path observable.
+    }
   }
 
   return async function handleCustomerAccessReportRequest(req, res) {
@@ -126,10 +144,7 @@ function createCustomerAccessReportRouteHandler(options) {
       return writeSafeDeny(res);
     }
 
-    const response = await handleCustomerServiceReportProjectionRequest({
-      request: req,
-      dbClient,
-    });
+    const response = await buildServiceReportProjectionResponse(req, dbClient);
 
     await recordAccessAudit(req, response.body);
 
