@@ -90,12 +90,19 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
   assert.match(projectionService, /serviceReport: allowlistedServiceReport/);
   assert.match(projectionService, /serviceReport\.customerReportReference = customerReportReference/);
   assert.match(projectionService, /serviceReport\.serviceSummary = serviceSummary/);
+  assert.match(projectionService, /function isValidDateParts\(year, month, day\)/);
+  assert.match(projectionService, /function completionTimeValue\(value\)/);
+  assert.match(projectionService, /const completionTime = completionTimeValue\(rowValue\(row,\s*'completion_time'\)\)/);
   assert.match(projectionService, /const attachmentId = identifierValue\(value\.attachmentId \|\| value\.attachment_id \|\| value\.publicAttachmentId\)/);
   assert.match(projectionService, /return customerPublicAttachmentResponseAllowlist\(attachment\)/);
   assert.match(projectionService, /rowValue\(row,\s*'approved_service_summary'\)/);
   assert.doesNotMatch(
     projectionService,
     /rowValue\(row,\s*'serviceSummary',\s*'service_summary',\s*'approved_service_summary'\)/,
+  );
+  assert.doesNotMatch(
+    projectionService,
+    /completionTimeValue\(rowValue\(row,\s*'completionTime'|completionTimeValue\(rowValue\(row,[^)]*'completed_at'|rowValue\(row,[^)]*'created_at'|rowValue\(row,[^)]*'updated_at'|rowValue\(row,[^)]*'published_at'/,
   );
   assert.doesNotMatch(
     projectionService,

@@ -958,10 +958,12 @@ test('authorized context omits null empty optional DTO fields without adding pla
   assertNoSensitiveLeak(output);
 });
 
-test('authorized context omits malformed completion time values', async () => {
+test('authorized context emits completionTime only from completion_time source', async () => {
   const dbClient = createDbClient([
     reportRow({
-      completion_time: 'completion_time_token_should_not_leak',
+      completion_time: '2026-05-21T04:00:00.000Z',
+      completionTime: 'completion_time_camel_should_not_leak',
+      completed_at: 'completed_at_should_not_leak',
     }),
   ]);
   const output = await getCustomerServiceReportProjection({
@@ -970,12 +972,105 @@ test('authorized context omits malformed completion time values', async () => {
     caseId: 'case_projection_001',
     reportId: 'report_public_projection_001',
   });
+  const serialized = JSON.stringify(output);
+
+  assert.equal(output.status, 'allow');
+  assert.equal(output.data.serviceReport.completionTime, '2026-05-21T04:00:00.000Z');
+  assert.equal(
+    serialized.includes('completion_time_camel_should_not_leak'),
+    false,
+  );
+  assert.equal(serialized.includes('completed_at_should_not_leak'), false);
+  assertNoSensitiveLeak(output);
+});
+
+test('authorized context omits malformed completion time values', async () => {
+  for (const completion_time of [
+    null,
+    undefined,
+    '',
+    '   ',
+    123,
+    true,
+    ['completion_time_array_should_not_leak'],
+    { value: 'completion_time_object_should_not_leak' },
+    '2026-02-30T04:00:00.000Z',
+    '2026-13-21T04:00:00.000Z',
+    '2026-00-21T04:00:00.000Z',
+    '2026-05-21T24:00:00.000Z',
+    '2026-05-21T04:60:00.000Z',
+    '2026-05-21T04:00:60.000Z',
+    'not-a-date completion_time_token_should_not_leak',
+    'select secret from cases',
+    'stack trace\n    at internal.handler (/srv/app.js:1:1)',
+    'Authorization: Bearer completion_time_token_should_not_leak',
+    'provider payload should not leak',
+  ]) {
+    const dbClient = createDbClient([
+      reportRow({
+        completion_time,
+      }),
+    ]);
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assert.equal(output.status, 'allow');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(output.data.serviceReport, 'completionTime'),
+      false,
+    );
+    assertNoSensitiveLeak(output);
+  }
+});
+
+test('authorized context does not fall back to internal timestamp fields for completionTime', async () => {
+  const fallbackTimestampFields = {
+    completionTime: '2026-05-22T04:00:00.000Z',
+    completed_at: '2026-05-23T04:00:00.000Z',
+    created_at: '2026-05-24T04:00:00.000Z',
+    updated_at: '2026-05-25T04:00:00.000Z',
+    deleted_at: '2026-05-26T04:00:00.000Z',
+    approved_at: '2026-05-27T04:00:00.000Z',
+    published_at: '2026-05-28T04:00:00.000Z',
+    submitted_at: '2026-05-29T04:00:00.000Z',
+    generated_at: '2026-05-30T04:00:00.000Z',
+    internal_completed_at: '2026-05-31T04:00:00.000Z',
+    engineer_completed_at: '2026-06-01T04:00:00.000Z',
+    report_created_at: '2026-06-02T04:00:00.000Z',
+    report_updated_at: '2026-06-03T04:00:00.000Z',
+    appointment_start_time: '2026-06-04T04:00:00.000Z',
+    appointment_end_time: '2026-06-05T04:00:00.000Z',
+    arbitrary_timestamp: '2026-06-06T04:00:00.000Z',
+    arbitrary_time: '2026-06-07T04:00:00.000Z',
+  };
+  const dbClient = createDbClient([
+    reportRow({
+      completion_time: undefined,
+      ...fallbackTimestampFields,
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+  const serialized = JSON.stringify(output);
+  const allKeys = collectObjectKeys(output);
 
   assert.equal(output.status, 'allow');
   assert.equal(
     Object.prototype.hasOwnProperty.call(output.data.serviceReport, 'completionTime'),
     false,
   );
+  for (const [key, value] of Object.entries(fallbackTimestampFields)) {
+    assert.equal(serialized.includes(value), false, `response leaked fallback timestamp ${key}`);
+    assert.equal(allKeys.includes(key), false, `response leaked fallback timestamp key ${key}`);
+  }
   assertNoSensitiveLeak(output);
 });
 

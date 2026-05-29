@@ -516,10 +516,35 @@ function rowValue(row, ...keys) {
   return undefined;
 }
 
+function isValidDateParts(year, month, day) {
+  const utcDate = new Date(Date.UTC(year, month - 1, day));
+
+  return utcDate.getUTCFullYear() === year
+    && utcDate.getUTCMonth() === month - 1
+    && utcDate.getUTCDate() === day;
+}
+
 function completionTimeValue(value) {
   const candidate = stringValue(value);
+  const match = candidate && candidate.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/,
+  );
 
-  return candidate && /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(candidate)
+  if (!match) {
+    return undefined;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = match[4] === undefined ? 0 : Number(match[4]);
+  const minute = match[5] === undefined ? 0 : Number(match[5]);
+  const second = match[6] === undefined ? 0 : Number(match[6]);
+
+  return isValidDateParts(year, month, day)
+    && hour >= 0 && hour <= 23
+    && minute >= 0 && minute <= 59
+    && second >= 0 && second <= 59
     ? candidate
     : undefined;
 }
@@ -729,7 +754,7 @@ function mapProjection(row) {
   const appointmentWindow = customerDisplayValue(rowValue(row, 'appointmentWindow', 'appointment_window', 'appointmentDisplayTimeWindow'));
   const engineerDisplayName = customerDisplayValue(rowValue(row, 'engineerDisplayName', 'engineer_display_name'));
   const serviceSummary = customerServiceSummaryValue(rowValue(row, 'approved_service_summary'));
-  const completionTime = completionTimeValue(rowValue(row, 'completionTime', 'completion_time', 'completed_at'));
+  const completionTime = completionTimeValue(rowValue(row, 'completion_time'));
   const attachments = safeAttachments(row);
 
   if (customerReportReference) {
