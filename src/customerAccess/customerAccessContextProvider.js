@@ -1,5 +1,7 @@
 'use strict';
 
+const { resolveCustomerIdentityLink } = require('./customerIdentityLinkResolver');
+
 const FORBIDDEN_KEYS = new Set([
   'address',
   'aiRawPayload',
@@ -15,6 +17,8 @@ const FORBIDDEN_KEYS = new Set([
   'lineUserId',
   'line_user_id',
   'phone',
+  'providerPayload',
+  'providerRawPayload',
   'rawAddress',
   'rawLineId',
   'rawLineUserId',
@@ -30,6 +34,49 @@ function isObject(value) {
 
 function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+const IDENTITY_LINK_KEYS = Object.freeze([
+  'customerIdentityLink',
+  'customerIdentityLinks',
+  'identityLink',
+  'identityLinks',
+  'linkedIdentity',
+  'linkedIdentities',
+]);
+
+function hasIdentityLinkInput(...sources) {
+  return sources.some((source) => isObject(source) && IDENTITY_LINK_KEYS.some((key) => (
+    isObject(source[key]) || Array.isArray(source[key])
+  )));
+}
+
+function assignIdentityLinkInput(target, source) {
+  if (!isObject(source)) {
+    return;
+  }
+
+  for (const key of IDENTITY_LINK_KEYS) {
+    if (isObject(source[key]) || Array.isArray(source[key])) {
+      target[key] = source[key];
+    }
+  }
+}
+
+function identityLinkResolutionFromSources(sources, baseInput) {
+  if (!hasIdentityLinkInput(...sources)) {
+    return undefined;
+  }
+
+  const request = {
+    ...baseInput,
+  };
+
+  for (const source of sources) {
+    assignIdentityLinkInput(request, source);
+  }
+
+  return resolveCustomerIdentityLink(request);
 }
 
 function sanitizeCustomerVisibleData(value) {
@@ -112,13 +159,27 @@ function buildCustomerAccessContextFromRepository(input, repository) {
 
   const organizationId = stringValue(organizationScope.organizationId) || stringValue(input.organizationId);
   const caseId = stringValue(caseLinkage.caseId) || stringValue(input.caseId);
-  const customerId = stringValue(customerIdentity.customerId);
-  const lineChannelId = stringValue(input.lineChannelId);
-  const lineUserId = stringValue(input.lineUserId);
+  const rawCustomerId = stringValue(customerIdentity.customerId);
+  const lineChannelId = stringValue(input.lineChannelId) || stringValue(customerIdentity.lineChannelId);
+  const lineUserId = stringValue(input.lineUserId) || stringValue(customerIdentity.lineUserId);
+  const contactId = stringValue(input.contactId) || stringValue(customerIdentity.contactId);
+  const identityLinkResolution = identityLinkResolutionFromSources([customerIdentity, input], {
+    organizationId,
+    customerId: rawCustomerId,
+    caseId,
+    contactId,
+    lineChannelId,
+    lineUserId,
+  });
+  const customerId = identityLinkResolution && identityLinkResolution.resolved
+    ? identityLinkResolution.customerId
+    : rawCustomerId;
   const organizationScopeMatched = organizationScope.matched === true
     || organizationScope.organizationScopeMatched === true;
   const customerIdentityVerified = Boolean(customerId && (
-    customerIdentity.verified === true || customerIdentity.customerIdentityVerified === true
+    identityLinkResolution
+      ? identityLinkResolution.resolved === true
+      : customerIdentity.verified === true || customerIdentity.customerIdentityVerified === true
   ));
   const caseLinkedToCustomer = Boolean(
     customerIdentityVerified && (caseLinkage.linked === true || caseLinkage.caseLinkedToCustomer === true),
@@ -184,11 +245,27 @@ function buildCustomerAccessContext(input, options) {
 
   const organizationId = stringValue(input.organizationId);
   const caseId = stringValue(input.caseId);
-  const customerId = stringValue(input.customerId);
   const lineChannelId = stringValue(input.lineChannelId);
   const lineUserId = stringValue(input.lineUserId);
+  const contactId = stringValue(input.contactId);
+  const rawCustomerId = stringValue(input.customerId);
+  const identityLinkResolution = identityLinkResolutionFromSources([input], {
+    organizationId,
+    customerId: rawCustomerId,
+    caseId,
+    contactId,
+    lineChannelId,
+    lineUserId,
+  });
+  const customerId = identityLinkResolution && identityLinkResolution.resolved
+    ? identityLinkResolution.customerId
+    : rawCustomerId;
   const organizationScopeMatched = Boolean(organizationId && caseId);
-  const customerIdentityVerified = Boolean(customerId && input.customerIdentityVerified === true);
+  const customerIdentityVerified = Boolean(customerId && (
+    identityLinkResolution
+      ? identityLinkResolution.resolved === true
+      : input.customerIdentityVerified === true
+  ));
   const caseLinkedToCustomer = Boolean(customerIdentityVerified && input.caseLinkedToCustomer === true);
   const publicationAllowed = Boolean(caseLinkedToCustomer && input.publicationAllowed === true);
   const customerVisiblePolicyPassed = Boolean(

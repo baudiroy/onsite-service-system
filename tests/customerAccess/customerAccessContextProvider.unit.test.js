@@ -152,6 +152,92 @@ test('line user id alone does not become verified identity or scoped channel met
   assert.deepEqual(context.channel, {});
 });
 
+test('linked LINE identity resolves customer identity without treating LINE as global identity', () => {
+  const context = buildCustomerAccessContext({
+    organizationId: 'org_test_001',
+    caseId: 'case_test_001',
+    lineChannelId: 'line_channel_test_001',
+    lineUserId: 'line_user_should_not_leak',
+    customerIdentityLink: {
+      provider: 'line',
+      channel: 'line',
+      organizationId: 'org_test_001',
+      customerId: 'customer_linked_001',
+      caseId: 'case_test_001',
+      lineChannelId: 'line_channel_test_001',
+      lineUserId: 'line_user_should_not_leak',
+      status: 'active',
+      providerPayload: {
+        token: 'provider_payload_should_not_leak',
+      },
+    },
+    caseLinkedToCustomer: true,
+    publicationAllowed: true,
+    customerVisiblePolicyPassed: true,
+  });
+  const serialized = JSON.stringify(context);
+
+  assert.equal(context.auth.customerIdentityVerified, true);
+  assert.equal(context.auth.customerId, 'customer_linked_001');
+  assert.equal(context.access.caseLinkedToCustomer, true);
+  assert.equal(context.access.publicationAllowed, true);
+  assert.equal(serialized.includes('provider_payload_should_not_leak'), false);
+});
+
+test('ambiguous or revoked identity link fails closed even with LINE identifiers present', () => {
+  for (const identityLinkInput of [
+    {
+      customerIdentityLinks: [
+        {
+          provider: 'line',
+          channel: 'line',
+          organizationId: 'org_test_001',
+          customerId: 'customer_linked_001',
+          lineChannelId: 'line_channel_test_001',
+          lineUserId: 'line_user_should_not_leak',
+          status: 'active',
+        },
+        {
+          provider: 'line',
+          channel: 'line',
+          organizationId: 'org_test_001',
+          customerId: 'customer_linked_002',
+          lineChannelId: 'line_channel_test_001',
+          lineUserId: 'line_user_should_not_leak',
+          status: 'active',
+        },
+      ],
+    },
+    {
+      customerIdentityLink: {
+        provider: 'line',
+        channel: 'line',
+        organizationId: 'org_test_001',
+        customerId: 'customer_linked_001',
+        lineChannelId: 'line_channel_test_001',
+        lineUserId: 'line_user_should_not_leak',
+        status: 'revoked',
+      },
+    },
+  ]) {
+    const context = buildCustomerAccessContext({
+      organizationId: 'org_test_001',
+      caseId: 'case_test_001',
+      lineChannelId: 'line_channel_test_001',
+      lineUserId: 'line_user_should_not_leak',
+      caseLinkedToCustomer: true,
+      publicationAllowed: true,
+      customerVisiblePolicyPassed: true,
+      ...identityLinkInput,
+    });
+
+    assert.equal(context.auth.customerIdentityVerified, false);
+    assert.equal(context.auth.customerId, undefined);
+    assert.equal(context.access.caseLinkedToCustomer, false);
+    assert.equal(context.access.publicationAllowed, false);
+  }
+});
+
 test('organization, line channel, and line user id alone do not become verified identity', () => {
   const context = buildCustomerAccessContext({
     organizationId: 'org_test_001',

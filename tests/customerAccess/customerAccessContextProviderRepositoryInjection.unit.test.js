@@ -174,6 +174,44 @@ test('repository all allow results map to controller-compatible allow context', 
   });
 });
 
+test('repository linked LINE identity resolves without using LINE as global identity', () => {
+  const context = buildCustomerAccessContext(
+    {
+      organizationId: 'org_input_001',
+      caseId: 'case_repo_001',
+      lineChannelId: 'line_channel_input_001',
+      lineUserId: 'line_user_should_not_leak',
+    },
+    {
+      repository: allowRepository({
+        customerIdentity: {
+          verified: false,
+          customerIdentityLink: {
+            provider: 'line',
+            channel: 'line',
+            organizationId: 'org_repo_001',
+            customerId: 'customer_repo_linked_001',
+            caseId: 'case_repo_001',
+            lineChannelId: 'line_channel_input_001',
+            lineUserId: 'line_user_should_not_leak',
+            status: 'active',
+            providerPayload: {
+              token: 'provider_payload_should_not_leak',
+            },
+          },
+        },
+      }),
+    },
+  );
+  const serialized = JSON.stringify(context);
+
+  assert.equal(context.auth.organizationId, 'org_repo_001');
+  assert.equal(context.auth.customerId, 'customer_repo_linked_001');
+  assert.equal(context.auth.customerIdentityVerified, true);
+  assert.equal(context.access.caseLinkedToCustomer, true);
+  assert.equal(serialized.includes('provider_payload_should_not_leak'), false);
+});
+
 test('repository organization scope missing or unmatched fails closed', () => {
   assertFailClosed(buildCustomerAccessContext(callerProvidedInput(), {
     repository: allowRepository({
