@@ -18,6 +18,26 @@ const CUSTOMER_PUBLIC_ATTACHMENT_RESPONSE_KEYS = Object.freeze([
   'label',
   'mimeType',
 ]);
+const CUSTOMER_ACCESS_CONTEXT_KEYS = Object.freeze([
+  'organizationId',
+  'customerId',
+  'caseId',
+  'organizationScopeMatched',
+  'customerIdentityVerified',
+  'caseLinkedToCustomer',
+  'publicationAllowed',
+  'customerVisiblePolicyPassed',
+]);
+const CUSTOMER_ACCESS_CONTEXT_BOOLEAN_KEYS = Object.freeze([
+  'organizationScopeMatched',
+  'customerIdentityVerified',
+  'caseLinkedToCustomer',
+  'publicationAllowed',
+  'customerVisiblePolicyPassed',
+]);
+const CUSTOMER_ACCESS_CONTEXT_KEY_SET = new Set(CUSTOMER_ACCESS_CONTEXT_KEYS);
+const SAFE_CONTEXT_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+const UNSAFE_CONTEXT_IDENTIFIER_PATTERN = /(?:\.\.|['"`;]|--|\/\*|\*\/|\b(?:select|insert|update|delete|drop|union|alter|grant|revoke|authorization|bearer|cookie|token|headers?)\b)/i;
 
 const FORBIDDEN_ATTACHMENT_KEYS = new Set([
   'address',
@@ -162,20 +182,55 @@ function identifierValue(value) {
     : undefined;
 }
 
-function hasMalformedIdentifierValue(...values) {
-  return values.some((value) => {
-    const candidate = stringValue(value);
-
-    return Boolean(candidate && !identifierValue(candidate));
-  });
-}
-
 function booleanTrue(value) {
   return value === true;
 }
 
 function hasOwn(value, key) {
   return isObject(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function hasOnlyCustomerAccessContextKeys(context) {
+  return Object.keys(context).every((key) => CUSTOMER_ACCESS_CONTEXT_KEY_SET.has(key));
+}
+
+function customerAccessContextIdentifierValue(value) {
+  const candidate = stringValue(value);
+
+  if (!candidate) {
+    return undefined;
+  }
+
+  return SAFE_CONTEXT_IDENTIFIER_PATTERN.test(candidate) &&
+    !UNSAFE_CONTEXT_IDENTIFIER_PATTERN.test(candidate)
+    ? candidate
+    : undefined;
+}
+
+function customerAccessContextScope(context) {
+  if (!isPlainObject(context) || !hasOnlyCustomerAccessContextKeys(context)) {
+    return undefined;
+  }
+
+  for (const key of CUSTOMER_ACCESS_CONTEXT_BOOLEAN_KEYS) {
+    if (context[key] !== true) {
+      return undefined;
+    }
+  }
+
+  const organizationId = customerAccessContextIdentifierValue(context.organizationId);
+  const customerId = customerAccessContextIdentifierValue(context.customerId);
+  const caseId = customerAccessContextIdentifierValue(context.caseId);
+
+  if (!organizationId || !customerId || !caseId) {
+    return undefined;
+  }
+
+  return {
+    organizationId,
+    customerId,
+    caseId,
+  };
 }
 
 function normalizedState(value) {
@@ -429,85 +484,25 @@ function buildAllowEnvelope(serviceReport) {
 }
 
 function contextOrganizationId(context) {
-  return identifierValue(context.organizationId)
-    || identifierValue(context.auth && context.auth.organizationId)
-    || identifierValue(context.organization && context.organization.organizationId)
-    || identifierValue(context.organization && context.organization.id);
+  const scope = customerAccessContextScope(context);
+
+  return scope && scope.organizationId;
 }
 
 function contextCustomerId(context) {
-  return identifierValue(context.customerId)
-    || identifierValue(context.auth && context.auth.customerId)
-    || identifierValue(context.customerIdentity && context.customerIdentity.customerId)
-    || identifierValue(context.customer && context.customer.id);
+  const scope = customerAccessContextScope(context);
+
+  return scope && scope.customerId;
 }
 
 function contextCaseId(context) {
-  return identifierValue(context.caseId)
-    || identifierValue(context.params && context.params.caseId)
-    || identifierValue(context.case && context.case.caseId)
-    || identifierValue(context.case && context.case.id);
-}
+  const scope = customerAccessContextScope(context);
 
-function hasMalformedCustomerAccessIdentifier(context) {
-  return hasMalformedIdentifierValue(
-    context.organizationId,
-    context.auth && context.auth.organizationId,
-    context.organization && context.organization.organizationId,
-    context.organization && context.organization.id,
-    context.customerId,
-    context.auth && context.auth.customerId,
-    context.customerIdentity && context.customerIdentity.customerId,
-    context.customer && context.customer.id,
-    context.caseId,
-    context.params && context.params.caseId,
-    context.case && context.case.caseId,
-    context.case && context.case.id,
-    context.reportId,
-    context.params && context.params.reportId,
-    context.report && context.report.reportId,
-    context.report && context.report.id,
-    context.serviceReport && context.serviceReport.reportId,
-  );
+  return scope && scope.caseId;
 }
 
 function isAuthorizedContext(context) {
-  if (!isObject(context)) {
-    return false;
-  }
-
-  if (hasMalformedCustomerAccessIdentifier(context)) {
-    return false;
-  }
-
-  const access = isObject(context.access) ? context.access : {};
-  const customerIdentity = isObject(context.customerIdentity) ? context.customerIdentity : {};
-  const auth = isObject(context.auth) ? context.auth : {};
-
-  const organizationScopeMatched = context.organizationScopeMatched === true
-    || access.organizationScopeMatched === true
-    || access.organizationScope === true
-    || access.organizationScopeMatches === true;
-  const customerIdentityVerified = context.customerIdentityVerified === true
-    || auth.customerIdentityVerified === true
-    || customerIdentity.verified === true;
-  const caseLinkedToCustomer = context.caseLinkedToCustomer === true
-    || access.caseLinkedToCustomer === true
-    || access.caseLinkage === true;
-  const publicationAllowed = customerAccessPublicationStateGuardPasses(context);
-  const customerVisiblePolicyPassed = context.customerVisiblePolicyPassed === true
-    || access.customerVisiblePolicyPassed === true
-    || access.customerVisiblePolicy === true;
-
-  return Boolean(
-    contextOrganizationId(context) &&
-    contextCustomerId(context) &&
-    organizationScopeMatched &&
-    customerIdentityVerified &&
-    caseLinkedToCustomer &&
-    publicationAllowed &&
-    customerVisiblePolicyPassed,
-  );
+  return Boolean(customerAccessContextScope(context));
 }
 
 function valuesMatch(left, right) {

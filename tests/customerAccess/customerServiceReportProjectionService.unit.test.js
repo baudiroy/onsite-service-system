@@ -9,26 +9,14 @@ const {
 
 function authorizedContext(overrides = {}) {
   return {
-    auth: {
-      organizationId: 'org_projection_001',
-      customerId: 'customer_projection_001',
-      customerIdentityVerified: true,
-    },
-    params: {
-      caseId: 'case_projection_001',
-    },
-    access: {
-      organizationScopeMatched: true,
-      caseLinkedToCustomer: true,
-      publicationAllowed: true,
-      publicationState: 'published',
-      customerVisiblePolicyPassed: true,
-    },
-    publication: {
-      state: 'published',
-      allowed: true,
-      customerVisiblePolicyPassed: true,
-    },
+    organizationId: 'org_projection_001',
+    customerId: 'customer_projection_001',
+    caseId: 'case_projection_001',
+    organizationScopeMatched: true,
+    customerIdentityVerified: true,
+    caseLinkedToCustomer: true,
+    publicationAllowed: true,
+    customerVisiblePolicyPassed: true,
     ...overrides,
   };
 }
@@ -296,14 +284,12 @@ test('missing dbClient fails closed without reading', async () => {
 test('missing or invalid customerAccessContext fails closed before query', async () => {
   const dbClient = createDbClient([reportRow()]);
 
-  for (const customerAccessContext of [undefined, null, {}, authorizedContext({
-    access: {
-      organizationScopeMatched: true,
-      caseLinkedToCustomer: true,
-      publicationAllowed: true,
-      customerVisiblePolicyPassed: false,
-    },
-  })]) {
+  for (const customerAccessContext of [
+    undefined,
+    null,
+    {},
+    authorizedContext({ customerVisiblePolicyPassed: false }),
+  ]) {
     const output = await getCustomerServiceReportProjection({
       dbClient,
       customerAccessContext,
@@ -351,23 +337,13 @@ test('suspicious customer access context identifiers fail closed before query', 
 
   for (const customerAccessContext of [
     authorizedContext({
-      auth: {
-        organizationId: "org_projection_001'--",
-        customerId: 'customer_projection_001',
-        customerIdentityVerified: true,
-      },
+      organizationId: "org_projection_001'--",
     }),
     authorizedContext({
-      auth: {
-        organizationId: 'org_projection_001',
-        customerId: '../customer_projection_001',
-        customerIdentityVerified: true,
-      },
+      customerId: '../customer_projection_001',
     }),
     authorizedContext({
-      params: {
-        caseId: 'case_projection_001;select secret',
-      },
+      caseId: 'case_projection_001;select secret',
     }),
   ]) {
     const output = await getCustomerServiceReportProjection({
@@ -381,6 +357,171 @@ test('suspicious customer access context identifiers fail closed before query', 
     assertNoSensitiveLeak(output);
   }
 
+  assert.equal(dbClient.calls.length, 0);
+});
+
+test('customerAccessContext must be a flat plain allowlisted object', async () => {
+  class ContextContainer {}
+
+  const promiseContext = Promise.resolve(authorizedContext());
+  promiseContext.organizationId = 'org_projection_001';
+  promiseContext.customerId = 'customer_projection_001';
+  promiseContext.caseId = 'case_projection_001';
+
+  const dbClient = createDbClient([reportRow()]);
+
+  for (const customerAccessContext of [
+    [],
+    'context_string_should_not_leak',
+    123,
+    true,
+    new Date('2026-05-21T04:00:00.000Z'),
+    new Error('context_error_should_not_leak'),
+    Buffer.from('context_buffer_should_not_leak'),
+    promiseContext,
+    { ...authorizedContext(), then() {} },
+    Object.assign(new ContextContainer(), authorizedContext()),
+    authorizedContext({
+      auth: {
+        organizationId: 'org_projection_001',
+      },
+    }),
+    authorizedContext({
+      access: {
+        publicationAllowed: true,
+      },
+    }),
+    authorizedContext({
+      raw: {
+        customerAccessContext: 'raw_context_should_not_leak',
+      },
+    }),
+  ]) {
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext,
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assertSafeDeny(output);
+    assert.equal(JSON.stringify(output).includes('should_not_leak'), false);
+    assertNoSensitiveLeak(output);
+  }
+
+  assert.equal(dbClient.calls.length, 0);
+});
+
+test('customerAccessContext policy flags require exact booleans', async () => {
+  const dbClient = createDbClient([reportRow()]);
+  const invalidBooleanValues = ['true', 'false', '1', '0', 1, 0, 'yes', 'no', null, undefined];
+
+  for (const key of [
+    'organizationScopeMatched',
+    'customerIdentityVerified',
+    'caseLinkedToCustomer',
+    'publicationAllowed',
+    'customerVisiblePolicyPassed',
+  ]) {
+    for (const value of [...invalidBooleanValues, false]) {
+      const output = await getCustomerServiceReportProjection({
+        dbClient,
+        customerAccessContext: authorizedContext({ [key]: value }),
+        caseId: 'case_projection_001',
+        reportId: 'report_public_projection_001',
+      });
+
+      assertSafeDeny(output);
+      assertNoSensitiveLeak(output);
+    }
+  }
+
+  assert.equal(dbClient.calls.length, 0);
+});
+
+test('customerAccessContext ID fields require safe strings only', async () => {
+  const dbClient = createDbClient([reportRow()]);
+  const invalidIds = [
+    undefined,
+    null,
+    '',
+    '   ',
+    123,
+    true,
+    ['context_id_array_should_not_leak'],
+    { id: 'context_id_object_should_not_leak' },
+    '../case_projection_001',
+    "case_projection_001' or '1'='1",
+    'case_projection_001;select secret',
+    'Bearer token_should_not_leak',
+    'headers.authorization',
+  ];
+
+  for (const key of ['organizationId', 'customerId', 'caseId']) {
+    for (const value of invalidIds) {
+      const output = await getCustomerServiceReportProjection({
+        dbClient,
+        customerAccessContext: authorizedContext({ [key]: value }),
+        caseId: 'case_projection_001',
+        reportId: 'report_public_projection_001',
+      });
+
+      assertSafeDeny(output);
+      assert.equal(JSON.stringify(output).includes('should_not_leak'), false);
+      assertNoSensitiveLeak(output);
+    }
+  }
+
+  assert.equal(dbClient.calls.length, 0);
+});
+
+test('customerAccessContext unknown raw fields fail closed without leaking values', async () => {
+  const rawContextFields = {
+    request: 'raw_request_should_not_leak',
+    auth: { token: 'auth_token_should_not_leak' },
+    user: { id: 'user_should_not_leak' },
+    session: { id: 'session_should_not_leak' },
+    headers: { authorization: 'authorization_should_not_leak' },
+    cookies: { session: 'cookies_should_not_leak' },
+    token: 'token_should_not_leak',
+    line_user_id: 'line_user_id_should_not_leak',
+    customer_phone_raw: 'customer_phone_raw_should_not_leak',
+    customer_address_raw: 'customer_address_raw_should_not_leak',
+    provider_payload: 'provider_payload_should_not_leak',
+    raw_payload: 'raw_payload_should_not_leak',
+    debug: { sql: 'select secret' },
+    sql: 'select secret',
+    internal_notes: 'internal_notes_should_not_leak',
+  };
+  const dbClient = createDbClient([reportRow()]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(rawContextFields),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+  const serialized = JSON.stringify(output);
+
+  assertSafeDeny(output);
+  for (const value of [
+    'raw_request_should_not_leak',
+    'auth_token_should_not_leak',
+    'user_should_not_leak',
+    'session_should_not_leak',
+    'authorization_should_not_leak',
+    'cookies_should_not_leak',
+    'token_should_not_leak',
+    'line_user_id_should_not_leak',
+    'customer_phone_raw_should_not_leak',
+    'customer_address_raw_should_not_leak',
+    'provider_payload_should_not_leak',
+    'raw_payload_should_not_leak',
+    'select secret',
+    'internal_notes_should_not_leak',
+  ]) {
+    assert.equal(serialized.includes(value), false, `response leaked raw context value ${value}`);
+  }
+  assertNoSensitiveLeak(output);
   assert.equal(dbClient.calls.length, 0);
 });
 
@@ -407,11 +548,7 @@ test('unauthorized customer context and scoped case mismatch fail closed before 
   const unauthorizedOutput = await getCustomerServiceReportProjection({
     dbClient,
     customerAccessContext: authorizedContext({
-      auth: {
-        organizationId: 'org_projection_001',
-        customerId: 'customer_projection_001',
-        customerIdentityVerified: false,
-      },
+      customerIdentityVerified: false,
     }),
     caseId: 'case_projection_001',
     reportId: 'report_public_projection_001',
@@ -419,9 +556,7 @@ test('unauthorized customer context and scoped case mismatch fail closed before 
   const mismatchedCaseOutput = await getCustomerServiceReportProjection({
     dbClient,
     customerAccessContext: authorizedContext({
-      params: {
-        caseId: 'case_other_001',
-      },
+      caseId: 'case_other_001',
     }),
     caseId: 'case_projection_001',
     reportId: 'report_public_projection_001',
@@ -1427,14 +1562,11 @@ test('authorized context requires canonical public report id for row match', asy
 
 test('publication state guard allows only explicit customer-published state before query', async () => {
   const dbClient = createDbClient([reportRow()]);
-  const missingPublicationContext = authorizedContext();
-
-  delete missingPublicationContext.publication;
-  delete missingPublicationContext.access.publicationAllowed;
-  delete missingPublicationContext.access.publicationState;
 
   for (const customerAccessContext of [
-    missingPublicationContext,
+    authorizedContext({
+      publicationAllowed: false,
+    }),
     authorizedContext({
       publication: {
         state: 'draft',
@@ -1460,12 +1592,7 @@ test('publication state guard allows only explicit customer-published state befo
       },
     }),
     authorizedContext({
-      access: {
-        organizationScopeMatched: true,
-        caseLinkedToCustomer: true,
-        publicationAllowed: false,
-        customerVisiblePolicyPassed: true,
-      },
+      customerVisiblePolicyPassed: false,
     }),
   ]) {
     const output = await getCustomerServiceReportProjection({
