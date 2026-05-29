@@ -54,6 +54,27 @@ function statementNameIsAllowed(statementName, allowedStatementNames) {
   return allowedStatementNames.includes(statementName);
 }
 
+function queryArgsFromInput(sqlOrConfig, params) {
+  if (typeof sqlOrConfig === 'string') {
+    return {
+      sql: nonEmptyString(sqlOrConfig),
+      params,
+    };
+  }
+
+  if (!isObject(sqlOrConfig) || sqlOrConfig.readOnly !== true) {
+    return {
+      sql: undefined,
+      params: undefined,
+    };
+  }
+
+  return {
+    sql: nonEmptyString(sqlOrConfig.text),
+    params: sqlOrConfig.values,
+  };
+}
+
 function createCustomerAccessReadOnlyDbConnector(options = {}) {
   const queryTarget = resolveQueryTarget(options);
   const allowedStatementNames = normalizeAllowedStatementNames(options.allowedStatementNames);
@@ -69,19 +90,20 @@ function createCustomerAccessReadOnlyDbConnector(options = {}) {
       }
 
       return {
-        query(sql, params) {
-          const safeSql = nonEmptyString(sql);
+        query(sqlOrConfig, params) {
+          const queryArgs = queryArgsFromInput(sqlOrConfig, params);
+          const safeSql = queryArgs.sql;
 
           if (!safeSql) {
             throw safeError('customer_access_read_only_query_rejected');
           }
 
-          if (!Array.isArray(params)) {
+          if (!Array.isArray(queryArgs.params)) {
             throw safeError('customer_access_read_only_query_rejected');
           }
 
           try {
-            return queryTarget.query(sql, params.slice());
+            return queryTarget.query(safeSql, queryArgs.params.slice());
           } catch (error) {
             throw safeError('customer_access_read_only_query_failed');
           }

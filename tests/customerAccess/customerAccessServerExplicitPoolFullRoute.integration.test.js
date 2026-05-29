@@ -9,6 +9,9 @@ const test = require('node:test');
 const {
   createServerBootstrap,
 } = require('../../src/server');
+const {
+  handleCustomerServiceReportProjectionRequest,
+} = require('../../src/customerAccess/customerServiceReportProjectionHandler');
 
 const repoRoot = path.resolve(__dirname, '../..');
 const serverFile = path.join(repoRoot, 'src/server.js');
@@ -145,7 +148,20 @@ function allAllowRows() {
       customer_visible_policy_passed: true,
     },
     serviceReportRow: {
+      organization_id: 'org_full_route_001',
+      customer_id: 'customer_full_route_001',
+      case_id: 'case_full_route_001',
       public_report_id: 'report_public_full_route_001',
+      publication_allowed: true,
+      customer_visible_policy_passed: true,
+      publication_state: 'published',
+      customer_visible: true,
+      case_display_id: 'CASE-FULL-ROUTE-001',
+      service_status_display: 'Completed',
+      appointment_window: '2026-05-29 09:00-10:00',
+      engineer_display_name: 'Engineer Full Route',
+      service_summary: 'Customer-safe full route summary',
+      completion_time: '2026-05-29T10:00:00.000Z',
       status: 'available',
       final_appointment_id: 'appt_should_not_be_in_response',
       internal_note: 'internal_note_should_not_leak',
@@ -159,24 +175,61 @@ function allAllowRows() {
   };
 }
 
+function authorizedProjectionRequest() {
+  return {
+    params: {
+      caseId: 'case_full_route_001',
+      reportId: 'report_public_full_route_001',
+    },
+    customerAccessContext: {
+      organizationId: 'org_full_route_001',
+      customerId: 'customer_full_route_001',
+      caseId: 'case_full_route_001',
+      organizationScopeMatched: true,
+      customerIdentityVerified: true,
+      caseLinkedToCustomer: true,
+      publication: {
+        allowed: true,
+        publicationState: 'published',
+      },
+      customerVisiblePolicyPassed: true,
+      access: {
+        organizationScopeMatched: true,
+        caseLinkedToCustomer: true,
+        publicationAllowed: true,
+        customerVisiblePolicyPassed: true,
+      },
+      auth: {
+        organizationId: 'org_full_route_001',
+        customerId: 'customer_full_route_001',
+        customerIdentityVerified: true,
+      },
+    },
+  };
+}
+
 function createSyntheticPool(queryCalls, rowsOverride) {
   const safeCalls = Array.isArray(queryCalls) ? queryCalls : [];
   const rows = rowsOverride || allAllowRows();
 
   return {
     query(sql, params) {
-      safeCalls.push({ sql, params });
+      const sqlText = typeof sql === 'string' ? sql : sql && sql.text;
+      const sqlParams = Array.isArray(params)
+        ? params
+        : (Array.isArray(sql && sql.values) ? sql.values : params);
+      safeCalls.push({ sql: sqlText, params: sqlParams });
 
-      if (sql.includes('from cases')) {
+      if (sqlText.includes('from cases')) {
         return { rows: rows.caseRow ? [rows.caseRow] : [] };
       }
-      if (sql.includes('from customer_channel_identities')) {
+      if (sqlText.includes('from customer_channel_identities')) {
         return { rows: rows.customerIdentityRow ? [rows.customerIdentityRow] : [] };
       }
-      if (sql.includes('from customer_access_publications')) {
+      if (sqlText.includes('from customer_access_publications')) {
         return { rows: rows.publicationRow ? [rows.publicationRow] : [] };
       }
-      if (sql.includes('from customer_visible_service_reports')) {
+      if (sqlText.includes('from customer_visible_service_reports')) {
         return { rows: rows.serviceReportRow ? [rows.serviceReportRow] : [] };
       }
 
@@ -307,6 +360,44 @@ test('server explicit async pool all-allow rows return HTTP 200 allow envelope',
       status: 'available',
     },
   });
+  assertNoLeak(response.body);
+});
+
+test('server explicit async pool service report full route passes allow context to projection', async () => {
+  const queryCalls = [];
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls),
+  }));
+
+  const response = await requestApp(
+    bootstrap.app,
+    '/customer-access/case_full_route_001/service-report/report_public_full_route_001',
+  );
+
+  assert.equal(queryCalls.length > 0, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.status, 'allow');
+  assert.equal(response.body.messageKey, 'customerAccess.serviceReport.available');
+  assert.equal(response.body.customerVisible, true);
+  assert.deepEqual(response.body.data, {
+    serviceReport: {
+      customerReportReference: 'report_public_full_route_001',
+      caseReference: 'CASE-FULL-ROUTE-001',
+      serviceStatus: 'Completed',
+      appointmentWindow: '2026-05-29 09:00-10:00',
+      engineerDisplayName: 'Engineer Full Route',
+      serviceSummary: 'Customer-safe full route summary',
+      completionTime: '2026-05-29T10:00:00.000Z',
+    },
+  });
+
+  const directResponse = await handleCustomerServiceReportProjectionRequest({
+    request: authorizedProjectionRequest(),
+    dbClient: createAsyncSyntheticPool([]),
+  });
+
+  assert.equal(directResponse.statusCode, 200);
+  assert.deepEqual(response.body, directResponse.body);
   assertNoLeak(response.body);
 });
 

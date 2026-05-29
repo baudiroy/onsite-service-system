@@ -209,6 +209,19 @@ function denyRepository() {
   };
 }
 
+function allowRepositoryWithMissingCustomerId() {
+  return {
+    ...allowRepository(),
+    getVerifiedCustomerIdentity() {
+      return {
+        available: true,
+        verified: true,
+        customerId: null,
+      };
+    },
+  };
+}
+
 const forbiddenValues = [
   '0912-345-678',
   '台北市信義區測試路1號',
@@ -342,6 +355,39 @@ test('service report route returns safe-deny before projection when resolver gat
   const router = createSyntheticRouter();
   const dbClient = createSyntheticDbClient([reportRow()]);
   registerCustomerAccessRoutes(router, { dbClient, repository: denyRepository() });
+
+  const { body, nextCallCount, res } = await invokeRouteAsync(
+    router.routes[1],
+    {
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+    },
+  );
+
+  assert.equal(nextCallCount, 1);
+  assert.deepEqual(res.calls.status, [404]);
+  assert.deepEqual(body, {
+    status: 'deny',
+    messageKey: 'customerAccess.unavailable',
+    customerVisible: false,
+    data: null,
+    error: {
+      messageKey: 'customerAccess.unavailable',
+    },
+  });
+  assert.equal(dbClient.calls.length, 0);
+  assertSafeResponse(body);
+});
+
+test('service report route fails closed when allow-shaped context is missing customer scope', async () => {
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([reportRow()]);
+  registerCustomerAccessRoutes(router, {
+    dbClient,
+    repository: allowRepositoryWithMissingCustomerId(),
+  });
 
   const { body, nextCallCount, res } = await invokeRouteAsync(
     router.routes[1],

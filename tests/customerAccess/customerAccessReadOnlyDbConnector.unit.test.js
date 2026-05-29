@@ -132,6 +132,45 @@ test('query calls synthetic pool.query with SQL and params copy', () => {
   assert.notEqual(calls[0].params, params);
 });
 
+test('query accepts read-only query config objects with values copy', () => {
+  const calls = [];
+  const connector = createCustomerAccessReadOnlyDbConnector({
+    pool: createPool(calls, { rows: [{ id: 'row_config_001' }] }),
+  });
+  const client = connector.createReadOnlyClient({ readOnly: true });
+  const values = Object.freeze(['org_001', 'case_001']);
+  const result = client.query({
+    name: 'customerServiceReportProjection',
+    readOnly: true,
+    text: 'select * from customer_visible_service_reports where organization_id = $1 and case_id = $2',
+    values,
+  });
+
+  assert.deepEqual(result, { rows: [{ id: 'row_config_001' }] });
+  assert.deepEqual(calls, [{
+    sql: 'select * from customer_visible_service_reports where organization_id = $1 and case_id = $2',
+    params: ['org_001', 'case_001'],
+  }]);
+  assert.notEqual(calls[0].params, values);
+});
+
+test('query rejects query config objects that are not explicitly read-only', () => {
+  const calls = [];
+  const connector = createCustomerAccessReadOnlyDbConnector({
+    pool: createPool(calls),
+  });
+  const client = connector.createReadOnlyClient({ readOnly: true });
+
+  assert.throws(
+    () => client.query({
+      text: 'select 1',
+      values: [],
+    }),
+    /customer_access_read_only_query_rejected/
+  );
+  assert.deepEqual(calls, []);
+});
+
 test('query rejects empty SQL', () => {
   const connector = createCustomerAccessReadOnlyDbConnector({
     pool: createPool([]),
