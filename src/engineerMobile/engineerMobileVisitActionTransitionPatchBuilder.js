@@ -141,6 +141,7 @@ function buildEngineerMobileVisitActionTransitionPatch(options = {}) {
   }
 
   const caseId = stringValue(transitionIntent.caseId);
+  const requestId = stringValue(transitionIntent.requestId);
   const updatedAt = stringValue(source.now) || stringValue(transitionIntent.plannedAt) || null;
   const patch = compactRecord({
     appointmentId,
@@ -162,6 +163,7 @@ function buildEngineerMobileVisitActionTransitionPatch(options = {}) {
     appointmentId,
     caseId,
     organizationId,
+    requestId,
     patch,
   });
 }

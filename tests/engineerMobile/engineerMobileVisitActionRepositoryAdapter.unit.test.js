@@ -174,6 +174,9 @@ test('valid transition plus audit input calls dbClient.execute once with sanitiz
     actorId: 'eng_task_1844',
     organizationId: 'org_task_1844',
     occurredAt: NOW,
+    caseId: 'case_task_1844',
+    appointmentId: 'apt_task_1844',
+    requestId: 'req_task_1844',
   });
 });
 

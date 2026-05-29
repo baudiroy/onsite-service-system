@@ -380,9 +380,10 @@ function validateAuditEventEnvelope(envelope) {
   if (firstDisallowedKey(envelope.auditEvent, AUDIT_EVENT_KEYS)) {
     return denied('unsafe_field_detected');
   }
+  const auditEvent = envelope.auditEvent;
 
   return accepted('audit_event_valid', {
-    auditEvent: {
+    auditEvent: compactRecord({
       eventKind,
       action,
       entityType,
@@ -390,7 +391,10 @@ function validateAuditEventEnvelope(envelope) {
       actorId,
       organizationId,
       occurredAt,
-    },
+      caseId: stringValue(auditEvent.caseId),
+      appointmentId: stringValue(auditEvent.appointmentId),
+      requestId: stringValue(auditEvent.requestId),
+    }),
   });
 }
 

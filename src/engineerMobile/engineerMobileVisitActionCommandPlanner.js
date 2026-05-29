@@ -81,7 +81,7 @@ function safeSupportedActions(value) {
     .filter(Boolean);
 }
 
-function auditIntentFor({ action, allowed, reasonCode, subject, now }) {
+function auditIntentFor({ action, allowed, reasonCode, subject, now, requestId }) {
   return compactRecord({
     type: 'engineer_mobile.visit_action_command_planner_decision',
     plannerKind: ENGINEER_MOBILE_VISIT_ACTION_COMMAND_PLANNER_KIND,
@@ -92,14 +92,16 @@ function auditIntentFor({ action, allowed, reasonCode, subject, now }) {
     appointmentId: subject.appointmentId,
     caseId: subject.caseId,
     organizationId: subject.organizationId,
+    requestId: stringValue(requestId),
     occurredAt: stringValue(now),
   });
 }
 
-function deniedCommandResult({ policyDecision, actor, appointment, now }) {
+function deniedCommandResult({ policyDecision, actor, appointment, now, requestId }) {
   const subject = safeSubject(policyDecision, actor, appointment);
   const action = stringValue(policyDecision.action);
   const reasonCode = stringValue(policyDecision.reasonCode) || 'denied';
+  const safeRequestId = stringValue(requestId);
 
   return compactRecord({
     ok: false,
@@ -111,6 +113,7 @@ function deniedCommandResult({ policyDecision, actor, appointment, now }) {
     appointmentId: subject.appointmentId,
     caseId: subject.caseId,
     organizationId: subject.organizationId,
+    requestId: safeRequestId,
     supportedActions: safeSupportedActions(policyDecision.supportedActions),
     auditIntent: auditIntentFor({
       action,
@@ -118,11 +121,12 @@ function deniedCommandResult({ policyDecision, actor, appointment, now }) {
       reasonCode,
       subject,
       now,
+      requestId: safeRequestId,
     }),
   });
 }
 
-function transitionIntentFor({ policyDecision, subject, now }) {
+function transitionIntentFor({ policyDecision, subject, now, requestId }) {
   const action = stringValue(policyDecision.action);
   const mobileVisitStatus = MOBILE_VISIT_STATUS_BY_ACTION[action];
 
@@ -135,14 +139,16 @@ function transitionIntentFor({ policyDecision, subject, now }) {
     organizationId: subject.organizationId,
     mobileVisitStatus,
     visitResult: stringValue(policyDecision.visitResult),
+    requestId: stringValue(requestId),
     plannedAt: stringValue(now),
   });
 }
 
-function allowedCommandResult({ policyDecision, actor, appointment, now }) {
+function allowedCommandResult({ policyDecision, actor, appointment, now, requestId }) {
   const subject = safeSubject(policyDecision, actor, appointment);
   const action = stringValue(policyDecision.action);
   const reasonCode = 'allowed';
+  const safeRequestId = stringValue(requestId);
 
   return compactRecord({
     ok: true,
@@ -154,10 +160,12 @@ function allowedCommandResult({ policyDecision, actor, appointment, now }) {
     appointmentId: subject.appointmentId,
     caseId: subject.caseId,
     organizationId: subject.organizationId,
+    requestId: safeRequestId,
     transitionIntent: transitionIntentFor({
       policyDecision,
       subject,
       now,
+      requestId: safeRequestId,
     }),
     auditIntent: auditIntentFor({
       action,
@@ -165,6 +173,7 @@ function allowedCommandResult({ policyDecision, actor, appointment, now }) {
       reasonCode,
       subject,
       now,
+      requestId: safeRequestId,
     }),
   });
 }
@@ -185,6 +194,7 @@ function planEngineerMobileVisitActionCommand(options = {}) {
       actor: source.actor,
       appointment: source.appointment,
       now: source.now,
+      requestId: source.requestId,
     });
   }
 
@@ -193,6 +203,7 @@ function planEngineerMobileVisitActionCommand(options = {}) {
     actor: source.actor,
     appointment: source.appointment,
     now: source.now,
+    requestId: source.requestId,
   });
 }
 

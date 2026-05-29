@@ -47,6 +47,7 @@ function transitionPatchEnvelopeFromBuild(buildResult) {
       actorId: buildResult.actorId,
       caseId: buildResult.caseId,
       appointmentId: buildResult.appointmentId,
+      requestId: buildResult.requestId,
     }),
   });
 }

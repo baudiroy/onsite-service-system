@@ -58,6 +58,9 @@ function copyAuditEvent(auditEvent) {
     actorId: auditEvent.actorId,
     organizationId: auditEvent.organizationId,
     occurredAt: auditEvent.occurredAt,
+    caseId: auditEvent.caseId,
+    appointmentId: auditEvent.appointmentId,
+    requestId: auditEvent.requestId,
   });
 }
 

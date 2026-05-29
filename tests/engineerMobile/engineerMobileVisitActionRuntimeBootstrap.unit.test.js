@@ -751,6 +751,34 @@ test('repository bridge integrated writer handles audit together with transition
   assertNoSensitiveLeak(repository.calls);
 });
 
+test('mounted repository bridge path propagates requestId into transition audit context and audit event', async () => {
+  const repository = repositoryAdapterSource();
+  const mountTarget = postMountTarget();
+  const result = createEngineerMobileVisitActionRuntimeBootstrap({
+    repositoryAdapter: repository.repositoryAdapter,
+    mountTarget,
+    now: NOW,
+  });
+  const response = await mountTarget.registrations[0].handler(request());
+
+  assertMounted(result, mountTarget, DEFAULT_PATH, 'post', {
+    transitionWriter: 'repository_bridge_integrated_writer',
+    auditWriter: 'repository_bridge_integrated_writer',
+  });
+  assert.equal(response.statusCode, 202);
+  assert.equal(repository.calls.length, 1);
+  assert.equal(
+    repository.calls[0].transitionPatchEnvelope.auditContext.requestId,
+    'req_task_1814',
+  );
+  assert.equal(
+    repository.calls[0].auditEventEnvelope.auditEvent.requestId,
+    'req_task_1814',
+  );
+  assertNoSensitiveLeak(response);
+  assertNoSensitiveLeak(repository.calls);
+});
+
 test('repositoryAdapter path does not create or call separate auditEventWriter', () => {
   const repository = repositoryAdapterSource();
   const adapter = adapterWriterSources();

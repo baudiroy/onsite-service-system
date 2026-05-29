@@ -210,6 +210,9 @@ for (const action of AUDIT_ACTIONS) {
       actorId: 'eng_task_1828',
       organizationId: 'org_task_1828',
       occurredAt: NOW,
+      caseId: 'case_task_1828',
+      appointmentId: 'apt_task_1828',
+      requestId: 'req_task_1828',
     });
   });
 }

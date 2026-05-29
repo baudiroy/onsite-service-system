@@ -124,6 +124,21 @@ test('valid transition intent with valid audit intent persists once', () => {
   assert.equal(result.validation.auditEvent.entityId, 'apt_task_1832');
 });
 
+test('requestId is propagated into transition auditContext and audit event envelopes', () => {
+  const calls = [];
+  const writer = writerWithPort({ calls });
+  const result = writer.write({
+    transitionIntent: transitionIntent({ requestId: 'req_task_1873' }),
+    auditIntent: auditIntent({ requestId: 'req_task_1873' }),
+  });
+
+  assertPersisted(result);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].transitionPatchEnvelope.auditContext.requestId, 'req_task_1873');
+  assert.equal(calls[0].auditEventEnvelope.auditEvent.requestId, 'req_task_1873');
+  assertNoLeak(calls);
+});
+
 test('valid visit_result_recorded transition with audit persists once', () => {
   const calls = [];
   const writer = writerWithPort({ calls });

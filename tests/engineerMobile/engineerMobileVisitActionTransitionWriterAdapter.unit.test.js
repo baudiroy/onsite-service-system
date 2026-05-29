@@ -121,6 +121,19 @@ test('valid traveling transition calls patch writer once with sanitized patch en
   assertNoLeak(calls);
 });
 
+test('requestId is copied into patch writer envelope without entering patch fields', () => {
+  const calls = [];
+  const adapter = adapterWithWriter({ calls });
+  const result = adapter.write(transitionIntent({ requestId: 'req_task_1873' }));
+
+  assertPatchWritten(result, 'traveling');
+  assert.equal(result.requestId, 'req_task_1873');
+  assert.equal(result.patchEnvelope.requestId, 'req_task_1873');
+  assert.equal(calls[0].requestId, 'req_task_1873');
+  assert.equal(calls[0].patch.requestId, undefined);
+  assertNoLeak(calls);
+});
+
 test('valid arrived transition calls patch writer once', () => {
   const calls = [];
   const adapter = adapterWithWriter({ calls });

@@ -63,6 +63,7 @@ function plan({
   appointmentOverrides,
   actorOverrides,
   visitResult,
+  requestId,
 }) {
   return planEngineerMobileVisitActionCommand({
     action,
@@ -70,6 +71,7 @@ function plan({
     appointment: appointment(appointmentOverrides),
     visitResult,
     now: NOW,
+    requestId,
   });
 }
 
@@ -176,12 +178,26 @@ test('plans record_visit_result into a visit_result_recorded transition intent w
   assert.equal(result.transitionIntent.visitResult, 'resolved');
 });
 
+test('propagates requestId into allowed command transition and audit intents', () => {
+  const result = plan({
+    action: ENGINEER_MOBILE_START_TRAVEL_ACTION,
+    permission: ENGINEER_MOBILE_START_TRAVEL_PERMISSION,
+    requestId: 'req_task_1873',
+  });
+
+  assert.equal(result.requestId, 'req_task_1873');
+  assert.equal(result.transitionIntent.requestId, 'req_task_1873');
+  assert.equal(result.auditIntent.requestId, 'req_task_1873');
+  assertNoSensitiveLeak(result);
+});
+
 test('preserves unsupported action denial as unsupported_action', () => {
   const result = planEngineerMobileVisitActionCommand({
     action: 'engineer_mobile.unknown',
     actor: actor(ENGINEER_MOBILE_START_TRAVEL_PERMISSION),
     appointment: appointment(),
     now: NOW,
+    requestId: 'req_task_1873_denied',
   });
 
   assert.equal(result.ok, false);
@@ -191,6 +207,8 @@ test('preserves unsupported action denial as unsupported_action', () => {
   assert.equal(result.appointmentId, 'apt_task_1806');
   assert.equal(result.caseId, 'case_task_1806');
   assert.equal(result.organizationId, 'org_task_1806');
+  assert.equal(result.requestId, 'req_task_1873_denied');
+  assert.equal(result.auditIntent.requestId, 'req_task_1873_denied');
   assert.ok(Array.isArray(result.supportedActions));
   assert.equal('transitionIntent' in result, false);
   assertNoSensitiveLeak(result);

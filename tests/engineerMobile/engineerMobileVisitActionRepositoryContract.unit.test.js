@@ -153,6 +153,9 @@ test('accepts valid transition patch with matching audit event', () => {
     actorId: 'eng_task_1842',
     organizationId: 'org_task_1842',
     occurredAt: NOW,
+    caseId: 'case_task_1842',
+    appointmentId: 'apt_task_1842',
+    requestId: 'req_task_1842',
   });
 });
 

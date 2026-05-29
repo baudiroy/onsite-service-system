@@ -186,7 +186,7 @@ function assertNoSensitiveLeak(value) {
   }
 }
 
-function assertStartTravelOperationIntent(operationIntent) {
+function assertStartTravelOperationIntent(operationIntent, expectedRequestId) {
   assert.deepEqual(Object.keys(operationIntent).sort(), [
     'action',
     'entityId',
@@ -219,6 +219,9 @@ function assertStartTravelOperationIntent(operationIntent) {
     actorId: 'eng_task_1850',
     organizationId: 'org_task_1850',
     occurredAt: NOW,
+    caseId: 'case_task_1850',
+    appointmentId: 'apt_task_1850',
+    ...(expectedRequestId ? { requestId: expectedRequestId } : {}),
   });
   assertNoSensitiveLeak(operationIntent);
 }
@@ -316,7 +319,7 @@ test('mounted bootstrap with injected mount target and repository adapter proces
   assert.equal(response.body.ok, true);
   assert.equal(response.body.accepted, true);
   assert.equal(calls.length, 1);
-  assertStartTravelOperationIntent(calls[0]);
+  assertStartTravelOperationIntent(calls[0], 'req_task_1850');
   assertNoSensitiveLeak(response);
 });
 

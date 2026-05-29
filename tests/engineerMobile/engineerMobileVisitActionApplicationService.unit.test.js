@@ -63,14 +63,21 @@ function command({
   appointmentOverrides,
   actorOverrides,
   visitResult,
+  requestId,
 }) {
-  return {
+  const payload = {
     action,
     actor: actor(permission, actorOverrides),
     appointment: appointment(appointmentOverrides),
     visitResult,
     now: NOW,
   };
+
+  if (requestId !== undefined) {
+    payload.requestId = requestId;
+  }
+
+  return payload;
 }
 
 function serviceWithWriters({
@@ -254,6 +261,25 @@ test('audit writer is called after transition writer when present', () => {
 
   assertApplied(result, ENGINEER_MOBILE_START_TRAVEL_ACTION, 'traveling');
   assert.deepEqual(calls.map((call) => call.name), ['transition', 'audit']);
+});
+
+test('requestId is preserved through service result transition writer and audit writer payloads', () => {
+  const calls = [];
+  const service = serviceWithWriters({ calls });
+  const result = service.handleEngineerMobileVisitAction(command({
+    action: ENGINEER_MOBILE_START_TRAVEL_ACTION,
+    permission: ENGINEER_MOBILE_START_TRAVEL_PERMISSION,
+    requestId: 'req_task_1873',
+  }));
+
+  assertApplied(result, ENGINEER_MOBILE_START_TRAVEL_ACTION, 'traveling');
+  assert.equal(result.requestId, 'req_task_1873');
+  assert.equal(result.transitionIntent.requestId, 'req_task_1873');
+  assert.equal(result.auditIntent.requestId, 'req_task_1873');
+  assert.equal(calls[0].payload.requestId, 'req_task_1873');
+  assert.equal(calls[1].payload.requestId, 'req_task_1873');
+  assertNoSensitiveLeak(result);
+  assertNoSensitiveLeak(calls);
 });
 
 test('audit writer is skipped safely when absent', () => {

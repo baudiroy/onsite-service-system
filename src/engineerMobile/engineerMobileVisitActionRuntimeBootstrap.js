@@ -130,6 +130,7 @@ function integratedAuditIntentFrom(transitionIntent) {
     organizationId: source.organizationId,
     caseId: source.caseId,
     appointmentId: source.appointmentId,
+    requestId: source.requestId,
   };
 }
 

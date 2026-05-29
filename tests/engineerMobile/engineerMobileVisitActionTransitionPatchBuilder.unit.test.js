@@ -140,6 +140,14 @@ test('falls back to null when both now and plannedAt are missing', () => {
   assert.equal(result.patch.updatedAt, null);
 });
 
+test('copies safe requestId into transition patch build envelope but not patch mutation fields', () => {
+  const result = build({ requestId: 'req_task_1873' });
+
+  assert.equal(result.requestId, 'req_task_1873');
+  assert.equal(result.patch.requestId, undefined);
+  assertNoLeak(result);
+});
+
 test('denies missing transition intent', () => {
   assertDenied(buildEngineerMobileVisitActionTransitionPatch({}), 'transition_intent_required');
 });

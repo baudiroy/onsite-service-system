@@ -55,6 +55,7 @@ function safeEnvelopeFrom(plan, overrides = {}) {
     appointmentId: stringValue(plan.appointmentId),
     caseId: stringValue(plan.caseId),
     organizationId: stringValue(plan.organizationId),
+    requestId: stringValue(plan.requestId),
     transitionIntent: clonePlain(plan.transitionIntent),
     auditIntent: clonePlain(plan.auditIntent),
     ...overrides,
@@ -132,6 +133,7 @@ function createEngineerMobileVisitActionApplicationService(options = {}) {
       appointment: request.appointment,
       visitResult: request.visitResult,
       now: request.now,
+      requestId: request.requestId,
     });
 
     if (!plan.allowed) {

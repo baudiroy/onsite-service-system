@@ -47,6 +47,7 @@ function copyPatchEnvelope(patchEnvelope) {
     appointmentId: patchEnvelope.appointmentId,
     caseId: patchEnvelope.caseId,
     organizationId: patchEnvelope.organizationId,
+    requestId: patchEnvelope.requestId,
     patch: copyPatch(patchEnvelope.patch),
   });
 }
@@ -74,6 +75,7 @@ function success(patchEnvelope) {
     appointmentId: safePatchEnvelope.appointmentId,
     caseId: safePatchEnvelope.caseId,
     organizationId: safePatchEnvelope.organizationId,
+    requestId: safePatchEnvelope.requestId,
     patchEnvelope: safePatchEnvelope,
   });
 }
