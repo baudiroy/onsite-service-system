@@ -433,6 +433,7 @@ function assertNoLeak(value) {
     'final_appointment_id',
     'select ',
     'from cases',
+    'completion_time_token_should_not_leak',
   ]) {
     assert.equal(serialized.includes(unsafeValue), false, `leaked ${unsafeValue}`);
   }
@@ -616,6 +617,37 @@ test('server explicit async pool service report full route omits null empty opti
       },
     },
   });
+  assert.deepEqual(response.body, directResponse.body);
+  assertNoLeak(response.body);
+});
+
+test('server explicit async pool service report full route omits malformed completion time', async () => {
+  const queryCalls = [];
+  const rows = allAllowRows();
+
+  rows.serviceReportRow = {
+    ...rows.serviceReportRow,
+    completion_time: 'completion_time_token_should_not_leak',
+  };
+
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls, rows),
+  }));
+  const response = await requestApp(
+    bootstrap.app,
+    '/customer-access/case_full_route_001/service-report/report_public_full_route_001',
+  );
+  const directResponse = await handleCustomerServiceReportProjectionRequest({
+    request: authorizedProjectionRequest(),
+    dbClient: createAsyncSyntheticPool([], rows),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assertSafeHttpResponseMetadata(response);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(response.body.data.serviceReport, 'completionTime'),
+    false,
+  );
   assert.deepEqual(response.body, directResponse.body);
   assertNoLeak(response.body);
 });

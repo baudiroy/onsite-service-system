@@ -214,6 +214,7 @@ function assertNoSensitiveLeak(output) {
     'completion_report_approval_should_not_leak',
     'fsr_publication_workflow_should_not_leak',
     'final_appointment_should_not_leak',
+    'completion_time_token_should_not_leak',
   ]) {
     assert.equal(serialized.includes(value), false, `projection leaked ${value}`);
   }
@@ -673,6 +674,27 @@ test('authorized context omits null empty optional DTO fields without adding pla
       },
     },
   });
+  assertNoSensitiveLeak(output);
+});
+
+test('authorized context omits malformed completion time values', async () => {
+  const dbClient = createDbClient([
+    reportRow({
+      completion_time: 'completion_time_token_should_not_leak',
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+
+  assert.equal(output.status, 'allow');
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(output.data.serviceReport, 'completionTime'),
+    false,
+  );
   assertNoSensitiveLeak(output);
 });
 

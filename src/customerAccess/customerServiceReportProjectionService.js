@@ -437,6 +437,14 @@ function rowValue(row, ...keys) {
   return undefined;
 }
 
+function completionTimeValue(value) {
+  const candidate = stringValue(value);
+
+  return candidate && /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(candidate)
+    ? candidate
+    : undefined;
+}
+
 function buildQuerySpec({ organizationId, customerId, caseId, reportId }) {
   return Object.freeze({
     name: 'customerServiceReportProjection',
@@ -614,7 +622,7 @@ function mapProjection(row) {
   const appointmentWindow = rowValue(row, 'appointmentWindow', 'appointment_window', 'appointmentDisplayTimeWindow');
   const engineerDisplayName = rowValue(row, 'engineerDisplayName', 'engineer_display_name');
   const serviceSummary = rowValue(row, 'serviceSummary', 'service_summary', 'approved_service_summary');
-  const completionTime = rowValue(row, 'completionTime', 'completion_time', 'completed_at');
+  const completionTime = completionTimeValue(rowValue(row, 'completionTime', 'completion_time', 'completed_at'));
   const attachments = safeAttachments(row);
 
   if (customerReportReference) {
