@@ -216,11 +216,22 @@ test('customer access public report route remains param based without new global
 test('projection app adapter delegates through handler without passing raw request containers', () => {
   const appAdapter = read(FILES.projectionAppAdapter);
 
+  assert.match(appAdapter, /const DEFAULT_INTERNAL_PROJECTION_PATH = '\/customer-access\/:caseId\/service-report\/:reportId'/);
+  assert.match(appAdapter, /function safeProperty\(value, key\)/);
+  assert.match(appAdapter, /function isSafeMountTarget\(value\)/);
+  assert.match(appAdapter, /function mountTargetFromOptions\(options\)/);
   assert.match(appAdapter, /createCustomerServiceReportProjectionHandler\(\{\s*dbClient: options\.dbClient,\s*projectionService: options\.projectionService,\s*\}\)/);
-  assert.match(appAdapter, /target\.get\(path,\s*handler\)/);
+  assert.match(appAdapter, /registrationTarget\.get\.call\(registrationTarget\.target,\s*path,\s*handler\)/);
+  assert.match(appAdapter, /Buffer\.isBuffer\(value\)/);
+  assert.match(appAdapter, /value instanceof Date \|\| value instanceof Error/);
+  assert.match(appAdapter, /typeof safeProperty\(value,\s*'then'\) === 'function'/);
+  assert.match(appAdapter, /return typeof safeProperty\(value,\s*'get'\) === 'function'/);
+  assert.doesNotMatch(appAdapter, /target\.get\(path,\s*handler\)/);
+  assert.doesNotMatch(appAdapter, /route\(\)\.get|\.route\(|\.register\(/);
   assert.doesNotMatch(appAdapter, /projectionService\(\s*(req|request)|handler\(\s*\{\s*request|customerAccessContext:\s*request\.customerAccessContext/i);
   assert.doesNotMatch(appAdapter, /request\.(headers|authorization|cookies|query|body|socket|connection|session|user)/);
   assert.doesNotMatch(appAdapter, /req\.(headers|authorization|cookies|query|body|socket|connection|session|user)/);
+  assert.doesNotMatch(appAdapter, /src\/app|src\/server|public\.routes|routes\/index|process\.env|\.listen\s*\(|app\.listen|server\.listen/);
 });
 
 test('internal test route mount remains injected only and isolated from global runtime dependencies', () => {

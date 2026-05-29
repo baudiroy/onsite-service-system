@@ -8,6 +8,8 @@ const {
   registerCustomerServiceReportProjectionRoute,
 } = require('../../src/customerAccess/customerServiceReportProjectionAppAdapter');
 
+const CUSTOMER_ACCESS_REPORT_ROUTE_PATH = '/customer-access/:caseId/service-report/:reportId';
+
 function authorizedContext(overrides = {}) {
   return {
     auth: {
@@ -196,24 +198,24 @@ test('registers exactly one GET-like handler on injected synthetic app with expl
   const options = {
     app,
     dbClient,
-    path: '/internal/customer-access/:caseId/service-report',
+    path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
   };
 
   const result = registerCustomerServiceReportProjectionRoute(options);
 
   assert.equal(result.registered, true);
   assert.equal(result.method, 'GET');
-  assert.equal(result.path, '/internal/customer-access/:caseId/service-report');
+  assert.equal(result.path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
   assert.equal(typeof result.handler, 'function');
   assert.equal(app.calls.get.length, 1);
-  assert.equal(app.calls.get[0].path, '/internal/customer-access/:caseId/service-report');
+  assert.equal(app.calls.get[0].path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
   assert.equal(app.calls.get[0].handler, result.handler);
   assert.equal(app.calls.listen.length, 0);
   assert.equal(dbClient.calls.length, 0);
   assert.equal(options.dbClient, dbClient);
 });
 
-test('uses internal default path when explicit path is missing or blank', () => {
+test('uses customer-facing route contract as default path when explicit path is missing or blank', () => {
   for (const candidate of [undefined, '', '   ']) {
     const app = syntheticApp();
     const result = registerCustomerServiceReportProjectionRoute({
@@ -224,7 +226,9 @@ test('uses internal default path when explicit path is missing or blank', () => 
 
     assert.equal(result.registered, true);
     assert.equal(result.path, DEFAULT_INTERNAL_PROJECTION_PATH);
+    assert.equal(result.path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
     assert.equal(app.calls.get[0].path, DEFAULT_INTERNAL_PROJECTION_PATH);
+    assert.equal(app.calls.get[0].path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
     assert.equal(app.calls.listen.length, 0);
   }
 });
@@ -235,7 +239,7 @@ test('registered handler preserves Task909 safe allow behavior through synthetic
   const result = registerCustomerServiceReportProjectionRoute({
     app,
     dbClient,
-    path: '/internal/customer-access/:caseId/service-report',
+    path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
   });
 
   const response = await app.calls.get[0].handler(request());
@@ -277,7 +281,7 @@ test('registered handler passes only explicit sanitized DTO keys to projection s
   const result = registerCustomerServiceReportProjectionRoute({
     app,
     dbClient: dbClientWithRows([reportRow()]),
-    path: '/internal/customer-access/:caseId/service-report',
+    path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
     projectionService: (input) => {
       serviceInputs.push(input);
 
@@ -340,7 +344,7 @@ test('registered handler rejects identifier aliases when required route params a
   const result = registerCustomerServiceReportProjectionRoute({
     app,
     dbClient: dbClientWithRows([reportRow()]),
-    path: '/internal/customer-access/:caseId/service-report/:reportId',
+    path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
     projectionService: (input) => {
       serviceInputs.push(input);
 
@@ -400,7 +404,7 @@ test('registered handler sanitizes injected projection service throw at HTTP bou
   const result = registerCustomerServiceReportProjectionRoute({
     app,
     dbClient: dbClientWithRows([reportRow()]),
-    path: '/internal/customer-access/:caseId/service-report',
+    path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
     projectionService: () => {
       throw new Error('adapter projection service should not leak sql token_should_not_leak');
     },
@@ -429,7 +433,7 @@ test('registered handler sanitizes malformed injected projection service result 
   const result = registerCustomerServiceReportProjectionRoute({
     app,
     dbClient: dbClientWithRows([reportRow()]),
-    path: '/internal/customer-access/:caseId/service-report',
+    path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
     projectionService: () => ({
       status: 'allow',
       messageKey: 'customerAccess.serviceReport.available',
@@ -493,6 +497,82 @@ test('missing synthetic app or router fails closed without leaking details', () 
   assert.equal(dbClient.calls.length, 0);
 });
 
+test('malformed mount targets fail closed without registration or listener startup', () => {
+  const dbClient = dbClientWithRows([reportRow()]);
+  const listenOnlyTarget = {
+    calls: {
+      listen: [],
+    },
+    listen() {
+      this.calls.listen.push('listen');
+      throw new Error('listen should not be called');
+    },
+  };
+  class ClassLikeTarget {
+    get() {
+      throw new Error('class target should not register');
+    }
+  }
+  const throwingGetTarget = {};
+  Object.defineProperty(throwingGetTarget, 'get', {
+    get() {
+      throw new Error('throwing get should not leak');
+    },
+  });
+  const throwingRouteTarget = {};
+  Object.defineProperty(throwingRouteTarget, 'route', {
+    get() {
+      throw new Error('throwing route should not leak');
+    },
+  });
+  const throwingRegisterTarget = {};
+  Object.defineProperty(throwingRegisterTarget, 'register', {
+    get() {
+      throw new Error('throwing register should not leak');
+    },
+  });
+  const throwingAppOptions = {};
+  Object.defineProperty(throwingAppOptions, 'app', {
+    get() {
+      throw new Error('throwing app should not leak');
+    },
+  });
+
+  for (const candidate of [
+    { app: 1 },
+    { app: 'target' },
+    { app: [] },
+    { app: Buffer.from('target') },
+    { app: new Date('2026-05-22T00:00:00.000Z') },
+    { app: new Error('target error should not leak') },
+    { app: Promise.resolve(syntheticApp()) },
+    { app: new ClassLikeTarget() },
+    { app: { get: 'not function' } },
+    { app: { register: 'not function' } },
+    { app: { route() { throw new Error('route should not be called'); } } },
+    { app: listenOnlyTarget },
+    { app: throwingGetTarget },
+    { app: throwingRouteTarget },
+    { app: throwingRegisterTarget },
+    throwingAppOptions,
+  ]) {
+    candidate.dbClient = dbClient;
+    candidate.path = CUSTOMER_ACCESS_REPORT_ROUTE_PATH;
+
+    const result = registerCustomerServiceReportProjectionRoute(candidate);
+
+    assert.deepEqual(result, {
+      registered: false,
+      messageKey: 'customerAccess.unavailable',
+      customerVisible: false,
+    });
+    assertNoSensitiveLeak(result);
+  }
+
+  assert.deepEqual(listenOnlyTarget.calls.listen, []);
+  assert.equal(dbClient.calls.length, 0);
+});
+
 test('missing injected dbClient fails closed and does not register handler', () => {
   for (const candidate of [
     undefined,
@@ -524,7 +604,7 @@ test('synthetic app registration failure fails closed without raw error leak', (
   const result = registerCustomerServiceReportProjectionRoute({
     app,
     dbClient,
-    path: '/internal/customer-access/:caseId/service-report',
+    path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
   });
 
   assert.deepEqual(result, {
@@ -543,10 +623,12 @@ test('router option is supported without depending on a global app', () => {
   const result = registerCustomerServiceReportProjectionRoute({
     router,
     dbClient: dbClientWithRows([reportRow()]),
-    path: '/internal/customer-access/:caseId/service-report',
+    path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
   });
 
   assert.equal(result.registered, true);
+  assert.equal(result.path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
   assert.equal(router.calls.get.length, 1);
+  assert.equal(router.calls.get[0].path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
   assert.equal(router.calls.listen.length, 0);
 });
