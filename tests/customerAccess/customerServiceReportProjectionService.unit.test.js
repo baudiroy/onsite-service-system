@@ -252,6 +252,16 @@ function assertStableAllowEnvelopeShape(output) {
   ].sort());
 }
 
+function assertOnlyPublicAttachmentKeys(attachment) {
+  for (const key of Object.keys(attachment)) {
+    assert.equal(
+      ['attachmentId', 'label', 'mimeType'].includes(key),
+      true,
+      `unexpected public attachment key ${key}`,
+    );
+  }
+}
+
 function collectObjectKeys(value, keys = []) {
   if (Array.isArray(value)) {
     for (const item of value) {
@@ -782,6 +792,85 @@ test('publicAttachments include only explicitly customer-visible metadata', asyn
       mimeType: 'image/jpeg',
     },
   ]);
+  for (const attachment of output.data.serviceReport.publicAttachments) {
+    assertOnlyPublicAttachmentKeys(attachment);
+  }
+  assertNoSensitiveLeak(output);
+});
+
+test('publicAttachments deny unknown raw storage provider and private item fields', async () => {
+  const forbiddenAttachmentFields = {
+    arbitraryUnknownAttachmentProperty: 'unknown_attachment_field_should_not_leak',
+    storage_key: 'storage_key_snake_should_not_leak',
+    storageKey: 'storage_key_camel_should_not_leak',
+    bucket: 'bucket_should_not_leak',
+    internal_path: 'internal_path_snake_should_not_leak',
+    internalPath: 'internal_path_camel_should_not_leak',
+    local_path: 'local_path_snake_should_not_leak',
+    localPath: 'local_path_camel_should_not_leak',
+    signedUrl: 'https://signed.example.invalid/secret',
+    upload_token: 'upload_token_snake_should_not_leak',
+    uploadToken: 'upload_token_camel_should_not_leak',
+    token: 'token_should_not_leak',
+    authorization: 'authorization_should_not_leak',
+    headers: 'headers_should_not_leak',
+    checksum: 'checksum_should_not_leak',
+    sha256: 'sha256_should_not_leak',
+    md5: 'md5_should_not_leak',
+    uploader_user_id: 'uploader_user_id_should_not_leak',
+    uploaderUserId: 'uploader_user_id_camel_should_not_leak',
+    engineer_user_id: 'engineer_user_id_should_not_leak',
+    engineerUserId: 'engineer_user_id_camel_should_not_leak',
+    line_user_id: 'line_user_id_should_not_leak',
+    provider_payload: 'provider_payload_should_not_leak',
+    providerPayload: 'provider_payload_camel_should_not_leak',
+    raw_payload: 'raw_payload_should_not_leak',
+    rawPayload: 'raw_payload_camel_should_not_leak',
+    debug: 'debug_should_not_leak',
+    stack: 'stack should not leak',
+    sql: 'select secret',
+    internal_notes: 'internal_notes_should_not_leak',
+    private_report_body: 'private_report_body_should_not_leak',
+  };
+  const dbClient = createDbClient([
+    reportRow({
+      publicAttachments: [
+        {
+          attachmentId: 'att_visible_001',
+          label: 'Visible photo',
+          mimeType: 'image/jpeg',
+          customerVisible: true,
+          ...forbiddenAttachmentFields,
+        },
+      ],
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+
+  assert.equal(output.status, 'allow');
+  assert.deepEqual(output.data.serviceReport.publicAttachments, [
+    {
+      attachmentId: 'att_visible_001',
+      label: 'Visible photo',
+      mimeType: 'image/jpeg',
+    },
+  ]);
+  assertOnlyPublicAttachmentKeys(output.data.serviceReport.publicAttachments[0]);
+
+  const serialized = JSON.stringify(output);
+  for (const value of Object.values(forbiddenAttachmentFields)) {
+    assert.equal(serialized.includes(value), false, `response leaked attachment value ${value}`);
+  }
+
+  const allKeys = collectObjectKeys(output);
+  for (const key of Object.keys(forbiddenAttachmentFields)) {
+    assert.equal(allKeys.includes(key), false, `response leaked attachment key ${key}`);
+  }
   assertNoSensitiveLeak(output);
 });
 
@@ -791,8 +880,13 @@ test('invalid publicAttachments collections are omitted without placeholders', a
     null,
     {},
     'not-array',
+    42,
     [],
     [
+      null,
+      42,
+      'invalid_attachment_should_not_leak',
+      ['nested_array_attachment_should_not_leak'],
       {
         attachmentId: 'att_denied_001',
         label: 'implicit_attachment_should_not_leak',

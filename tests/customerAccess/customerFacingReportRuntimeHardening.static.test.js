@@ -84,10 +84,14 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
   const projectionService = read(FILES.projectionService);
 
   assert.match(projectionService, /CUSTOMER_SERVICE_REPORT_RESPONSE_KEYS = Object\.freeze\(\[/);
+  assert.match(projectionService, /CUSTOMER_PUBLIC_ATTACHMENT_RESPONSE_KEYS = Object\.freeze\(\[/);
   assert.match(projectionService, /function customerServiceReportResponseAllowlist\(candidate\)/);
+  assert.match(projectionService, /function customerPublicAttachmentResponseAllowlist\(candidate\)/);
   assert.match(projectionService, /serviceReport: allowlistedServiceReport/);
   assert.match(projectionService, /serviceReport\.customerReportReference = customerReportReference/);
   assert.match(projectionService, /serviceReport\.serviceSummary = serviceSummary/);
+  assert.match(projectionService, /const attachmentId = identifierValue\(value\.attachmentId \|\| value\.attachment_id \|\| value\.publicAttachmentId\)/);
+  assert.match(projectionService, /return customerPublicAttachmentResponseAllowlist\(attachment\)/);
   assert.match(projectionService, /rowValue\(row,\s*'approved_service_summary'\)/);
   assert.doesNotMatch(
     projectionService,
@@ -100,6 +104,10 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
   assert.doesNotMatch(
     projectionService,
     /serviceReport\s*=\s*(?:row|candidate|result|serviceResult)|Object\.assign\(\s*serviceReport\s*,\s*(?:row|candidate|result|serviceResult)\s*\)|\.\.\.\s*(?:row|candidate|result|serviceResult)/,
+  );
+  assert.doesNotMatch(
+    projectionService,
+    /Object\.assign\(\s*attachment\s*,\s*value\s*\)|\{\s*\.\.\.\s*value|serviceReport\.publicAttachments\s*=\s*row\.publicAttachments/,
   );
 });
 

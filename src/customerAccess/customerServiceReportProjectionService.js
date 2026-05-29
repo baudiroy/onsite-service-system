@@ -13,30 +13,55 @@ const CUSTOMER_SERVICE_REPORT_RESPONSE_KEYS = Object.freeze([
   'publicAttachments',
 ]);
 
+const CUSTOMER_PUBLIC_ATTACHMENT_RESPONSE_KEYS = Object.freeze([
+  'attachmentId',
+  'label',
+  'mimeType',
+]);
+
 const FORBIDDEN_ATTACHMENT_KEYS = new Set([
   'address',
   'aiRawPayload',
   'apiKey',
+  'authorization',
   'auditLog',
   'billingInternalData',
+  'bucket',
+  'checksum',
   'connectionString',
+  'debug',
   'dbUrl',
   'dispatchNote',
+  'engineer_user_id',
+  'engineerUserId',
   'finalAppointmentId',
   'fullAddress',
   'fullCasePayload',
   'fullPhone',
   'fullRawReportPayload',
+  'headers',
   'internalAppointmentId',
   'internalNote',
+  'internalPath',
+  'internal_path',
+  'internal_notes',
   'internalReportId',
   'internalSettlementData',
   'lineUserId',
   'line_user_id',
+  'localPath',
+  'local_path',
+  'md5',
   'mobile',
   'password',
   'phone',
+  'privateReportBody',
+  'private_report_body',
+  'providerPayload',
+  'provider_payload',
   'providerRawPayload',
+  'rawPayload',
+  'raw_payload',
   'rawAddress',
   'rawCasePayload',
   'rawFieldServiceReportId',
@@ -46,9 +71,15 @@ const FORBIDDEN_ATTACHMENT_KEYS = new Set([
   'signedUrl',
   'sql',
   'stack',
+  'storageKey',
+  'storage_key',
   'technicianPrivateNote',
   'tel',
   'token',
+  'uploadToken',
+  'upload_token',
+  'uploaderUserId',
+  'uploader_user_id',
 ]);
 
 const ALLOWED_PUBLICATION_STATES = new Set([
@@ -348,6 +379,22 @@ function customerServiceReportResponseAllowlist(candidate) {
   }
 
   return Object.keys(serviceReport).length > 0 ? serviceReport : undefined;
+}
+
+function customerPublicAttachmentResponseAllowlist(candidate) {
+  if (!isObject(candidate)) {
+    return undefined;
+  }
+
+  const attachment = {};
+
+  for (const key of CUSTOMER_PUBLIC_ATTACHMENT_RESPONSE_KEYS) {
+    if (hasOwn(candidate, key)) {
+      attachment[key] = candidate[key];
+    }
+  }
+
+  return Object.keys(attachment).length > 0 ? attachment : undefined;
 }
 
 function buildAllowEnvelope(serviceReport) {
@@ -651,7 +698,7 @@ function mapAttachment(value) {
     attachment.mimeType = mimeType;
   }
 
-  return Object.keys(attachment).length > 0 ? attachment : undefined;
+  return customerPublicAttachmentResponseAllowlist(attachment);
 }
 
 function safeAttachments(row) {
