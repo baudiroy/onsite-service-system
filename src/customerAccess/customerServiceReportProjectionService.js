@@ -306,7 +306,7 @@ function serviceReportRowPublicationStateGuardPasses(row, scope) {
   }
 
   if (!hasPublicationSignal(row)) {
-    return true;
+    return false;
   }
 
   return publicationGuardAllows(row);
@@ -642,6 +642,10 @@ function isCustomerVisibleRow(row, scope) {
   }
 
   if (row.customer_visible_policy_passed === false || row.customerVisiblePolicyPassed === false) {
+    return false;
+  }
+
+  if (row.customer_visible_policy_passed !== true && row.customerVisiblePolicyPassed !== true) {
     return false;
   }
 

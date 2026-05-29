@@ -50,6 +50,10 @@ function reportRow(overrides = {}) {
     customer_id: 'customer_handler_001',
     case_id: 'case_handler_001',
     public_report_id: 'report_public_handler_001',
+    publication_allowed: true,
+    publication_state: 'published',
+    customer_visible_policy_passed: true,
+    customer_visible: true,
     case_display_id: 'CASE-HANDLER-001',
     service_status_display: 'Completed',
     appointment_window: '2026-05-22 14:00-16:00',
@@ -506,6 +510,24 @@ test('projection DB query selects internal scope and publication fields required
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.status, 'allow');
   assertNoSensitiveLeak(response);
+});
+
+test('DB-backed projection row without explicit publication fields returns generic safe-deny', async () => {
+  const {
+    publication_allowed,
+    customer_visible_policy_passed,
+    publication_state,
+    customer_visible,
+    ...rowWithoutPublication
+  } = reportRow();
+  const dbClient = dbClientWithRows([rowWithoutPublication]);
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient,
+  });
+
+  assertGenericSafeDeny(response);
+  assert.equal(dbClient.calls.length, 1);
 });
 
 test('DB-backed projection row without required scope fields returns generic safe-deny', async () => {

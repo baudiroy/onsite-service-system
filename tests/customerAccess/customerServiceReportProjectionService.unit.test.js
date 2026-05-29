@@ -693,6 +693,29 @@ test('publication state guard allows only explicit customer-published state befo
 
 test('publication row state guard denies unpublished or mismatched report case state', async () => {
   const deniedRows = [
+    (() => {
+      const {
+        publication_allowed,
+        customer_visible_policy_passed,
+        publication_state,
+        customer_visible,
+        ...rowWithoutPublication
+      } = reportRow();
+
+      return rowWithoutPublication;
+    })(),
+    reportRow({
+      publication_allowed: true,
+      publication_state: 'published',
+      customer_visible_policy_passed: undefined,
+      customer_visible: true,
+    }),
+    reportRow({
+      publication_allowed: undefined,
+      publication_state: undefined,
+      customer_visible_policy_passed: true,
+      customer_visible: true,
+    }),
     reportRow({
       publication_state: 'draft',
       publication_allowed: true,

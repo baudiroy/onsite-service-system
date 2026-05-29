@@ -620,6 +620,35 @@ test('server explicit async pool service report full route omits null empty opti
   assertNoLeak(response.body);
 });
 
+test('server explicit async pool service report full route requires row publication fields', async () => {
+  const queryCalls = [];
+  const rows = allAllowRows();
+
+  delete rows.serviceReportRow.publication_allowed;
+  delete rows.serviceReportRow.customer_visible_policy_passed;
+  delete rows.serviceReportRow.publication_state;
+  delete rows.serviceReportRow.customer_visible;
+
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls, rows),
+  }));
+  const response = await requestApp(
+    bootstrap.app,
+    '/customer-access/case_full_route_001/service-report/report_public_full_route_001',
+  );
+  const directResponse = await handleCustomerServiceReportProjectionRequest({
+    request: authorizedProjectionRequest(),
+    dbClient: createAsyncSyntheticPool([], rows),
+  });
+
+  assert.equal(response.statusCode, 404);
+  assertSafeHttpResponseMetadata(response);
+  assert.equal(response.body.status, 'deny');
+  assert.equal(response.body.messageKey, 'customerAccess.unavailable');
+  assert.deepEqual(response.body, directResponse.body);
+  assertNoLeak(response.body);
+});
+
 test('server explicit async pool service report full route filters attachment visibility', async () => {
   const queryCalls = [];
   const rows = allAllowRows();
