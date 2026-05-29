@@ -58,7 +58,7 @@ function reportRow(overrides = {}) {
     service_status_display: 'Completed',
     appointment_window: '2026-05-22 14:00-16:00',
     engineer_display_name: 'Engineer Handler',
-    service_summary: 'Customer-safe handler service summary',
+    approved_service_summary: 'Customer-safe handler service summary',
     completion_time: '2026-05-22T08:00:00.000Z',
     publicAttachments: [
       {
@@ -454,7 +454,7 @@ test('valid handler response omits null empty optional DTO fields safely', async
       service_status_display: undefined,
       appointment_window: null,
       engineer_display_name: '   ',
-      service_summary: '',
+      approved_service_summary: '',
       completion_time: undefined,
       publicAttachments: [
         {
@@ -503,6 +503,7 @@ test('projection DB query selects internal scope and publication fields required
     'publication_allowed',
     'customer_visible_policy_passed',
     'publication_state',
+    'approved_service_summary',
   ]) {
     assert.match(selectList, new RegExp(`\\b${field}\\b`), `projection query should select ${field}`);
   }

@@ -85,6 +85,11 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
 
   assert.match(projectionService, /serviceReport\.customerReportReference = customerReportReference/);
   assert.match(projectionService, /serviceReport\.serviceSummary = serviceSummary/);
+  assert.match(projectionService, /rowValue\(row,\s*'approved_service_summary'\)/);
+  assert.doesNotMatch(
+    projectionService,
+    /rowValue\(row,\s*'serviceSummary',\s*'service_summary',\s*'approved_service_summary'\)/,
+  );
   assert.doesNotMatch(
     projectionService,
     /serviceReport\.(finalAppointmentId|internalNote|providerRawPayload|rawCasePayload|rawCompletionReport|sql|stack|token)\s*=/,

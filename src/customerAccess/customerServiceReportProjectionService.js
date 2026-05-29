@@ -471,7 +471,7 @@ function buildQuerySpec({ organizationId, customerId, caseId, reportId }) {
       'select organization_id, customer_id, case_id, public_report_id,',
       'publication_allowed, customer_visible_policy_passed, publication_state, customer_visible,',
       'case_display_id, service_status_display, appointment_window,',
-      'engineer_display_name, service_summary, completion_time, public_attachments',
+      'engineer_display_name, approved_service_summary, completion_time, public_attachments',
       'from customer_visible_service_reports',
       'where organization_id = $1 and customer_id = $2 and case_id = $3 and public_report_id = $4',
       'limit 1',
@@ -639,7 +639,7 @@ function mapProjection(row) {
   const serviceStatus = customerDisplayValue(rowValue(row, 'serviceStatus', 'service_status_display', 'serviceStatusDisplay', 'statusDisplay'));
   const appointmentWindow = customerDisplayValue(rowValue(row, 'appointmentWindow', 'appointment_window', 'appointmentDisplayTimeWindow'));
   const engineerDisplayName = customerDisplayValue(rowValue(row, 'engineerDisplayName', 'engineer_display_name'));
-  const serviceSummary = rowValue(row, 'serviceSummary', 'service_summary', 'approved_service_summary');
+  const serviceSummary = rowValue(row, 'approved_service_summary');
   const completionTime = completionTimeValue(rowValue(row, 'completionTime', 'completion_time', 'completed_at'));
   const attachments = safeAttachments(row);
 

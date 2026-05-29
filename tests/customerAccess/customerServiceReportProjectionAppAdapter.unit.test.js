@@ -58,7 +58,7 @@ function reportRow(overrides = {}) {
     service_status_display: 'Completed',
     appointment_window: '2026-05-22 14:00-16:00',
     engineer_display_name: 'Engineer Adapter',
-    service_summary: 'Customer-safe adapter service summary',
+    approved_service_summary: 'Customer-safe adapter service summary',
     completion_time: '2026-05-22T08:00:00.000Z',
     publicAttachments: [
       {

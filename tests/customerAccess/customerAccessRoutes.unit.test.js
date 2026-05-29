@@ -118,7 +118,7 @@ function reportRow(overrides = {}) {
     service_status_display: 'Completed',
     appointment_window: '2026-05-23 10:00-12:00',
     engineer_display_name: 'Engineer Route',
-    service_summary: 'Customer-safe route summary',
+    approved_service_summary: 'Customer-safe route summary',
     completion_time: '2026-05-23T04:00:00.000Z',
     rawCasePayload: 'raw_case_payload_should_not_leak',
     rawAppointmentRow: 'raw_appointment_row_should_not_leak',

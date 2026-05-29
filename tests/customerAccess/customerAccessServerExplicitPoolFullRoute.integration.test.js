@@ -169,7 +169,7 @@ function allAllowRows() {
       service_status_display: 'Completed',
       appointment_window: '2026-05-29 09:00-10:00',
       engineer_display_name: 'Engineer Full Route',
-      service_summary: 'Customer-safe full route summary',
+      approved_service_summary: 'Customer-safe full route summary',
       completion_time: '2026-05-29T10:00:00.000Z',
       status: 'available',
       final_appointment_id: 'appt_should_not_be_in_response',
@@ -586,7 +586,7 @@ test('server explicit async pool service report full route omits null empty opti
     service_status_display: undefined,
     appointment_window: null,
     engineer_display_name: '   ',
-    service_summary: '',
+    approved_service_summary: '',
     completion_time: undefined,
     public_attachments: [
       {
