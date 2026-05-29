@@ -656,6 +656,20 @@ function rowsFromResult(result) {
   return result.rows;
 }
 
+function dbClientQueryFunction(dbClient) {
+  if (!isPlainObject(dbClient) || typeof dbClient.then === 'function') {
+    return undefined;
+  }
+
+  try {
+    const query = dbClient.query;
+
+    return typeof query === 'function' ? query : undefined;
+  } catch (error) {
+    return undefined;
+  }
+}
+
 function attachmentValue(value, key) {
   if (FORBIDDEN_ATTACHMENT_KEYS.has(key)) {
     return undefined;
@@ -866,12 +880,12 @@ function isCustomerVisibleRow(row, scope) {
   return serviceReportRowPublicationStateGuardPasses(row, scope);
 }
 
-async function queryProjection(dbClient, querySpec) {
-  if (!isObject(dbClient) || typeof dbClient.query !== 'function') {
-    return [];
+async function queryProjection(dbClient, querySpec, query) {
+  if (typeof query !== 'function') {
+    return undefined;
   }
 
-  const result = await dbClient.query(querySpec);
+  const result = await query.call(dbClient, querySpec);
 
   return rowsFromResult(result);
 }
@@ -884,11 +898,13 @@ async function getCustomerServiceReportProjection(options = {}) {
   const { dbClient } = options;
   const scope = serviceInputScope(options);
 
-  if (!isObject(dbClient) || typeof dbClient.query !== 'function') {
+  if (!scope) {
     return buildSafeDenyEnvelope();
   }
 
-  if (!scope) {
+  const query = dbClientQueryFunction(dbClient);
+
+  if (!query) {
     return buildSafeDenyEnvelope();
   }
 
@@ -900,7 +916,7 @@ async function getCustomerServiceReportProjection(options = {}) {
   });
 
   try {
-    const rows = await queryProjection(dbClient, querySpec);
+    const rows = await queryProjection(dbClient, querySpec, query);
     if (!Array.isArray(rows) || rows.length !== 1) {
       return buildSafeDenyEnvelope();
     }

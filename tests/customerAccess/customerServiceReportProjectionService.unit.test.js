@@ -98,8 +98,16 @@ function createDbClient(rows, options = {}) {
     query(querySpec) {
       calls.push(querySpec);
 
+      if (Object.prototype.hasOwnProperty.call(options, 'throwWith')) {
+        throw options.throwWith;
+      }
+
       if (options.throwOnQuery) {
         throw new Error('database hostname token_should_not_leak');
+      }
+
+      if (Object.prototype.hasOwnProperty.call(options, 'rejectWith')) {
+        return Promise.reject(options.rejectWith);
       }
 
       if (Object.prototype.hasOwnProperty.call(options, 'result')) {
@@ -215,6 +223,14 @@ function assertNoSensitiveLeak(output) {
     'legacy_service_summary_should_not_leak',
     'legacy_service_summary_column_should_not_leak',
   ]) {
+    assert.equal(serialized.includes(value), false, `projection leaked ${value}`);
+  }
+}
+
+function assertNoForbiddenFragments(output, values) {
+  const serialized = JSON.stringify(output);
+
+  for (const value of values) {
     assert.equal(serialized.includes(value), false, `projection leaked ${value}`);
   }
 }
@@ -2027,8 +2043,18 @@ test('projection is read-only through injected synthetic dbClient query only', a
   ]);
 });
 
-test('dbClient query errors fail closed without raw error leak', async () => {
-  const dbClient = createDbClient([], { throwOnQuery: true });
+test('dbClient query throws fail closed without raw error leak', async () => {
+  const rawError = new Error([
+    'select * from customer_visible_service_reports where token = $1',
+    'database host db.internal.example table customer_visible_service_reports',
+    'Authorization: Bearer token_should_not_leak',
+    'parameter case_projection_001 report_public_projection_001',
+  ].join(' '));
+  rawError.code = 'DB_DRIVER_CODE_SHOULD_NOT_LEAK';
+  rawError.detail = 'db_detail_should_not_leak';
+  rawError.cause = new Error('db_cause_should_not_leak');
+  rawError.stack = 'stack_should_not_leak\n    at queryProjection';
+  const dbClient = createDbClient([], { throwWith: rawError });
   const output = await getCustomerServiceReportProjection({
     dbClient,
     customerAccessContext: authorizedContext(),
@@ -2038,6 +2064,158 @@ test('dbClient query errors fail closed without raw error leak', async () => {
 
   assertSafeDeny(output);
   assertNoSensitiveLeak(output);
+  assertNoForbiddenFragments(output, [
+    'customer_visible_service_reports',
+    'db.internal.example',
+    'DB_DRIVER_CODE_SHOULD_NOT_LEAK',
+    'db_detail_should_not_leak',
+    'db_cause_should_not_leak',
+    'stack_should_not_leak',
+    'case_projection_001',
+    'report_public_projection_001',
+  ]);
+  assert.equal(dbClient.calls.length, 1);
+});
+
+test('dbClient query rejects fail closed without rejection reason leak', async () => {
+  const rejectedError = new Error('rejected SQL select secret token_should_not_leak');
+  rejectedError.stack = 'rejected_stack_should_not_leak';
+  const rawRejections = [
+    rejectedError,
+    {
+      message: 'raw_rejection_message_should_not_leak',
+      sql: 'select raw_rejection_sql_should_not_leak',
+      parameters: ['raw_rejection_parameter_should_not_leak'],
+      stack: 'raw_rejection_stack_should_not_leak',
+      token: 'raw_rejection_token_should_not_leak',
+    },
+    'raw_rejection_string_should_not_leak',
+  ];
+
+  for (const rejection of rawRejections) {
+    const dbClient = createDbClient([], { rejectWith: rejection });
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assertSafeDeny(output);
+    assertNoSensitiveLeak(output);
+    assertNoForbiddenFragments(output, [
+      'rejected SQL',
+      'rejected_stack_should_not_leak',
+      'raw_rejection_message_should_not_leak',
+      'raw_rejection_sql_should_not_leak',
+      'raw_rejection_parameter_should_not_leak',
+      'raw_rejection_stack_should_not_leak',
+      'raw_rejection_token_should_not_leak',
+      'raw_rejection_string_should_not_leak',
+    ]);
+    assert.equal(dbClient.calls.length, 1);
+  }
+});
+
+test('malformed dbClient and query shapes fail closed without raw client leak', async () => {
+  class ClassDbClient {
+    query() {
+      throw new Error('class_db_client_query_should_not_run');
+    }
+  }
+
+  let throwingGetterReadCount = 0;
+  const throwingGetterDbClient = {};
+  Object.defineProperty(throwingGetterDbClient, 'query', {
+    get() {
+      throwingGetterReadCount += 1;
+      throw new Error('throwing_query_getter_should_not_leak');
+    },
+  });
+  const promiseLikeDbClient = {
+    then() {},
+    query() {
+      throw new Error('promise_like_query_should_not_run');
+    },
+  };
+  const malformedDbClients = [
+    undefined,
+    null,
+    'db_client_string_should_not_leak',
+    123,
+    true,
+    {},
+    { query: 'query_string_should_not_leak' },
+    { query: null },
+    throwingGetterDbClient,
+    new Date('2026-05-21T04:00:00.000Z'),
+    new Error('db_client_error_should_not_leak'),
+    Buffer.from('db_client_buffer_should_not_leak'),
+    promiseLikeDbClient,
+    new ClassDbClient(),
+  ];
+
+  for (const dbClient of malformedDbClients) {
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assertSafeDeny(output);
+    assertNoSensitiveLeak(output);
+    assertNoForbiddenFragments(output, [
+      'db_client_string_should_not_leak',
+      'query_string_should_not_leak',
+      'throwing_query_getter_should_not_leak',
+      'db_client_error_should_not_leak',
+      'db_client_buffer_should_not_leak',
+      'promise_like_query_should_not_run',
+      'class_db_client_query_should_not_run',
+    ]);
+  }
+
+  assert.equal(throwingGetterReadCount, 1);
+});
+
+test('invalid preconditions fail before reading dbClient query', async () => {
+  let queryGetterReadCount = 0;
+  const dbClient = {};
+  Object.defineProperty(dbClient, 'query', {
+    get() {
+      queryGetterReadCount += 1;
+      throw new Error('invalid_precondition_query_should_not_be_read');
+    },
+  });
+
+  for (const input of [
+    {
+      dbClient,
+      customerAccessContext: undefined,
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    },
+    {
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: "case_projection_001' or '1'='1",
+      reportId: 'report_public_projection_001',
+    },
+    {
+      dbClient,
+      customerAccessContext: authorizedContext({ caseId: 'case_projection_002' }),
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    },
+  ]) {
+    const output = await getCustomerServiceReportProjection(input);
+
+    assertSafeDeny(output);
+    assertNoForbiddenFragments(output, ['invalid_precondition_query_should_not_be_read']);
+  }
+
+  assert.equal(queryGetterReadCount, 0);
 });
 
 test('input context and row objects are not mutated', async () => {
