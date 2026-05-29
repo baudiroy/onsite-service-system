@@ -41,6 +41,9 @@ const forbiddenValues = [
   'select customer_visible_should_not_leak',
   'Bearer customer_visible_should_not_leak',
   'at customerVisibleFrame (internal.js:1)',
+  'alias_service_report_should_not_leak',
+  'raw_request_service_report_should_not_leak',
+  'override_service_report_should_not_leak',
 ];
 
 function validContextInput() {
@@ -85,6 +88,18 @@ function assertNoForbiddenValues(value) {
       `middleware output leaked forbidden value: ${forbiddenValue}`,
     );
   }
+}
+
+function aliasServiceReport(value = 'alias_service_report_should_not_leak') {
+  return {
+    serviceReport: {
+      caseNo: value,
+      finalAppointmentId: value,
+      publicReportId: value,
+      status: value,
+      summary: value,
+    },
+  };
 }
 
 test('middleware builder returns function', () => {
@@ -503,6 +518,14 @@ test('middleware customerVisibleData malformed sources and values are omitted sa
     new UnsafeCustomerVisibleData(),
   ];
 
+  const throwingSource = {};
+  Object.defineProperty(throwingSource, 'customerVisibleData', {
+    get() {
+      throw new Error('raw_request_should_not_leak');
+    },
+  });
+  malformedSources.push(throwingSource);
+
   for (const candidate of malformedSources) {
     const input = validContextInput();
     input.customerVisibleData = candidate;
@@ -551,6 +574,96 @@ test('middleware customerVisibleData malformed sources and values are omitted sa
     assert.deepEqual(req.customerAccessContext.customerVisibleData, {});
     assertNoForbiddenValues(req.customerAccessContext);
   }
+});
+
+test('middleware customerVisibleData uses only the explicit approved source location', () => {
+  const input = validContextInput();
+  input.customerVisibleData = {
+    serviceReport: {
+      caseNo: 'CASE-APPROVED',
+      finalAppointmentId: 'appt_approved_001',
+      publicReportId: 'report_approved_001',
+      status: 'available',
+      summary: 'Approved source summary.',
+    },
+  };
+  input.customerData = aliasServiceReport();
+  input.visibleData = aliasServiceReport();
+  input.publicData = aliasServiceReport();
+  input.publicCustomerData = aliasServiceReport();
+  input.customer_visible_data = aliasServiceReport();
+  input.customer_visible = aliasServiceReport();
+  input.report = aliasServiceReport();
+  input.serviceReport = aliasServiceReport();
+  input.data = aliasServiceReport();
+  input.payload = { customerVisibleData: aliasServiceReport() };
+  input.context = { customerVisibleData: aliasServiceReport() };
+  input.auth = { customerVisibleData: aliasServiceReport() };
+  input.access = { customerVisibleData: aliasServiceReport() };
+  input.channel = { customerVisibleData: aliasServiceReport() };
+  const req = {
+    body: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    query: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    headers: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    cookies: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    params: { caseId: 'case_test_001', customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    user: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    session: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    locals: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    context: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    arbitraryTopLevel: aliasServiceReport('raw_request_service_report_should_not_leak'),
+    customerAccessContextInput: input,
+  };
+
+  invokeMiddleware(req);
+
+  assert.deepEqual(req.customerAccessContext.customerVisibleData, {
+    serviceReport: {
+      caseNo: 'CASE-APPROVED',
+      finalAppointmentId: 'appt_approved_001',
+      publicReportId: 'report_approved_001',
+      status: 'available',
+      summary: 'Approved source summary.',
+    },
+  });
+  assertNoForbiddenValues(req.customerAccessContext);
+});
+
+test('middleware customerVisibleData aliases and raw request sources do not create output', () => {
+  const input = validContextInput();
+  delete input.customerVisibleData;
+  input.customerData = aliasServiceReport();
+  input.visibleData = aliasServiceReport();
+  input.publicData = aliasServiceReport();
+  input.publicCustomerData = aliasServiceReport();
+  input.customer_visible_data = aliasServiceReport();
+  input.customer_visible = aliasServiceReport();
+  input.report = aliasServiceReport();
+  input.serviceReport = aliasServiceReport();
+  input.data = aliasServiceReport();
+  input.payload = { customerVisibleData: aliasServiceReport() };
+  input.context = { customerVisibleData: aliasServiceReport() };
+  input.auth = { customerVisibleData: aliasServiceReport() };
+  input.access = { customerVisibleData: aliasServiceReport() };
+  input.channel = { customerVisibleData: aliasServiceReport() };
+  const req = {
+    body: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    query: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    headers: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    cookies: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    params: { caseId: 'case_test_001', customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    user: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    session: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    locals: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    context: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    arbitraryTopLevel: aliasServiceReport('raw_request_service_report_should_not_leak'),
+    customerAccessContextInput: input,
+  };
+
+  invokeMiddleware(req);
+
+  assert.deepEqual(req.customerAccessContext.customerVisibleData, {});
+  assertNoForbiddenValues(req.customerAccessContext);
 });
 
 test('middleware fail-closes when getInput throws without leaking raw error', () => {

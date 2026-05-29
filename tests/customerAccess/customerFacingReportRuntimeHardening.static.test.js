@@ -277,6 +277,7 @@ test('customer access context middleware rebuilds downstream context from explic
   assert.match(middleware, /'customerVisiblePolicyPassed'/);
   assert.match(middleware, /const CUSTOMER_VISIBLE_DATA_KEYS = Object\.freeze\(\[/);
   assert.match(middleware, /'serviceReport'/);
+  assert.match(middleware, /const CUSTOMER_VISIBLE_DATA_SOURCE_KEY = 'customerVisibleData'/);
   assert.match(middleware, /const CUSTOMER_VISIBLE_SERVICE_REPORT_KEYS = Object\.freeze\(\[/);
   assert.match(middleware, /'caseNo'/);
   assert.match(middleware, /'finalAppointmentId'/);
@@ -294,8 +295,12 @@ test('customer access context middleware rebuilds downstream context from explic
   assert.match(middleware, /access: sanitizedAccess\(safeProperty\(safeContext,\s*'access'\)\)/);
   assert.match(middleware, /customerVisibleData: sanitizedCustomerVisibleData/);
   assert.match(middleware, /function inputFromMiddleware\(getInput, req, res\)/);
+  assert.match(middleware, /function customerVisibleDataSourceFromInput\(input\)/);
+  assert.match(middleware, /safeProperty\(input,\s*CUSTOMER_VISIBLE_DATA_SOURCE_KEY\)/);
   assert.match(middleware, /function sanitizedInputForContext\(input\)/);
-  assert.match(middleware, /customerVisibleData: isPlainObject\(safeProperty\(input,\s*'customerVisibleData'\)\)/);
+  assert.match(middleware, /hasOwn\(input,\s*CUSTOMER_VISIBLE_DATA_SOURCE_KEY\)/);
+  assert.match(middleware, /const customerVisibleDataSource = customerVisibleDataSourceFromInput\(input\)/);
+  assert.match(middleware, /\[CUSTOMER_VISIBLE_DATA_SOURCE_KEY\]: isPlainObject\(customerVisibleDataSource\)/);
   assert.match(middleware, /function contextFromMiddlewareInput\(input, repository\)/);
   assert.match(middleware, /buildCustomerAccessContext\(sanitizedInputForContext\(input\), \{ repository \}\)/);
   assert.match(middleware, /const routeParams = hasOwn\(req,\s*'customerAccessRouteParams'\)/);

@@ -24,6 +24,7 @@ const ACCESS_KEYS = Object.freeze([
 const CUSTOMER_VISIBLE_DATA_KEYS = Object.freeze([
   'serviceReport',
 ]);
+const CUSTOMER_VISIBLE_DATA_SOURCE_KEY = 'customerVisibleData';
 const CUSTOMER_VISIBLE_SERVICE_REPORT_KEYS = Object.freeze([
   'caseNo',
   'finalAppointmentId',
@@ -191,19 +192,25 @@ function inputFromMiddleware(getInput, req, res) {
   }
 }
 
+function customerVisibleDataSourceFromInput(input) {
+  return safeProperty(input, CUSTOMER_VISIBLE_DATA_SOURCE_KEY);
+}
+
 function sanitizedInputForContext(input) {
   if (!isPlainObject(input)) {
     return undefined;
   }
 
-  if (!hasOwn(input, 'customerVisibleData')) {
+  if (!hasOwn(input, CUSTOMER_VISIBLE_DATA_SOURCE_KEY)) {
     return input;
   }
 
+  const customerVisibleDataSource = customerVisibleDataSourceFromInput(input);
+
   return {
     ...input,
-    customerVisibleData: isPlainObject(safeProperty(input, 'customerVisibleData'))
-      ? safeProperty(input, 'customerVisibleData')
+    [CUSTOMER_VISIBLE_DATA_SOURCE_KEY]: isPlainObject(customerVisibleDataSource)
+      ? customerVisibleDataSource
       : {},
   };
 }
