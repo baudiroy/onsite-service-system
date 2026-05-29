@@ -223,6 +223,151 @@ test('invalid status flags and reasonCode normalize safely without leaking raw v
   }
 });
 
+test('status matrix handles contradictory flags and recorded reasonCode safely', () => {
+  const recordedWithReason = normalizeCustomerAccessAuditWriterResult({
+    ok: true,
+    status: 'recorded',
+    auditWritten: true,
+    persisted: true,
+    reasonCode: 'audit_writer_unavailable',
+  });
+  const recordedWithContradictoryFlags = normalizeCustomerAccessAuditWriterResult({
+    ok: true,
+    status: 'recorded',
+    auditWritten: 'true',
+    persisted: 1,
+    reasonCode: 'audit_writer_unavailable',
+  });
+  const skippedWithContradictoryFlags = normalizeCustomerAccessAuditWriterResult({
+    ok: true,
+    status: 'skipped',
+    auditWritten: true,
+    persisted: false,
+    reasonCode: 'audit_skipped',
+  });
+  const failedWithContradictoryFlags = normalizeCustomerAccessAuditWriterResult({
+    ok: true,
+    status: 'failed',
+    auditWritten: false,
+    persisted: false,
+    reasonCode: 'audit_persistence_failed',
+  });
+
+  assert.deepEqual(recordedWithReason, {
+    ok: true,
+    status: 'recorded',
+    auditWritten: true,
+    persisted: true,
+  });
+  assert.deepEqual(recordedWithContradictoryFlags, {
+    ok: false,
+    status: 'failed',
+    auditWritten: false,
+    persisted: false,
+    reasonCode: 'invalid_writer_result',
+  });
+  assert.deepEqual(skippedWithContradictoryFlags, {
+    ok: false,
+    status: 'failed',
+    auditWritten: false,
+    persisted: false,
+    reasonCode: 'invalid_writer_result',
+  });
+  assert.deepEqual(failedWithContradictoryFlags, {
+    ok: false,
+    status: 'failed',
+    auditWritten: false,
+    persisted: false,
+    reasonCode: 'invalid_writer_result',
+  });
+  assertNoLeak(recordedWithReason);
+  assertNoLeak(recordedWithContradictoryFlags);
+  assertNoLeak(skippedWithContradictoryFlags);
+  assertNoLeak(failedWithContradictoryFlags);
+});
+
+test('per-status reasonCode matrix applies safe fallbacks', () => {
+  for (const reasonCode of ['audit_skipped', 'audit_not_configured', 'audit_writer_unavailable']) {
+    const result = normalizeCustomerAccessAuditWriterResult({
+      ok: true,
+      status: 'skipped',
+      auditWritten: false,
+      persisted: false,
+      reasonCode,
+    });
+
+    assert.equal(result.status, 'skipped');
+    assert.equal(result.reasonCode, reasonCode);
+    assertNoLeak(result);
+  }
+
+  for (const reasonCode of [
+    'audit_event_invalid',
+    'audit_persistence_failed',
+    'audit_writer_unavailable',
+    'invalid_writer_result',
+  ]) {
+    const result = normalizeCustomerAccessAuditWriterResult({
+      ok: false,
+      status: 'failed',
+      auditWritten: false,
+      persisted: false,
+      reasonCode,
+    });
+
+    assert.equal(result.status, 'failed');
+    assert.equal(result.reasonCode, reasonCode);
+    assertNoLeak(result);
+  }
+
+  const skippedIncompatible = normalizeCustomerAccessAuditWriterResult({
+    ok: true,
+    status: 'skipped',
+    auditWritten: false,
+    persisted: false,
+    reasonCode: 'audit_event_invalid',
+  });
+  const failedIncompatible = normalizeCustomerAccessAuditWriterResult({
+    ok: false,
+    status: 'failed',
+    auditWritten: false,
+    persisted: false,
+    reasonCode: 'audit_skipped',
+  });
+  const skippedRaw = normalizeCustomerAccessAuditWriterResult({
+    ok: true,
+    status: 'skipped',
+    auditWritten: false,
+    persisted: false,
+    reasonCode: 'Bearer token_should_not_leak',
+  });
+
+  assert.deepEqual(skippedIncompatible, {
+    ok: true,
+    status: 'skipped',
+    auditWritten: false,
+    persisted: false,
+    reasonCode: 'audit_skipped',
+  });
+  assert.deepEqual(failedIncompatible, {
+    ok: false,
+    status: 'failed',
+    auditWritten: false,
+    persisted: false,
+    reasonCode: 'invalid_writer_result',
+  });
+  assert.deepEqual(skippedRaw, {
+    ok: true,
+    status: 'skipped',
+    auditWritten: false,
+    persisted: false,
+    reasonCode: 'audit_skipped',
+  });
+  assertNoLeak(skippedIncompatible);
+  assertNoLeak(failedIncompatible);
+  assertNoLeak(skippedRaw);
+});
+
 test('sensitive input fields never appear in normalized output', () => {
   const result = normalizeCustomerAccessAuditWriterResult({
     ok: false,

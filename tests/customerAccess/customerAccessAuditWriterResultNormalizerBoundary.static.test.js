@@ -22,12 +22,13 @@ function exists(file) {
   return fs.existsSync(path.join(repoRoot, file));
 }
 
-test('Task2106 audit writer result normalizer source tests and doc exist', () => {
+test('Task2106 and Task2107 audit writer result normalizer source tests and docs exist', () => {
   for (const file of [
     FILES.normalizer,
     'tests/customerAccess/customerAccessAuditWriterResultNormalizer.unit.test.js',
     'tests/customerAccess/customerAccessAuditWriterResultNormalizerBoundary.static.test.js',
     'docs/task-2106-customer-access-audit-writer-contract-skeleton-no-db-no-persistence-no-provider.md',
+    'docs/task-2107-customer-access-audit-writer-result-normalizer-status-matrix-guard-no-db-no-persistence-no-provider.md',
   ]) {
     assert.equal(exists(file), true, `${file} should exist`);
   }
@@ -51,6 +52,8 @@ test('audit writer result normalizer exposes explicit allowlisted contract', () 
   assert.match(source, /CUSTOMER_ACCESS_AUDIT_WRITER_RESULT_KEYS = Object\.freeze\(\[/);
   assert.match(source, /CUSTOMER_ACCESS_AUDIT_WRITER_STATUSES = Object\.freeze\(\[/);
   assert.match(source, /CUSTOMER_ACCESS_AUDIT_WRITER_REASON_CODES = Object\.freeze\(\[/);
+  assert.match(source, /const SKIPPED_REASON_CODES = new Set\(\[/);
+  assert.match(source, /const FAILED_REASON_CODES = new Set\(\[/);
   assert.match(source, /function normalizeCustomerAccessAuditWriterResult\(input\)/);
   assert.match(source, /status: STATUS_RECORDED/);
   assert.match(source, /status: STATUS_SKIPPED/);

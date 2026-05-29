@@ -24,6 +24,17 @@ const CUSTOMER_ACCESS_AUDIT_WRITER_REASON_CODES = Object.freeze([
 ]);
 
 const VALID_REASON_CODES = new Set(CUSTOMER_ACCESS_AUDIT_WRITER_REASON_CODES);
+const SKIPPED_REASON_CODES = new Set([
+  'audit_skipped',
+  'audit_not_configured',
+  'audit_writer_unavailable',
+]);
+const FAILED_REASON_CODES = new Set([
+  'audit_event_invalid',
+  'audit_persistence_failed',
+  'audit_writer_unavailable',
+  'invalid_writer_result',
+]);
 const STATUS_RECORDED = 'recorded';
 const STATUS_SKIPPED = 'skipped';
 const STATUS_FAILED = 'failed';
@@ -47,10 +58,10 @@ function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function safeReasonCode(value) {
+function safeReasonCode(value, allowedReasonCodes = VALID_REASON_CODES) {
   const candidate = stringValue(value);
 
-  return candidate && VALID_REASON_CODES.has(candidate) ? candidate : undefined;
+  return candidate && allowedReasonCodes.has(candidate) ? candidate : undefined;
 }
 
 function failed(reasonCode = FALLBACK_REASON_CODE) {
@@ -59,7 +70,7 @@ function failed(reasonCode = FALLBACK_REASON_CODE) {
     status: STATUS_FAILED,
     auditWritten: false,
     persisted: false,
-    reasonCode: safeReasonCode(reasonCode) || FALLBACK_REASON_CODE,
+    reasonCode: safeReasonCode(reasonCode, FAILED_REASON_CODES) || FALLBACK_REASON_CODE,
   };
 }
 
@@ -78,7 +89,7 @@ function skipped(reasonCode) {
     status: STATUS_SKIPPED,
     auditWritten: false,
     persisted: false,
-    reasonCode: safeReasonCode(reasonCode) || 'audit_skipped',
+    reasonCode: safeReasonCode(reasonCode, SKIPPED_REASON_CODES) || 'audit_skipped',
   };
 }
 
