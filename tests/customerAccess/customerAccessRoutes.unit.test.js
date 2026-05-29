@@ -316,6 +316,39 @@ function expectedRegistrationFailure(reasonCode = 'mount_target_invalid') {
   };
 }
 
+function routeKey(route) {
+  return `${route.method} ${route.path}`;
+}
+
+function summaryRouteKeys(summary) {
+  return summary.routes.map(routeKey);
+}
+
+function registeredRouteKeys(router) {
+  return router.routes.map(routeKey);
+}
+
+function assertNoDuplicateRouteKeys(keys) {
+  assert.equal(new Set(keys).size, keys.length, `duplicate route keys: ${keys.join(', ')}`);
+}
+
+function assertSummaryMatchesRegisteredRoutes(summary, router) {
+  const summaryKeys = summaryRouteKeys(summary);
+  const registeredKeys = registeredRouteKeys(router);
+
+  assert.deepEqual(summaryKeys, [
+    'GET /customer-access/:caseId',
+    'GET /customer-access/:caseId/service-report/:reportId',
+  ]);
+  assert.deepEqual(registeredKeys, summaryKeys);
+  assertNoDuplicateRouteKeys(summaryKeys);
+  assertNoDuplicateRouteKeys(registeredKeys);
+  assert.equal(
+    registeredKeys.some((key) => key.includes('/__internal/customer-access')),
+    false,
+  );
+}
+
 function assertNoRouteRegistrationSummaryLeak(summary) {
   const serialized = JSON.stringify(summary);
 
@@ -346,6 +379,9 @@ function assertNoRouteRegistrationSummaryLeak(summary) {
     'zeabur_should_not_leak',
     'provider_should_not_leak',
     'projection_service_should_not_leak',
+    'projection_function_source_should_not_leak',
+    'facade_function_source_should_not_leak',
+    'raw_target_should_not_leak',
     'debug_should_not_leak',
     'internal_should_not_leak',
     'Bearer token_should_not_leak',
@@ -366,11 +402,123 @@ test('registers customer access and service report GET routes on synthetic route
   const summary = registerCustomerAccessRoutes(router);
 
   assert.deepEqual(summary, expectedRegistrationSummary());
-  assert.deepEqual(router.routes.map((route) => `${route.method} ${route.path}`), [
-    'GET /customer-access/:caseId',
-    'GET /customer-access/:caseId/service-report/:reportId',
-  ]);
+  assertSummaryMatchesRegisteredRoutes(summary, router);
+  assert.deepEqual(router.listenCalls, []);
   assertNoRouteRegistrationSummaryLeak(summary);
+});
+
+test('registration summary cross-checks exactly with synthetic mounted dispatch table', () => {
+  const router = createSyntheticRouter();
+  router.rawTarget = 'raw_target_should_not_leak';
+  router.rawRouter = 'raw_router_should_not_leak';
+  const dbClient = createSyntheticDbClient([reportRow()]);
+  dbClient.rawDbClient = 'db_client_should_not_leak';
+  dbClient.sql = 'select secret_should_not_leak';
+  const options = {
+    dbClient,
+    projectionService() {
+      throw new Error('projection_function_source_should_not_leak');
+    },
+    facade() {
+      throw new Error('facade_function_source_should_not_leak');
+    },
+    zeaburEnv: 'zeabur_should_not_leak',
+    providerDebug: 'provider_should_not_leak',
+    internalDebug: 'internal_should_not_leak',
+    headers: {
+      authorization: 'Bearer token_should_not_leak',
+    },
+  };
+
+  const summary = registerCustomerAccessRoutes(router, options);
+
+  assert.deepEqual(summary, expectedRegistrationSummary());
+  assertSummaryMatchesRegisteredRoutes(summary, router);
+  assert.equal(router.routes.length, 2);
+  assert.equal(router.routes.every((route) => route.handlers.length === 2), true);
+  assert.deepEqual(router.listenCalls, []);
+  assertNoRouteRegistrationSummaryLeak(summary);
+});
+
+test('failure summaries omit routes partial registrations and raw failure details', () => {
+  const firstRouteThrow = {
+    routes: [],
+    get(path, ...handlers) {
+      this.routes.push({
+        method: 'GET',
+        path,
+        handlers,
+        rawRoute: 'raw_route_should_not_leak',
+      });
+      throw new Error('first route select secret_should_not_leak Bearer token_should_not_leak');
+    },
+  };
+  const secondRouteThrow = {
+    routes: [],
+    get(path, ...handlers) {
+      this.routes.push({
+        method: 'GET',
+        path,
+        handlers,
+        rawRoute: 'raw_route_should_not_leak',
+      });
+
+      if (this.routes.length === 2) {
+        throw new Error('second route debug_should_not_leak internal_should_not_leak');
+      }
+
+      return this;
+    },
+  };
+  const cases = [
+    {
+      summary: registerCustomerAccessRoutes({
+        rawTarget: 'raw_target_should_not_leak',
+      }),
+      registeredRoutes: [],
+      reasonCode: 'mount_target_invalid',
+    },
+    {
+      summary: registerCustomerAccessRoutes(createSyntheticRouter(), {
+        dbClient: {
+          query: 'not function',
+          rawDbClient: 'db_client_should_not_leak',
+          sql: 'select secret_should_not_leak',
+        },
+      }),
+      registeredRoutes: [],
+      reasonCode: 'db_client_invalid',
+    },
+    {
+      summary: registerCustomerAccessRoutes(firstRouteThrow, {
+        dbClient: createSyntheticDbClient([reportRow()]),
+        projectionService: 'projection_service_should_not_leak',
+      }),
+      registeredRoutes: firstRouteThrow.routes,
+      reasonCode: 'route_registration_failed',
+    },
+    {
+      summary: registerCustomerAccessRoutes(secondRouteThrow, {
+        dbClient: createSyntheticDbClient([reportRow()]),
+        providerDebug: 'provider_should_not_leak',
+      }),
+      registeredRoutes: secondRouteThrow.routes,
+      reasonCode: 'route_registration_failed',
+    },
+  ];
+
+  for (const candidate of cases) {
+    assert.deepEqual(candidate.summary, expectedRegistrationFailure(candidate.reasonCode));
+    assert.equal(typeof candidate.summary.routes, 'undefined');
+    assertNoRouteRegistrationSummaryLeak(candidate.summary);
+    assertNoRouteRegistrationSummaryLeak({
+      summary: candidate.summary,
+    });
+
+    for (const route of candidate.registeredRoutes) {
+      assert.equal(typeof route.handlers, 'object');
+    }
+  }
 });
 
 test('registered path includes caseId param', () => {
