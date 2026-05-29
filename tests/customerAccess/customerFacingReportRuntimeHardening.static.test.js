@@ -83,6 +83,9 @@ test('customer-facing report runtime boundary cannot create publish or mutate op
 test('projection output allowlist does not expose raw internal DTO fields', () => {
   const projectionService = read(FILES.projectionService);
 
+  assert.match(projectionService, /CUSTOMER_SERVICE_REPORT_RESPONSE_KEYS = Object\.freeze\(\[/);
+  assert.match(projectionService, /function customerServiceReportResponseAllowlist\(candidate\)/);
+  assert.match(projectionService, /serviceReport: allowlistedServiceReport/);
   assert.match(projectionService, /serviceReport\.customerReportReference = customerReportReference/);
   assert.match(projectionService, /serviceReport\.serviceSummary = serviceSummary/);
   assert.match(projectionService, /rowValue\(row,\s*'approved_service_summary'\)/);
@@ -93,6 +96,10 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
   assert.doesNotMatch(
     projectionService,
     /serviceReport\.(finalAppointmentId|internalNote|providerRawPayload|rawCasePayload|rawCompletionReport|sql|stack|token)\s*=/,
+  );
+  assert.doesNotMatch(
+    projectionService,
+    /serviceReport\s*=\s*(?:row|candidate|result|serviceResult)|Object\.assign\(\s*serviceReport\s*,\s*(?:row|candidate|result|serviceResult)\s*\)|\.\.\.\s*(?:row|candidate|result|serviceResult)/,
   );
 });
 

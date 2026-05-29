@@ -2,6 +2,16 @@
 
 const SAFE_DENY_MESSAGE_KEY = 'customerAccess.unavailable';
 const ALLOW_MESSAGE_KEY = 'customerAccess.serviceReport.available';
+const CUSTOMER_SERVICE_REPORT_RESPONSE_KEYS = Object.freeze([
+  'customerReportReference',
+  'caseReference',
+  'serviceStatus',
+  'appointmentWindow',
+  'engineerDisplayName',
+  'serviceSummary',
+  'completionTime',
+  'publicAttachments',
+]);
 
 const FORBIDDEN_ATTACHMENT_KEYS = new Set([
   'address',
@@ -324,8 +334,26 @@ function buildSafeDenyEnvelope() {
   };
 }
 
+function customerServiceReportResponseAllowlist(candidate) {
+  if (!isObject(candidate)) {
+    return undefined;
+  }
+
+  const serviceReport = {};
+
+  for (const key of CUSTOMER_SERVICE_REPORT_RESPONSE_KEYS) {
+    if (hasOwn(candidate, key)) {
+      serviceReport[key] = candidate[key];
+    }
+  }
+
+  return Object.keys(serviceReport).length > 0 ? serviceReport : undefined;
+}
+
 function buildAllowEnvelope(serviceReport) {
-  if (!isObject(serviceReport) || Object.keys(serviceReport).length === 0) {
+  const allowlistedServiceReport = customerServiceReportResponseAllowlist(serviceReport);
+
+  if (!allowlistedServiceReport) {
     return buildSafeDenyEnvelope();
   }
 
@@ -334,7 +362,7 @@ function buildAllowEnvelope(serviceReport) {
     messageKey: ALLOW_MESSAGE_KEY,
     customerVisible: true,
     data: {
-      serviceReport,
+      serviceReport: allowlistedServiceReport,
     },
   };
 }
@@ -689,7 +717,7 @@ function mapProjection(row) {
     serviceReport.publicAttachments = attachments;
   }
 
-  return Object.keys(serviceReport).length > 0 ? serviceReport : undefined;
+  return customerServiceReportResponseAllowlist(serviceReport);
 }
 
 function isCustomerVisibleRow(row, scope) {

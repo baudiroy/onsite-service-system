@@ -252,6 +252,27 @@ function assertStableAllowEnvelopeShape(output) {
   ].sort());
 }
 
+function collectObjectKeys(value, keys = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectObjectKeys(item, keys);
+    }
+
+    return keys;
+  }
+
+  if (!value || typeof value !== 'object') {
+    return keys;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    keys.push(key);
+    collectObjectKeys(child, keys);
+  }
+
+  return keys;
+}
+
 test('missing dbClient fails closed without reading', async () => {
   const output = await getCustomerServiceReportProjection({
     customerAccessContext: authorizedContext(),
@@ -447,6 +468,165 @@ test('authorized context returns only allowlisted customer-visible projection', 
     },
   });
   assertStableAllowEnvelopeShape(output);
+  assertNoSensitiveLeak(output);
+});
+
+test('authorized context denies unknown fields raw containers and row passthrough', async () => {
+  const forbiddenValues = [
+    'unknown_field_should_not_leak',
+    'future_public_field_should_not_leak',
+    'raw_container_should_not_leak',
+    'payload_container_should_not_leak',
+    'report_row_container_should_not_leak',
+    'data_row_container_should_not_leak',
+  ];
+  const dbClient = createDbClient([
+    reportRow({
+      unknown_future_field: 'unknown_field_should_not_leak',
+      futurePublicField: 'future_public_field_should_not_leak',
+      row: { secret: 'raw_container_should_not_leak' },
+      raw: { secret: 'raw_container_should_not_leak' },
+      payload: { secret: 'payload_container_should_not_leak' },
+      reportRow: { secret: 'report_row_container_should_not_leak' },
+      data: {
+        row: {
+          secret: 'data_row_container_should_not_leak',
+        },
+      },
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+  const serialized = JSON.stringify(output);
+  const serviceReportKeys = Object.keys(output.data.serviceReport).sort();
+  const allKeys = collectObjectKeys(output);
+
+  assert.equal(output.status, 'allow');
+  assert.deepEqual(serviceReportKeys, [
+    'appointmentWindow',
+    'caseReference',
+    'completionTime',
+    'customerReportReference',
+    'engineerDisplayName',
+    'publicAttachments',
+    'serviceStatus',
+    'serviceSummary',
+  ].sort());
+  assert.equal(Object.prototype.hasOwnProperty.call(output.data, 'row'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(output.data, 'reportRow'), false);
+
+  for (const forbiddenKey of [
+    'unknown_future_field',
+    'futurePublicField',
+    'row',
+    'raw',
+    'payload',
+    'reportRow',
+  ]) {
+    assert.equal(allKeys.includes(forbiddenKey), false, `response leaked key ${forbiddenKey}`);
+  }
+
+  for (const forbiddenValue of forbiddenValues) {
+    assert.equal(
+      serialized.includes(forbiddenValue),
+      false,
+      `response leaked unknown/raw value ${forbiddenValue}`,
+    );
+  }
+
+  assertNoSensitiveLeak(output);
+});
+
+test('authorized context denies explicit internal private debug and identity row fields', async () => {
+  const forbiddenValues = [
+    'internal_notes_should_not_leak',
+    'engineer_notes_should_not_leak',
+    'diagnosis_notes_should_not_leak',
+    'completion_notes_should_not_leak',
+    'private_report_body_should_not_leak',
+    'ai_draft_summary_should_not_leak',
+    'ai_generated_summary_should_not_leak',
+    'provider_payload_should_not_leak',
+    'raw_payload_should_not_leak',
+    'debug_should_not_leak',
+    'stack_should_not_leak',
+    'sql_should_not_leak',
+    'token_should_not_leak',
+    'authorization_should_not_leak',
+    'headers_should_not_leak',
+    'customer_phone_raw_should_not_leak',
+    'customer_address_raw_should_not_leak',
+    'line_user_should_not_leak',
+  ];
+  const dbClient = createDbClient([
+    reportRow({
+      internal_notes: 'internal_notes_should_not_leak',
+      engineer_notes: 'engineer_notes_should_not_leak',
+      diagnosis_notes: 'diagnosis_notes_should_not_leak',
+      completion_notes: 'completion_notes_should_not_leak',
+      private_report_body: 'private_report_body_should_not_leak',
+      ai_draft_summary: 'ai_draft_summary_should_not_leak',
+      ai_generated_summary: 'ai_generated_summary_should_not_leak',
+      provider_payload: 'provider_payload_should_not_leak',
+      raw_payload: 'raw_payload_should_not_leak',
+      debug: 'debug_should_not_leak',
+      stack: 'stack_should_not_leak',
+      sql: 'sql_should_not_leak',
+      token: 'token_should_not_leak',
+      authorization: 'authorization_should_not_leak',
+      headers: { authorization: 'headers_should_not_leak' },
+      customer_phone_raw: 'customer_phone_raw_should_not_leak',
+      customer_address_raw: 'customer_address_raw_should_not_leak',
+      line_user_id: 'line_user_should_not_leak',
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+  const serialized = JSON.stringify(output);
+  const allKeys = collectObjectKeys(output);
+
+  assert.equal(output.status, 'allow');
+  assertStableAllowEnvelopeShape(output);
+
+  for (const forbiddenKey of [
+    'internal_notes',
+    'engineer_notes',
+    'diagnosis_notes',
+    'completion_notes',
+    'private_report_body',
+    'ai_draft_summary',
+    'ai_generated_summary',
+    'provider_payload',
+    'raw_payload',
+    'debug',
+    'stack',
+    'sql',
+    'token',
+    'authorization',
+    'headers',
+    'customer_phone_raw',
+    'customer_address_raw',
+    'line_user_id',
+  ]) {
+    assert.equal(allKeys.includes(forbiddenKey), false, `response leaked key ${forbiddenKey}`);
+  }
+
+  for (const forbiddenValue of forbiddenValues) {
+    assert.equal(
+      serialized.includes(forbiddenValue),
+      false,
+      `response leaked internal/private value ${forbiddenValue}`,
+    );
+  }
+
   assertNoSensitiveLeak(output);
 });
 
