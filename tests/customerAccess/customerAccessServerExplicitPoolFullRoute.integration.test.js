@@ -435,6 +435,7 @@ function assertNoLeak(value) {
     'from cases',
     'completion_time_token_should_not_leak',
     'service_status_token_should_not_leak',
+    'engineer_display_token_should_not_leak',
   ]) {
     assert.equal(serialized.includes(unsafeValue), false, `leaked ${unsafeValue}`);
   }
@@ -678,6 +679,37 @@ test('server explicit async pool service report full route omits malformed servi
   assertSafeHttpResponseMetadata(response);
   assert.equal(
     Object.prototype.hasOwnProperty.call(response.body.data.serviceReport, 'serviceStatus'),
+    false,
+  );
+  assert.deepEqual(response.body, directResponse.body);
+  assertNoLeak(response.body);
+});
+
+test('server explicit async pool service report full route omits malformed engineer display name', async () => {
+  const queryCalls = [];
+  const rows = allAllowRows();
+
+  rows.serviceReportRow = {
+    ...rows.serviceReportRow,
+    engineer_display_name: 'engineer_display_token_should_not_leak postgres://internal',
+  };
+
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls, rows),
+  }));
+  const response = await requestApp(
+    bootstrap.app,
+    '/customer-access/case_full_route_001/service-report/report_public_full_route_001',
+  );
+  const directResponse = await handleCustomerServiceReportProjectionRequest({
+    request: authorizedProjectionRequest(),
+    dbClient: createAsyncSyntheticPool([], rows),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assertSafeHttpResponseMetadata(response);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(response.body.data.serviceReport, 'engineerDisplayName'),
     false,
   );
   assert.deepEqual(response.body, directResponse.body);

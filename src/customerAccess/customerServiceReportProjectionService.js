@@ -634,7 +634,7 @@ function mapProjection(row) {
   const caseReference = rowValue(row, 'caseReference', 'case_display_id', 'caseDisplayId', 'customer_case_reference');
   const serviceStatus = customerDisplayValue(rowValue(row, 'serviceStatus', 'service_status_display', 'serviceStatusDisplay', 'statusDisplay'));
   const appointmentWindow = rowValue(row, 'appointmentWindow', 'appointment_window', 'appointmentDisplayTimeWindow');
-  const engineerDisplayName = rowValue(row, 'engineerDisplayName', 'engineer_display_name');
+  const engineerDisplayName = customerDisplayValue(rowValue(row, 'engineerDisplayName', 'engineer_display_name'));
   const serviceSummary = rowValue(row, 'serviceSummary', 'service_summary', 'approved_service_summary');
   const completionTime = completionTimeValue(rowValue(row, 'completionTime', 'completion_time', 'completed_at'));
   const attachments = safeAttachments(row);
