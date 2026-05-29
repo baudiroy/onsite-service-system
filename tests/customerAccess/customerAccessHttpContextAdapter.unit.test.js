@@ -23,6 +23,11 @@ const forbiddenValues = [
   'headers_should_not_leak',
   'cookies_should_not_leak',
   'private_admin_only_should_not_leak',
+  'raw_request_service_report_should_not_leak',
+  'alias_service_report_should_not_leak',
+  'unknown_customer_visible_should_not_leak',
+  'unknown_nested_should_not_leak',
+  'stack_should_not_leak',
 ];
 
 function validContext() {
@@ -73,6 +78,35 @@ function assertNoForbiddenValues(mapped) {
   for (const value of forbiddenValues) {
     assert.equal(serialized.includes(value), false, `mapped context leaked forbidden value: ${value}`);
   }
+}
+
+function assertFailClosed(mapped) {
+  assert.deepEqual(mapped, {
+    organizationId: undefined,
+    caseId: undefined,
+    customerId: undefined,
+    isCustomerIdentityVerified: false,
+    isCaseLinkedToCustomer: false,
+    isPublicationAllowed: false,
+    isCustomerVisiblePolicyPassed: false,
+    organizationScopeMatches: false,
+    channelIdentityPresent: false,
+    scopedChannelIdentityPresent: false,
+    customerVisibleData: {},
+  });
+  assertNoForbiddenValues(mapped);
+}
+
+function aliasServiceReport(value = 'alias_service_report_should_not_leak') {
+  return {
+    serviceReport: {
+      caseNo: value,
+      finalAppointmentId: value,
+      publicReportId: value,
+      status: value,
+      summary: value,
+    },
+  };
 }
 
 test('maps valid case overview DTO into request-like facade input', () => {
@@ -132,14 +166,106 @@ test('maps narrow case overview DTO from caseId and customerAccessContext', () =
 test('missing input maps to fail-closed request-like input', () => {
   const mapped = mapCustomerAccessHttpContext();
 
-  assert.equal(mapped.organizationId, undefined);
-  assert.equal(mapped.caseId, undefined);
-  assert.equal(mapped.customerId, undefined);
-  assert.equal(mapped.isCustomerIdentityVerified, false);
-  assert.equal(mapped.isCaseLinkedToCustomer, false);
-  assert.equal(mapped.isPublicationAllowed, false);
-  assert.equal(mapped.isCustomerVisiblePolicyPassed, false);
-  assert.equal(mapped.organizationScopeMatches, false);
+  assertFailClosed(mapped);
+});
+
+test('malformed top-level adapter input maps to fail-closed request-like input', () => {
+  class ClassInput {
+    constructor() {
+      this.caseId = 'case-synthetic';
+      this.customerAccessContext = validContext();
+    }
+  }
+
+  for (const candidate of [
+    null,
+    [],
+    'raw_context_should_not_leak',
+    123,
+    true,
+    new Date('2026-05-30T00:00:00.000Z'),
+    new Error('raw_context_should_not_leak'),
+    Buffer.from('raw_context_should_not_leak'),
+    { then() {} },
+    () => 'raw_context_should_not_leak',
+    new ClassInput(),
+  ]) {
+    assertFailClosed(mapCustomerAccessHttpContext(candidate));
+  }
+});
+
+test('raw HTTP-like inputs without narrow DTO fail closed', () => {
+  for (const input of [
+    { params: { caseId: 'case-synthetic' } },
+    { request: validDto() },
+    { req: validDto() },
+    { query: { caseId: 'case-synthetic' } },
+    { body: { caseId: 'case-synthetic', customerAccessContext: validContext() } },
+    { headers: { 'x-case-id': 'case-synthetic', authorization: 'Bearer token_should_not_leak' } },
+    { cookies: { caseId: 'case-synthetic', session: 'cookies_should_not_leak' } },
+    { user: { customerAccessContext: validContext() } },
+    { session: { customerAccessContext: validContext() } },
+    { auth: validContext().auth, access: validContext().access, channel: validContext().channel },
+  ]) {
+    assertFailClosed(mapCustomerAccessHttpContext(input));
+  }
+});
+
+test('valid DTO ignores raw HTTP-like aliases and does not merge overrides', () => {
+  const context = validContext();
+  context.customerVisibleData = {
+    serviceReport: {
+      caseNo: 'CASE-APPROVED',
+      finalAppointmentId: 'appointment-approved-001',
+      publicReportId: 'report-approved-001',
+      status: 'available',
+      summary: 'Approved summary.',
+    },
+  };
+  const mapped = mapCustomerAccessHttpContext(validDto(context, {
+    input: {
+      params: { caseId: 'case_query_override' },
+      query: { caseId: 'case_query_override' },
+      body: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+      headers: { authorization: 'Bearer token_should_not_leak' },
+      cookies: { session: 'cookies_should_not_leak' },
+      user: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+      session: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+      request: { customerVisibleData: aliasServiceReport('raw_request_service_report_should_not_leak') },
+    },
+    customerAccessContext: {
+      customerData: aliasServiceReport(),
+      visibleData: aliasServiceReport(),
+      publicData: aliasServiceReport(),
+      report: aliasServiceReport(),
+      serviceReport: aliasServiceReport(),
+      data: aliasServiceReport(),
+      payload: { customerVisibleData: aliasServiceReport() },
+      auth: {
+        ...context.auth,
+        customerVisibleData: aliasServiceReport(),
+      },
+      access: {
+        ...context.access,
+        customerVisibleData: aliasServiceReport(),
+      },
+      channel: {
+        ...context.channel,
+        customerVisibleData: aliasServiceReport(),
+      },
+    },
+  }));
+
+  assert.equal(mapped.caseId, 'case-synthetic');
+  assert.deepEqual(mapped.customerVisibleData, {
+    serviceReport: {
+      caseNo: 'CASE-APPROVED',
+      finalAppointmentId: 'appointment-approved-001',
+      publicReportId: 'report-approved-001',
+      status: 'available',
+      summary: 'Approved summary.',
+    },
+  });
   assertNoForbiddenValues(mapped);
 });
 
@@ -282,6 +408,7 @@ test('customer-visible policy failure remains failed', () => {
 
 test('strips forbidden fields from customer-visible data', () => {
   const context = validContext();
+  context.customerVisibleData.unknownTopLevel = 'unknown_customer_visible_should_not_leak';
   context.customerVisibleData.serviceReport.phone = '0912-345-678';
   context.customerVisibleData.serviceReport.address = '台北市信義區測試路1號';
   context.customerVisibleData.serviceReport.rawLineUserId = 'U1234567890abcdef';
@@ -291,6 +418,8 @@ test('strips forbidden fields from customer-visible data', () => {
   context.customerVisibleData.serviceReport.internalBillingData = 'internal billing data should never leak';
   context.customerVisibleData.serviceReport.token = 'token should never leak';
   context.customerVisibleData.serviceReport.secret = 'secret should never leak';
+  context.customerVisibleData.serviceReport.displayName = 'unknown_nested_should_not_leak';
+  context.customerVisibleData.serviceReport.stack = 'at stackFrame (internal.js:1)';
 
   const mapped = mapCustomerAccessHttpContext(validDto(context));
 
@@ -301,6 +430,67 @@ test('strips forbidden fields from customer-visible data', () => {
     },
   });
   assertNoForbiddenValues(mapped);
+});
+
+test('malformed customerVisibleData source and approved values are omitted safely', () => {
+  class UnsafeValue {
+    constructor() {
+      this.value = 'unknown_nested_should_not_leak';
+    }
+  }
+
+  for (const candidate of [
+    null,
+    [],
+    'unknown_customer_visible_should_not_leak',
+    123,
+    true,
+    new Date('2026-05-30T00:00:00.000Z'),
+    new Error('unknown_customer_visible_should_not_leak'),
+    Buffer.from('unknown_customer_visible_should_not_leak'),
+    { then() {} },
+    () => 'unknown_customer_visible_should_not_leak',
+    new UnsafeValue(),
+  ]) {
+    const context = validContext();
+    context.customerVisibleData = candidate;
+
+    const mapped = mapCustomerAccessHttpContext(validDto(context));
+
+    assert.deepEqual(mapped.customerVisibleData, {});
+    assertNoForbiddenValues(mapped);
+  }
+
+  for (const candidate of [
+    {},
+    [],
+    new Error('unknown_nested_should_not_leak'),
+    new Date('2026-05-30T00:00:00.000Z'),
+    Buffer.from('unknown_nested_should_not_leak'),
+    { then() {} },
+    () => 'unknown_nested_should_not_leak',
+    new UnsafeValue(),
+    'select secret_should_not_leak',
+    'Bearer token_should_not_leak',
+    'authorization header should not leak',
+    'at stackFrame (internal.js:1)',
+  ]) {
+    const context = validContext();
+    context.customerVisibleData = {
+      serviceReport: {
+        caseNo: candidate,
+        finalAppointmentId: candidate,
+        publicReportId: candidate,
+        status: candidate,
+        summary: candidate,
+      },
+    };
+
+    const mapped = mapCustomerAccessHttpContext(validDto(context));
+
+    assert.deepEqual(mapped.customerVisibleData, {});
+    assertNoForbiddenValues(mapped);
+  }
 });
 
 test('input object is not mutated and finalAppointmentId is not modified', () => {

@@ -1,26 +1,25 @@
 'use strict';
 
-const FORBIDDEN_KEYS = new Set([
-  'address',
-  'aiRawPayload',
-  'auditLog',
-  'billingInternalData',
-  'channelSecret',
-  'fullAddress',
-  'fullPhone',
-  'internalBillingData',
-  'internalNote',
-  'internalSettlementData',
-  'lineAccessToken',
-  'lineUserId',
-  'line_user_id',
-  'phone',
-  'rawAddress',
-  'rawLineUserId',
-  'rawPhone',
-  'secret',
-  'settlementInternalData',
-  'token',
+const HTTP_CONTEXT_INPUT_DTO_KEYS = Object.freeze([
+  'caseId',
+  'customerAccessContext',
+]);
+const CUSTOMER_ACCESS_CONTEXT_SECTIONS = Object.freeze([
+  'params',
+  'auth',
+  'channel',
+  'access',
+  'customerVisibleData',
+]);
+const CUSTOMER_VISIBLE_DATA_KEYS = Object.freeze([
+  'serviceReport',
+]);
+const CUSTOMER_VISIBLE_SERVICE_REPORT_KEYS = Object.freeze([
+  'caseNo',
+  'finalAppointmentId',
+  'publicReportId',
+  'status',
+  'summary',
 ]);
 
 function isObject(value) {
@@ -35,7 +34,8 @@ function isPlainObject(value) {
   if (
     value instanceof Date ||
     value instanceof Error ||
-    (typeof Buffer !== 'undefined' && Buffer.isBuffer(value))
+    (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) ||
+    isThenable(value)
   ) {
     return false;
   }
@@ -53,26 +53,69 @@ function safeProperty(value, key) {
   }
 }
 
-function sanitizeCustomerVisibleData(value) {
-  if (Array.isArray(value)) {
-    return value.map(sanitizeCustomerVisibleData);
+function isThenable(value) {
+  return Boolean(value) && typeof safeProperty(value, 'then') === 'function';
+}
+
+function inputDtoFromInput(input) {
+  if (!isPlainObject(input)) {
+    return {};
   }
 
-  if (!isPlainObject(value)) {
-    return value;
+  const dto = {};
+
+  for (const key of HTTP_CONTEXT_INPUT_DTO_KEYS) {
+    dto[key] = safeProperty(input, key);
   }
 
-  const sanitized = {};
+  return dto;
+}
 
-  for (const [key, childValue] of Object.entries(value)) {
-    if (FORBIDDEN_KEYS.has(key)) {
-      continue;
+function isUnsafeCustomerVisibleString(value) {
+  return /(?:['"`;=]|--|\/\*|\*\/|\bselect\b|\binsert\b|\bupdate\b|\bdelete\b|\bdrop\b|\bunion\b|\bbearer\b|\bauthorization\b|\bcookie\b|\bset-cookie\b|\btoken\b|\bjwt\b|\bapi[-_ ]?key\b|\bheader\b|\bstack\b|\bat\s+\w+\s*\()/i
+    .test(value);
+}
+
+function isSafeCustomerVisibleValue(value) {
+  if (value === null || ['number', 'boolean'].includes(typeof value)) {
+    return true;
+  }
+
+  return typeof value === 'string' && !isUnsafeCustomerVisibleString(value);
+}
+
+function sanitizedCustomerVisibleServiceReport(value) {
+  const source = isPlainObject(value) ? value : {};
+  const serviceReport = {};
+
+  for (const key of CUSTOMER_VISIBLE_SERVICE_REPORT_KEYS) {
+    const fieldValue = safeProperty(source, key);
+
+    if (isSafeCustomerVisibleValue(fieldValue)) {
+      serviceReport[key] = fieldValue;
     }
-
-    sanitized[key] = sanitizeCustomerVisibleData(childValue);
   }
 
-  return sanitized;
+  return serviceReport;
+}
+
+function sanitizeCustomerVisibleData(value) {
+  const source = isPlainObject(value) ? value : {};
+  const data = {};
+
+  for (const key of CUSTOMER_VISIBLE_DATA_KEYS) {
+    if (key === 'serviceReport') {
+      const serviceReport = sanitizedCustomerVisibleServiceReport(
+        safeProperty(source, key),
+      );
+
+      if (Object.keys(serviceReport).length > 0) {
+        data[key] = serviceReport;
+      }
+    }
+  }
+
+  return data;
 }
 
 function emptyRequestLikeInput() {
@@ -111,14 +154,21 @@ function stringValue(value) {
 }
 
 function contextFromInput(input) {
-  const caseId = stringValue(safeProperty(input, 'caseId'));
-  const customerAccessContext = safeProperty(input, 'customerAccessContext');
+  const inputDto = inputDtoFromInput(input);
+  const caseId = stringValue(safeProperty(inputDto, 'caseId'));
+  const customerAccessContext = safeProperty(inputDto, 'customerAccessContext');
 
   if (!caseId || !isPlainObject(customerAccessContext)) {
     return undefined;
   }
 
-  const params = safeProperty(customerAccessContext, 'params');
+  const context = {};
+
+  for (const key of CUSTOMER_ACCESS_CONTEXT_SECTIONS) {
+    context[key] = safeProperty(customerAccessContext, key);
+  }
+
+  const params = safeProperty(context, 'params');
 
   if (!isPlainObject(params) || stringValue(safeProperty(params, 'caseId')) !== caseId) {
     return undefined;
@@ -128,17 +178,17 @@ function contextFromInput(input) {
     params: {
       caseId,
     },
-    auth: isPlainObject(safeProperty(customerAccessContext, 'auth'))
-      ? safeProperty(customerAccessContext, 'auth')
+    auth: isPlainObject(safeProperty(context, 'auth'))
+      ? safeProperty(context, 'auth')
       : {},
-    channel: isPlainObject(safeProperty(customerAccessContext, 'channel'))
-      ? safeProperty(customerAccessContext, 'channel')
+    channel: isPlainObject(safeProperty(context, 'channel'))
+      ? safeProperty(context, 'channel')
       : {},
-    access: isPlainObject(safeProperty(customerAccessContext, 'access'))
-      ? safeProperty(customerAccessContext, 'access')
+    access: isPlainObject(safeProperty(context, 'access'))
+      ? safeProperty(context, 'access')
       : {},
-    customerVisibleData: isPlainObject(safeProperty(customerAccessContext, 'customerVisibleData'))
-      ? safeProperty(customerAccessContext, 'customerVisibleData')
+    customerVisibleData: isPlainObject(safeProperty(context, 'customerVisibleData'))
+      ? safeProperty(context, 'customerVisibleData')
       : {},
   };
 }
