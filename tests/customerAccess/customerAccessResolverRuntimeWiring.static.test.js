@@ -58,6 +58,7 @@ test('customer access route wires middleware before controller on GET case path'
     '../customerAccess/customerAccessContextMiddleware',
     '../controllers/customerAccessController',
     '../customerAccess/customerServiceReportProjectionHandler',
+    '../customerAccess/customerServiceReportAuditBoundary',
   ]);
 });
 

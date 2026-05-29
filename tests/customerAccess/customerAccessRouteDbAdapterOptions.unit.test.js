@@ -347,6 +347,7 @@ test('route module imports DB adapter but no real DB, transaction, existing repo
     '../customerAccess/customerAccessContextMiddleware',
     '../controllers/customerAccessController',
     '../customerAccess/customerServiceReportProjectionHandler',
+    '../customerAccess/customerServiceReportAuditBoundary',
   ]);
   assert.doesNotMatch(source, /pg|pool|transaction|begin|commit|rollback/i);
   assert.doesNotMatch(source, /\.\.\/services(?:\/|')|\/repositories?\/|src\/db/i);

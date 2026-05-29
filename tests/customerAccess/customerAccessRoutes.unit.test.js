@@ -234,6 +234,20 @@ function assertSafeResponse(response) {
   }
 }
 
+function assertAuditSafe(event) {
+  const serialized = JSON.stringify(event);
+
+  for (const value of [
+    ...forbiddenValues,
+    'Customer-safe route summary',
+    'Completed',
+    'CASE-ROUTE-001',
+    '2026-05-23 10:00-12:00',
+  ]) {
+    assert.equal(serialized.includes(value), false, `audit event leaked forbidden value: ${value}`);
+  }
+}
+
 test('exports registerCustomerAccessRoutes', () => {
   assert.equal(typeof registerCustomerAccessRoutes, 'function');
 });
@@ -425,4 +439,132 @@ test('service report route allow path returns filtered projection without raw ca
   });
   assert.equal(dbClient.calls.length, 1);
   assertSafeResponse(body);
+});
+
+test('service report route writes sanitized allow audit event with injected writer', async () => {
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([reportRow()]);
+  const auditEvents = [];
+
+  registerCustomerAccessRoutes(router, {
+    dbClient,
+    repository: allowRepository(),
+    auditWriter(event) {
+      auditEvents.push(event);
+    },
+  });
+
+  const { body } = await invokeRouteAsync(
+    router.routes[1],
+    {
+      requestId: 'request_route_audit_001',
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  );
+
+  assert.equal(body.status, 'allow');
+  assert.equal(auditEvents.length, 1);
+  assert.deepEqual(auditEvents[0], {
+    eventType: 'customerServiceReport.access',
+    action: 'customer_service_report_access',
+    outcome: 'allow',
+    decision: {
+      status: 'allow',
+      messageKey: 'customerAccess.serviceReport.available',
+      customerVisible: true,
+      publicationAllowed: true,
+      customerVisiblePolicyPassed: true,
+    },
+    organizationId: 'org_route_001',
+    customerId: 'customer_route_001',
+    caseId: 'case_route_001',
+    reportId: 'report_public_route_001',
+    requestId: 'request_route_audit_001',
+  });
+  assertAuditSafe(auditEvents[0]);
+  assertSafeResponse(body);
+});
+
+test('service report route writes sanitized deny audit event before projection query', async () => {
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([reportRow()]);
+  const auditEvents = [];
+
+  registerCustomerAccessRoutes(router, {
+    dbClient,
+    repository: denyRepository(),
+    auditWriter(event) {
+      auditEvents.push(event);
+    },
+  });
+
+  const { body, res } = await invokeRouteAsync(
+    router.routes[1],
+    {
+      requestId: 'request_route_audit_002',
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+    },
+  );
+
+  assert.deepEqual(res.calls.status, [404]);
+  assert.equal(body.status, 'deny');
+  assert.equal(dbClient.calls.length, 0);
+  assert.equal(auditEvents.length, 1);
+  assert.deepEqual(auditEvents[0], {
+    eventType: 'customerServiceReport.access',
+    action: 'customer_service_report_access',
+    outcome: 'deny',
+    decision: {
+      status: 'deny',
+      messageKey: 'customerAccess.unavailable',
+      customerVisible: false,
+      publicationAllowed: false,
+      customerVisiblePolicyPassed: false,
+    },
+    caseId: 'case_route_001',
+    reportId: 'report_public_route_001',
+    requestId: 'request_route_audit_002',
+  });
+  assertAuditSafe(auditEvents[0]);
+  assertSafeResponse(body);
+});
+
+test('service report route audit writer failure remains sanitized and customer-invisible', async () => {
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([reportRow()]);
+  const auditEvents = [];
+
+  registerCustomerAccessRoutes(router, {
+    dbClient,
+    repository: denyRepository(),
+    auditWriter(event) {
+      auditEvents.push(event);
+      throw new Error('token_should_not_leak');
+    },
+  });
+
+  const { body, res } = await invokeRouteAsync(
+    router.routes[1],
+    {
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+    },
+  );
+
+  assert.deepEqual(res.calls.status, [404]);
+  assert.equal(body.status, 'deny');
+  assert.equal(auditEvents.length, 1);
+  assert.equal(JSON.stringify(body).includes('token_should_not_leak'), false);
+  assert.equal(JSON.stringify(body).includes('audit'), false);
+  assertSafeResponse(body);
+  assertAuditSafe(auditEvents[0]);
 });

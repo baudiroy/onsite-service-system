@@ -7,8 +7,11 @@ const {
   handleCustomerAccessRequest,
 } = require('../controllers/customerAccessController');
 const {
-  createCustomerServiceReportProjectionHandler,
+  handleCustomerServiceReportProjectionRequest,
 } = require('../customerAccess/customerServiceReportProjectionHandler');
+const {
+  recordCustomerServiceReportAuditEvent,
+} = require('../customerAccess/customerServiceReportAuditBoundary');
 
 const CUSTOMER_ACCESS_ROUTE_PATH = '/customer-access/:caseId';
 const CUSTOMER_ACCESS_REPORT_ROUTE_PATH = '/customer-access/:caseId/service-report/:reportId';
@@ -86,6 +89,12 @@ function dbClientFromRouteOptions(options) {
   return undefined;
 }
 
+function auditWriterFromRouteOptions(options) {
+  return isObject(options) && typeof options.auditWriter === 'function'
+    ? options.auditWriter
+    : undefined;
+}
+
 function writeSafeDeny(res) {
   if (res && typeof res.status === 'function' && typeof res.json === 'function') {
     return res.status(404).json(SAFE_DENY_ENVELOPE);
@@ -98,18 +107,37 @@ function writeSafeDeny(res) {
 }
 
 function createCustomerAccessReportRouteHandler(options) {
-  const projectionHandler = createCustomerServiceReportProjectionHandler({
-    dbClient: dbClientFromRouteOptions(options),
-  });
+  const dbClient = dbClientFromRouteOptions(options);
+  const auditWriter = auditWriterFromRouteOptions(options);
+
+  async function recordAccessAudit(req, responseBody) {
+    await recordCustomerServiceReportAuditEvent({
+      auditWriter,
+      request: req,
+      responseBody,
+    });
+  }
 
   return async function handleCustomerAccessReportRequest(req, res) {
     const accessEnvelope = buildCustomerAccessControllerResponse(req);
 
     if (!accessEnvelope || accessEnvelope.status !== 'allow') {
+      await recordAccessAudit(req, SAFE_DENY_ENVELOPE);
       return writeSafeDeny(res);
     }
 
-    return projectionHandler(req, res);
+    const response = await handleCustomerServiceReportProjectionRequest({
+      request: req,
+      dbClient,
+    });
+
+    await recordAccessAudit(req, response.body);
+
+    if (res && typeof res.status === 'function' && typeof res.json === 'function') {
+      return res.status(response.statusCode).json(response.body);
+    }
+
+    return response;
   };
 }
 

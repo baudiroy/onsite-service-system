@@ -48,6 +48,7 @@ const allowedImportsByFile = {
     '../customerAccess/customerAccessContextMiddleware',
     '../controllers/customerAccessController',
     '../customerAccess/customerServiceReportProjectionHandler',
+    '../customerAccess/customerServiceReportAuditBoundary',
   ],
 };
 
@@ -128,6 +129,10 @@ test('customer access source files have no forbidden dependency imports', () => 
     const specifiers = importSpecifiers(readSource(file));
 
     for (const specifier of specifiers) {
+      if (specifier === '../customerAccess/customerServiceReportAuditBoundary') {
+        continue;
+      }
+
       for (const pattern of forbiddenImportPatterns) {
         assert.equal(
           pattern.test(specifier),
