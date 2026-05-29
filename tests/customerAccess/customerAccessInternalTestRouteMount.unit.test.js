@@ -144,6 +144,50 @@ function assertNoSensitiveLeak(output) {
   }
 }
 
+function assertNoRawRequestInputLeak(input) {
+  const serialized = JSON.stringify(input);
+
+  assert.deepEqual(Object.keys(input).sort(), [
+    'caseId',
+    'customerAccessContext',
+    'dbClient',
+    'reportId',
+  ].sort());
+  assert.deepEqual(Object.keys(input.customerAccessContext).sort(), [
+    'caseId',
+    'caseLinkedToCustomer',
+    'customerId',
+    'customerIdentityVerified',
+    'customerVisiblePolicyPassed',
+    'organizationId',
+    'organizationScopeMatched',
+    'publicationAllowed',
+  ].sort());
+
+  for (const forbidden of [
+    '"req"',
+    '"request"',
+    '"headers"',
+    '"authorization"',
+    '"cookies"',
+    '"query"',
+    '"params"',
+    '"body"',
+    '"socket"',
+    '"connection"',
+    '"user"',
+    '"session"',
+    '"provider_payload"',
+    '"sql"',
+    '"token"',
+    'internal_mount_authorization_should_not_pass',
+    'internal_mount_cookie_should_not_pass',
+    'internal_mount_provider_should_not_pass',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `internal mount service input leaked ${forbidden}`);
+  }
+}
+
 test('missing injected synthetic app or router fails closed', () => {
   const dbClient = dbClientWithRows([reportRow()]);
 
@@ -209,8 +253,11 @@ test('valid synthetic app registers exactly one internal test route', () => {
   assert.equal(result.testOnly, true);
   assert.equal(result.method, 'GET');
   assert.equal(result.path, DEFAULT_INTERNAL_TEST_ROUTE_PATH);
+  assert.equal(result.path, '/__internal/customer-access/service-reports/:caseId/:reportId');
   assert.equal(typeof result.handler, 'function');
   assert.equal(result.path.startsWith('/__internal/'), true);
+  assert.equal(result.path.includes(':caseId'), true);
+  assert.equal(result.path.includes(':reportId'), true);
   assert.equal(app.calls.get.length, 1);
   assert.equal(app.calls.get[0].path, DEFAULT_INTERNAL_TEST_ROUTE_PATH);
   assert.equal(app.calls.get[0].handler, result.handler);
@@ -223,32 +270,39 @@ test('valid synthetic router registers exactly one explicit internal test route'
   const result = mountCustomerAccessInternalTestRoutes({
     router,
     dbClient: dbClientWithRows([reportRow()]),
-    path: '/__internal/customer-access/test-route/:caseId',
+    path: '/__internal/customer-access/test-route/:caseId/:reportId',
   });
 
   assert.equal(result.mounted, true);
-  assert.equal(result.path, '/__internal/customer-access/test-route/:caseId');
+  assert.equal(result.path, '/__internal/customer-access/test-route/:caseId/:reportId');
   assert.equal(router.calls.get.length, 1);
   assert.equal(router.calls.listen.length, 0);
 });
 
-test('non-internal path fails closed without registration', () => {
-  const app = syntheticApp();
-  const dbClient = dbClientWithRows([reportRow()]);
-  const result = mountCustomerAccessInternalTestRoutes({
-    app,
-    dbClient,
-    path: '/customer-access/service-reports/:caseId',
-  });
+test('non-internal or incomplete param path fails closed without registration', () => {
+  for (const path of [
+    '/customer-access/service-reports/:caseId/:reportId',
+    '/__internal/customer-access/service-reports/:caseId',
+    '/__internal/customer-access/service-reports/:reportId',
+    '/__internal/customer-access/service-reports',
+  ]) {
+    const app = syntheticApp();
+    const dbClient = dbClientWithRows([reportRow()]);
+    const result = mountCustomerAccessInternalTestRoutes({
+      app,
+      dbClient,
+      path,
+    });
 
-  assert.deepEqual(result, {
-    mounted: false,
-    messageKey: 'customerAccess.unavailable',
-    customerVisible: false,
-  });
-  assert.equal(app.calls.get.length, 0);
-  assert.equal(app.calls.listen.length, 0);
-  assert.equal(dbClient.calls.length, 0);
+    assert.deepEqual(result, {
+      mounted: false,
+      messageKey: 'customerAccess.unavailable',
+      customerVisible: false,
+    });
+    assert.equal(app.calls.get.length, 0);
+    assert.equal(app.calls.listen.length, 0);
+    assert.equal(dbClient.calls.length, 0);
+  }
 });
 
 test('registered handler preserves Task909 safe allow behavior through synthetic request', async () => {
@@ -289,6 +343,121 @@ test('registered handler preserves Task909 safe allow behavior through synthetic
     },
   });
   assert.equal(dbClient.calls.length, 1);
+  assertNoSensitiveLeak(response);
+});
+
+test('registered internal handler requires context and route params without alias fallback', async () => {
+  const app = syntheticApp();
+  const dbClient = dbClientWithRows([reportRow()]);
+  const result = mountCustomerAccessInternalTestRoutes({
+    app,
+    dbClient,
+  });
+
+  for (const candidate of [
+    request({ customerAccessContext: undefined }),
+    request({ customerAccessContext: {} }),
+    request({
+      params: {
+        caseId: 'case_internal_mount_001',
+      },
+      query: {
+        reportId: 'report_query_alias_should_not_win',
+        public_report_id: 'report_query_public_alias_should_not_win',
+      },
+      body: {
+        report_id: 'report_body_alias_should_not_win',
+        public_report_id: 'report_body_public_alias_should_not_win',
+      },
+      headers: {
+        'x-report-id': 'report_header_alias_should_not_win',
+        authorization: 'internal_mount_authorization_should_not_pass',
+      },
+      cookies: {
+        reportId: 'report_cookie_alias_should_not_win',
+      },
+    }),
+  ]) {
+    const response = await app.calls.get[0].handler(candidate);
+
+    assert.equal(result.mounted, true);
+    assert.deepEqual(response, {
+      statusCode: 404,
+      body: {
+        status: 'deny',
+        messageKey: 'customerAccess.unavailable',
+        customerVisible: false,
+        data: null,
+        error: {
+          messageKey: 'customerAccess.unavailable',
+        },
+      },
+    });
+    assertNoSensitiveLeak(response);
+  }
+
+  assert.equal(dbClient.calls.length, 0);
+});
+
+test('registered internal handler passes only sanitized DTO keys to projection service', async () => {
+  const app = syntheticApp();
+  const serviceInputs = [];
+  const result = mountCustomerAccessInternalTestRoutes({
+    app,
+    dbClient: dbClientWithRows([reportRow()]),
+    projectionService: (input) => {
+      serviceInputs.push(input);
+
+      return {
+        status: 'allow',
+        messageKey: 'customerAccess.serviceReport.available',
+        customerVisible: true,
+        data: {
+          serviceReport: {
+            customerReportReference: 'report_public_internal_mount_001',
+          },
+        },
+      };
+    },
+  });
+
+  const response = await app.calls.get[0].handler(request({
+    headers: {
+      authorization: 'internal_mount_authorization_should_not_pass',
+    },
+    cookies: {
+      session: 'internal_mount_cookie_should_not_pass',
+    },
+    query: {
+      sql: 'select secret',
+    },
+    body: {
+      provider_payload: 'internal_mount_provider_should_not_pass',
+    },
+    socket: {
+      remoteAddress: '127.0.0.1',
+    },
+    user: {
+      token: 'token_should_not_leak',
+    },
+  }));
+
+  assert.equal(result.mounted, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(serviceInputs.length, 1);
+  assertNoRawRequestInputLeak(serviceInputs[0]);
+  assert.deepEqual(serviceInputs[0].customerAccessContext, {
+    organizationId: 'org_internal_mount_001',
+    customerId: 'customer_internal_mount_001',
+    caseId: 'case_internal_mount_001',
+    organizationScopeMatched: true,
+    customerIdentityVerified: true,
+    caseLinkedToCustomer: true,
+    publicationAllowed: true,
+    customerVisiblePolicyPassed: true,
+  });
+  assert.equal(serviceInputs[0].caseId, 'case_internal_mount_001');
+  assert.equal(serviceInputs[0].reportId, 'report_public_internal_mount_001');
   assertNoSensitiveLeak(response);
 });
 

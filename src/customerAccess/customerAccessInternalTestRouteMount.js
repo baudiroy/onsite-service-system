@@ -1,10 +1,10 @@
 'use strict';
 
 const {
-  DEFAULT_INTERNAL_PROJECTION_PATH,
   registerCustomerServiceReportProjectionRoute,
 } = require('./customerServiceReportProjectionAppAdapter');
 
+const DEFAULT_INTERNAL_TEST_ROUTE_PATH = '/__internal/customer-access/service-reports/:caseId/:reportId';
 const SAFE_UNAVAILABLE_MESSAGE_KEY = 'customerAccess.unavailable';
 
 function isObject(value) {
@@ -24,7 +24,10 @@ function safeNotMounted() {
 }
 
 function isInternalTestPath(path) {
-  return typeof path === 'string' && path.startsWith('/__internal/');
+  return typeof path === 'string' &&
+    path.startsWith('/__internal/') &&
+    path.includes(':caseId') &&
+    path.includes(':reportId');
 }
 
 function mountCustomerAccessInternalTestRoutes(options = {}) {
@@ -42,7 +45,7 @@ function mountCustomerAccessInternalTestRoutes(options = {}) {
     return safeNotMounted();
   }
 
-  const path = stringValue(options.path) || DEFAULT_INTERNAL_PROJECTION_PATH;
+  const path = stringValue(options.path) || DEFAULT_INTERNAL_TEST_ROUTE_PATH;
 
   if (!isInternalTestPath(path)) {
     return safeNotMounted();
@@ -52,6 +55,7 @@ function mountCustomerAccessInternalTestRoutes(options = {}) {
     app: target,
     dbClient: options.dbClient,
     path,
+    projectionService: options.projectionService,
   });
 
   if (!result.registered) {
@@ -70,6 +74,6 @@ function mountCustomerAccessInternalTestRoutes(options = {}) {
 }
 
 module.exports = {
-  DEFAULT_INTERNAL_TEST_ROUTE_PATH: DEFAULT_INTERNAL_PROJECTION_PATH,
+  DEFAULT_INTERNAL_TEST_ROUTE_PATH,
   mountCustomerAccessInternalTestRoutes,
 };

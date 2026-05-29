@@ -13,6 +13,7 @@ const FILES = Object.freeze({
   projectionService: 'src/customerAccess/customerServiceReportProjectionService.js',
   auditBoundary: 'src/customerAccess/customerServiceReportAuditBoundary.js',
   identityLinkResolver: 'src/customerAccess/customerIdentityLinkResolver.js',
+  internalTestRouteMount: 'src/customerAccess/customerAccessInternalTestRouteMount.js',
   projectionAppAdapter: 'src/customerAccess/customerServiceReportProjectionAppAdapter.js',
   routeIndex: 'src/routes/index.js',
   publicRoutes: 'src/routes/public.routes.js',
@@ -220,6 +221,22 @@ test('projection app adapter delegates through handler without passing raw reque
   assert.doesNotMatch(appAdapter, /projectionService\(\s*(req|request)|handler\(\s*\{\s*request|customerAccessContext:\s*request\.customerAccessContext/i);
   assert.doesNotMatch(appAdapter, /request\.(headers|authorization|cookies|query|body|socket|connection|session|user)/);
   assert.doesNotMatch(appAdapter, /req\.(headers|authorization|cookies|query|body|socket|connection|session|user)/);
+});
+
+test('internal test route mount remains injected only and isolated from global runtime dependencies', () => {
+  const internalMount = read(FILES.internalTestRouteMount);
+  const serializedSpecifiers = JSON.stringify(requireSpecifiers(internalMount));
+
+  assert.match(internalMount, /const DEFAULT_INTERNAL_TEST_ROUTE_PATH = '\/__internal\/customer-access\/service-reports\/:caseId\/:reportId'/);
+  assert.match(internalMount, /const target = options\.app \|\| options\.router/);
+  assert.match(internalMount, /target\.get !== 'function'/);
+  assert.match(internalMount, /path\.startsWith\('\/__internal\/'\)/);
+  assert.match(internalMount, /path\.includes\(':caseId'\)/);
+  assert.match(internalMount, /path\.includes\(':reportId'\)/);
+  assert.match(internalMount, /registerCustomerServiceReportProjectionRoute\(\{\s*app: target,\s*dbClient: options\.dbClient,\s*path,\s*projectionService: options\.projectionService,\s*\}\)/);
+  assert.doesNotMatch(serializedSpecifiers, /src\/app|src\/server|public\.routes|routes\/index|customerAccessRoutes|pg|knex|sequelize|prisma|provider|openai|rag|billing|line|sms|email/i);
+  assert.doesNotMatch(internalMount, /process\.env|DATABASE_URL|JWT_SECRET|new Pool|createPool|psql|db:migrate|db:seed/i);
+  assert.doesNotMatch(internalMount, /\.listen\s*\(|app\.listen|server\.listen|express\s*\(|Router\s*\(|fetch\(|axios|http\.request|https\.request/i);
 });
 
 test('Task1885 documentation records no DB migration deploy smoke provider AI billing or publication mutation scope', () => {
