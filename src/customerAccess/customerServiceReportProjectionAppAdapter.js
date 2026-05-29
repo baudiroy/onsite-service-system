@@ -68,11 +68,12 @@ function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function safeNotRegistered() {
+function safeNotRegistered(reasonCode = 'mount_target_invalid') {
   return {
     registered: false,
     messageKey: SAFE_UNAVAILABLE_MESSAGE_KEY,
     customerVisible: false,
+    reasonCode,
   };
 }
 
@@ -88,7 +89,7 @@ function registerCustomerServiceReportProjectionRoute(options = {}) {
   }
 
   if (!options.dbClient || typeof options.dbClient.query !== 'function') {
-    return safeNotRegistered();
+    return safeNotRegistered('db_client_invalid');
   }
 
   const path = stringValue(options.path) || DEFAULT_INTERNAL_PROJECTION_PATH;
@@ -100,14 +101,13 @@ function registerCustomerServiceReportProjectionRoute(options = {}) {
   try {
     registrationTarget.get.call(registrationTarget.target, path, handler);
   } catch (_error) {
-    return safeNotRegistered();
+    return safeNotRegistered('route_registration_failed');
   }
 
   return {
     registered: true,
     method: 'GET',
     path,
-    handler,
   };
 }
 

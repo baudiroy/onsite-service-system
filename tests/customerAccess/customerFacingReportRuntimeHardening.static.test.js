@@ -220,12 +220,17 @@ test('projection app adapter delegates through handler without passing raw reque
   assert.match(appAdapter, /function safeProperty\(value, key\)/);
   assert.match(appAdapter, /function isSafeMountTarget\(value\)/);
   assert.match(appAdapter, /function mountTargetFromOptions\(options\)/);
+  assert.match(appAdapter, /function safeNotRegistered\(reasonCode = 'mount_target_invalid'\)/);
+  assert.match(appAdapter, /reasonCode/);
   assert.match(appAdapter, /createCustomerServiceReportProjectionHandler\(\{\s*dbClient: options\.dbClient,\s*projectionService: options\.projectionService,\s*\}\)/);
   assert.match(appAdapter, /registrationTarget\.get\.call\(registrationTarget\.target,\s*path,\s*handler\)/);
   assert.match(appAdapter, /Buffer\.isBuffer\(value\)/);
   assert.match(appAdapter, /value instanceof Date \|\| value instanceof Error/);
   assert.match(appAdapter, /typeof safeProperty\(value,\s*'then'\) === 'function'/);
   assert.match(appAdapter, /return typeof safeProperty\(value,\s*'get'\) === 'function'/);
+  assert.match(appAdapter, /return safeNotRegistered\('route_registration_failed'\)/);
+  assert.match(appAdapter, /return safeNotRegistered\('db_client_invalid'\)/);
+  assert.doesNotMatch(appAdapter, /return \{\s*registered: true,\s*method: 'GET',\s*path,\s*handler,/);
   assert.doesNotMatch(appAdapter, /target\.get\(path,\s*handler\)/);
   assert.doesNotMatch(appAdapter, /route\(\)\.get|\.route\(|\.register\(/);
   assert.doesNotMatch(appAdapter, /projectionService\(\s*(req|request)|handler\(\s*\{\s*request|customerAccessContext:\s*request\.customerAccessContext/i);

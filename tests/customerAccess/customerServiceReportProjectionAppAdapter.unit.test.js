@@ -113,7 +113,7 @@ function syntheticApp(options = {}) {
       calls.get.push({ path, handler });
 
       if (options.throwOnGet) {
-        throw new Error('route token_should_not_leak');
+        throw options.throwError || new Error('route token_should_not_leak');
       }
 
       return this;
@@ -146,6 +146,48 @@ function assertNoSensitiveLeak(output) {
   ]) {
     assert.equal(serialized.includes(forbidden), false, `adapter output leaked ${forbidden}`);
   }
+}
+
+function assertNoRegistrationResultLeak(output) {
+  const serialized = JSON.stringify(output);
+
+  assert.equal(typeof output.handler, 'undefined');
+  assert.equal(typeof output.target, 'undefined');
+  assert.equal(typeof output.app, 'undefined');
+  assert.equal(typeof output.router, 'undefined');
+  assert.equal(typeof output.route, 'undefined');
+
+  for (const forbidden of [
+    'function',
+    'handler',
+    'target_secret_should_not_leak',
+    'raw_route_should_not_leak',
+    'request_should_not_leak',
+    'headers_should_not_leak',
+    'cookies_should_not_leak',
+    'body_should_not_leak',
+    'query_should_not_leak',
+    'params_should_not_leak',
+    'session_should_not_leak',
+    'provider_should_not_leak',
+    'debug_should_not_leak',
+    'internal_should_not_leak',
+    'Bearer token_should_not_leak',
+    'select secret_should_not_leak',
+    'registration stack should not leak',
+    'route token',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `registration result leaked ${forbidden}`);
+  }
+}
+
+function expectedNotRegistered(reasonCode = 'mount_target_invalid') {
+  return {
+    registered: false,
+    messageKey: 'customerAccess.unavailable',
+    customerVisible: false,
+    reasonCode,
+  };
 }
 
 function assertNoRawRequestInputLeak(input) {
@@ -193,7 +235,16 @@ function assertNoRawRequestInputLeak(input) {
 }
 
 test('registers exactly one GET-like handler on injected synthetic app with explicit path', () => {
-  const app = syntheticApp();
+  const app = {
+    ...syntheticApp(),
+    targetSecret: 'target_secret_should_not_leak',
+    rawRouteObject: {
+      id: 'raw_route_should_not_leak',
+    },
+    request: {
+      headers: 'headers_should_not_leak',
+    },
+  };
   const dbClient = dbClientWithRows([reportRow()]);
   const options = {
     app,
@@ -206,13 +257,14 @@ test('registers exactly one GET-like handler on injected synthetic app with expl
   assert.equal(result.registered, true);
   assert.equal(result.method, 'GET');
   assert.equal(result.path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
-  assert.equal(typeof result.handler, 'function');
+  assert.deepEqual(Object.keys(result).sort(), ['method', 'path', 'registered'].sort());
   assert.equal(app.calls.get.length, 1);
   assert.equal(app.calls.get[0].path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
-  assert.equal(app.calls.get[0].handler, result.handler);
+  assert.equal(typeof app.calls.get[0].handler, 'function');
   assert.equal(app.calls.listen.length, 0);
   assert.equal(dbClient.calls.length, 0);
   assert.equal(options.dbClient, dbClient);
+  assertNoRegistrationResultLeak(result);
 });
 
 test('uses customer-facing route contract as default path when explicit path is missing or blank', () => {
@@ -230,6 +282,7 @@ test('uses customer-facing route contract as default path when explicit path is 
     assert.equal(app.calls.get[0].path, DEFAULT_INTERNAL_PROJECTION_PATH);
     assert.equal(app.calls.get[0].path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
     assert.equal(app.calls.listen.length, 0);
+    assertNoRegistrationResultLeak(result);
   }
 });
 
@@ -245,6 +298,7 @@ test('registered handler preserves Task909 safe allow behavior through synthetic
   const response = await app.calls.get[0].handler(request());
 
   assert.equal(result.registered, true);
+  assertNoRegistrationResultLeak(result);
   assert.deepEqual(response, {
     statusCode: 200,
     body: {
@@ -320,6 +374,7 @@ test('registered handler passes only explicit sanitized DTO keys to projection s
   }));
 
   assert.equal(result.registered, true);
+  assertNoRegistrationResultLeak(result);
   assert.equal(response.statusCode, 200);
   assert.equal(serviceInputs.length, 1);
   assertNoRawRequestInputLeak(serviceInputs[0]);
@@ -383,6 +438,7 @@ test('registered handler rejects identifier aliases when required route params a
   }));
 
   assert.equal(result.registered, true);
+  assertNoRegistrationResultLeak(result);
   assert.deepEqual(response, {
     statusCode: 404,
     body: {
@@ -413,6 +469,7 @@ test('registered handler sanitizes injected projection service throw at HTTP bou
   const response = await app.calls.get[0].handler(request());
 
   assert.equal(result.registered, true);
+  assertNoRegistrationResultLeak(result);
   assert.deepEqual(response, {
     statusCode: 404,
     body: {
@@ -455,6 +512,7 @@ test('registered handler sanitizes malformed injected projection service result 
   const response = await app.calls.get[0].handler(request());
 
   assert.equal(result.registered, true);
+  assertNoRegistrationResultLeak(result);
   assert.deepEqual(response, {
     statusCode: 404,
     body: {
@@ -486,12 +544,9 @@ test('missing synthetic app or router fails closed without leaking details', () 
       dbClient,
     });
 
-    assert.deepEqual(result, {
-      registered: false,
-      messageKey: 'customerAccess.unavailable',
-      customerVisible: false,
-    });
+    assert.deepEqual(result, expectedNotRegistered('mount_target_invalid'));
     assertNoSensitiveLeak(result);
+    assertNoRegistrationResultLeak(result);
   }
 
   assert.equal(dbClient.calls.length, 0);
@@ -561,12 +616,9 @@ test('malformed mount targets fail closed without registration or listener start
 
     const result = registerCustomerServiceReportProjectionRoute(candidate);
 
-    assert.deepEqual(result, {
-      registered: false,
-      messageKey: 'customerAccess.unavailable',
-      customerVisible: false,
-    });
+    assert.deepEqual(result, expectedNotRegistered('mount_target_invalid'));
     assertNoSensitiveLeak(result);
+    assertNoRegistrationResultLeak(result);
   }
 
   assert.deepEqual(listenOnlyTarget.calls.listen, []);
@@ -586,19 +638,26 @@ test('missing injected dbClient fails closed and does not register handler', () 
       dbClient: candidate,
     });
 
-    assert.deepEqual(result, {
-      registered: false,
-      messageKey: 'customerAccess.unavailable',
-      customerVisible: false,
-    });
+    assert.deepEqual(result, expectedNotRegistered('db_client_invalid'));
     assert.equal(app.calls.get.length, 0);
     assert.equal(app.calls.listen.length, 0);
     assertNoSensitiveLeak(result);
+    assertNoRegistrationResultLeak(result);
   }
 });
 
 test('synthetic app registration failure fails closed without raw error leak', () => {
-  const app = syntheticApp({ throwOnGet: true });
+  const throwError = new Error(
+    'registration stack should not leak select secret_should_not_leak Bearer token_should_not_leak provider_should_not_leak debug_should_not_leak',
+  );
+  throwError.stack = 'registration stack should not leak\nat select secret_should_not_leak';
+  throwError.cause = {
+    token: 'Bearer token_should_not_leak',
+  };
+  const app = syntheticApp({
+    throwOnGet: true,
+    throwError,
+  });
   const dbClient = dbClientWithRows([reportRow()]);
 
   const result = registerCustomerServiceReportProjectionRoute({
@@ -607,15 +666,12 @@ test('synthetic app registration failure fails closed without raw error leak', (
     path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
   });
 
-  assert.deepEqual(result, {
-    registered: false,
-    messageKey: 'customerAccess.unavailable',
-    customerVisible: false,
-  });
+  assert.deepEqual(result, expectedNotRegistered('route_registration_failed'));
   assert.equal(app.calls.get.length, 1);
   assert.equal(app.calls.listen.length, 0);
   assert.equal(dbClient.calls.length, 0);
   assertNoSensitiveLeak(result);
+  assertNoRegistrationResultLeak(result);
 });
 
 test('router option is supported without depending on a global app', () => {
@@ -631,4 +687,5 @@ test('router option is supported without depending on a global app', () => {
   assert.equal(router.calls.get.length, 1);
   assert.equal(router.calls.get[0].path, CUSTOMER_ACCESS_REPORT_ROUTE_PATH);
   assert.equal(router.calls.listen.length, 0);
+  assertNoRegistrationResultLeak(result);
 });
