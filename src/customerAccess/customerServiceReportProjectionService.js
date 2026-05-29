@@ -445,6 +445,20 @@ function completionTimeValue(value) {
     : undefined;
 }
 
+function customerDisplayValue(value) {
+  const candidate = stringValue(value);
+
+  if (!candidate) {
+    return undefined;
+  }
+
+  if (/^(?:[a-z][a-z0-9+.-]*:|\/|\.{1,2}\/|.*(?:token|secret|password|select\s+|from\s+cases|postgres:\/\/).*)/i.test(candidate)) {
+    return undefined;
+  }
+
+  return candidate;
+}
+
 function buildQuerySpec({ organizationId, customerId, caseId, reportId }) {
   return Object.freeze({
     name: 'customerServiceReportProjection',
@@ -618,7 +632,7 @@ function mapProjection(row) {
   const serviceReport = {};
   const customerReportReference = rowValue(row, 'customerReportReference', 'public_report_id', 'publicReportId');
   const caseReference = rowValue(row, 'caseReference', 'case_display_id', 'caseDisplayId', 'customer_case_reference');
-  const serviceStatus = rowValue(row, 'serviceStatus', 'service_status_display', 'serviceStatusDisplay', 'statusDisplay');
+  const serviceStatus = customerDisplayValue(rowValue(row, 'serviceStatus', 'service_status_display', 'serviceStatusDisplay', 'statusDisplay'));
   const appointmentWindow = rowValue(row, 'appointmentWindow', 'appointment_window', 'appointmentDisplayTimeWindow');
   const engineerDisplayName = rowValue(row, 'engineerDisplayName', 'engineer_display_name');
   const serviceSummary = rowValue(row, 'serviceSummary', 'service_summary', 'approved_service_summary');

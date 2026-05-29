@@ -215,6 +215,7 @@ function assertNoSensitiveLeak(output) {
     'fsr_publication_workflow_should_not_leak',
     'final_appointment_should_not_leak',
     'completion_time_token_should_not_leak',
+    'service_status_token_should_not_leak',
   ]) {
     assert.equal(serialized.includes(value), false, `projection leaked ${value}`);
   }
@@ -693,6 +694,27 @@ test('authorized context omits malformed completion time values', async () => {
   assert.equal(output.status, 'allow');
   assert.equal(
     Object.prototype.hasOwnProperty.call(output.data.serviceReport, 'completionTime'),
+    false,
+  );
+  assertNoSensitiveLeak(output);
+});
+
+test('authorized context omits malformed service status display values', async () => {
+  const dbClient = createDbClient([
+    reportRow({
+      service_status_display: 'service_status_token_should_not_leak select secret from cases',
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+
+  assert.equal(output.status, 'allow');
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(output.data.serviceReport, 'serviceStatus'),
     false,
   );
   assertNoSensitiveLeak(output);
