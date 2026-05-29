@@ -136,6 +136,20 @@ function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isPlainObject(value) {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null;
+}
+
+function isPlainProjectionRow(value) {
+  return isPlainObject(value) && typeof value.then !== 'function';
+}
+
 function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -334,7 +348,7 @@ function rowPublicationReferenceMatches(row, expectedCaseId, expectedReportId) {
 }
 
 function serviceReportRowPublicationStateGuardPasses(row, scope) {
-  if (!isObject(row)) {
+  if (!isPlainProjectionRow(row)) {
     return false;
   }
 
@@ -743,7 +757,7 @@ function safeAttachments(row) {
 }
 
 function mapProjection(row) {
-  if (!isObject(row)) {
+  if (!isPlainProjectionRow(row)) {
     return undefined;
   }
 
@@ -793,7 +807,7 @@ function mapProjection(row) {
 }
 
 function isCustomerVisibleRow(row, scope) {
-  if (!isObject(row)) {
+  if (!isPlainProjectionRow(row)) {
     return false;
   }
 

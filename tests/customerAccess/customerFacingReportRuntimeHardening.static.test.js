@@ -85,6 +85,7 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
 
   assert.match(projectionService, /CUSTOMER_SERVICE_REPORT_RESPONSE_KEYS = Object\.freeze\(\[/);
   assert.match(projectionService, /CUSTOMER_PUBLIC_ATTACHMENT_RESPONSE_KEYS = Object\.freeze\(\[/);
+  assert.match(projectionService, /function isPlainProjectionRow\(value\)/);
   assert.match(projectionService, /function customerServiceReportResponseAllowlist\(candidate\)/);
   assert.match(projectionService, /function customerPublicAttachmentResponseAllowlist\(candidate\)/);
   assert.match(projectionService, /serviceReport: allowlistedServiceReport/);
@@ -92,6 +93,8 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
   assert.match(projectionService, /serviceReport\.serviceSummary = serviceSummary/);
   assert.match(projectionService, /function isValidDateParts\(year, month, day\)/);
   assert.match(projectionService, /function completionTimeValue\(value\)/);
+  assert.match(projectionService, /if \(!isPlainProjectionRow\(row\)\) \{\s*return undefined;\s*\}/);
+  assert.match(projectionService, /if \(!isPlainProjectionRow\(row\)\) \{\s*return false;\s*\}/);
   assert.match(projectionService, /const completionTime = completionTimeValue\(rowValue\(row,\s*'completion_time'\)\)/);
   assert.match(projectionService, /const attachmentId = identifierValue\(value\.attachmentId \|\| value\.attachment_id \|\| value\.publicAttachmentId\)/);
   assert.match(projectionService, /return customerPublicAttachmentResponseAllowlist\(attachment\)/);

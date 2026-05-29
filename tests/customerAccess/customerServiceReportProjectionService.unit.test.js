@@ -481,6 +481,108 @@ test('authorized context returns only allowlisted customer-visible projection', 
   assertNoSensitiveLeak(output);
 });
 
+test('malformed projection row containers fail closed with safe deny envelope', async () => {
+  class ReportRowContainer {}
+
+  const promiseRow = Promise.resolve(reportRow({
+    approved_service_summary: 'promise_row_summary_should_not_leak',
+  }));
+  promiseRow.organization_id = 'org_projection_001';
+  promiseRow.customer_id = 'customer_projection_001';
+  promiseRow.case_id = 'case_projection_001';
+  promiseRow.public_report_id = 'report_public_projection_001';
+  promiseRow.publication_allowed = true;
+  promiseRow.publication_state = 'published';
+  promiseRow.customer_visible_policy_passed = true;
+  promiseRow.approved_service_summary = 'promise_direct_summary_should_not_leak';
+
+  const malformedRows = [
+    null,
+    undefined,
+    ['array_row_summary_should_not_leak'],
+    'string_row_summary_should_not_leak',
+    42,
+    true,
+    Object.assign(new Date('2026-05-21T04:00:00.000Z'), reportRow({
+      approved_service_summary: 'date_row_summary_should_not_leak',
+    })),
+    Object.assign(new Error('error_row_message_should_not_leak'), reportRow({
+      approved_service_summary: 'error_row_summary_should_not_leak',
+    })),
+    Object.assign(Buffer.from('buffer_row_value_should_not_leak'), reportRow({
+      approved_service_summary: 'buffer_row_summary_should_not_leak',
+    })),
+    promiseRow,
+    Object.assign(new ReportRowContainer(), reportRow({
+      approved_service_summary: 'class_row_summary_should_not_leak',
+    })),
+    {
+      ...reportRow({
+        approved_service_summary: 'thenable_row_summary_should_not_leak',
+      }),
+      then() {},
+    },
+  ];
+
+  for (const malformedRow of malformedRows) {
+    const dbClient = createDbClient([malformedRow]);
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assertSafeDeny(output);
+    assertNoSensitiveLeak(output);
+    assert.equal(JSON.stringify(output).includes('should_not_leak'), false);
+  }
+});
+
+test('projection does not unwrap unsafe row wrapper containers', async () => {
+  const wrapperNames = [
+    'row',
+    'rows',
+    'data',
+    'payload',
+    'result',
+    'report',
+    'reportRow',
+    'serviceReport',
+    'raw',
+    'rawRow',
+    'dbRow',
+  ];
+  const rows = wrapperNames.map((wrapperName) => ({
+    [wrapperName]: reportRow({
+      approved_service_summary: `${wrapperName}_wrapper_summary_should_not_leak`,
+      completion_time: '2026-05-21T04:00:00.000Z',
+      internal_notes: `${wrapperName}_wrapper_internal_notes_should_not_leak`,
+      provider_payload: `${wrapperName}_wrapper_provider_payload_should_not_leak`,
+      token: `${wrapperName}_wrapper_token_should_not_leak`,
+      storage_key: `${wrapperName}_wrapper_storage_key_should_not_leak`,
+    }),
+  }));
+  const dbClient = createDbClient(rows);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+  const serialized = JSON.stringify(output);
+
+  assertSafeDeny(output);
+  for (const wrapperName of wrapperNames) {
+    assert.equal(
+      serialized.includes(`${wrapperName}_wrapper_`),
+      false,
+      `response leaked nested wrapper value from ${wrapperName}`,
+    );
+  }
+  assertNoSensitiveLeak(output);
+});
+
 test('authorized context denies unknown fields raw containers and row passthrough', async () => {
   const forbiddenValues = [
     'unknown_field_should_not_leak',
