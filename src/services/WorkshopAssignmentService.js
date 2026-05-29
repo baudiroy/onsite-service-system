@@ -1,0 +1,422 @@
+'use strict';
+
+const WORKSHOP_ASSIGNMENT_SERVICE_KIND = 'depot_workshop.workshop_assignment_service';
+const WORKSHOP_ASSIGN_PERMISSION = 'workshop.assign';
+
+const ASSIGNABLE_DEPOT_STATUSES = new Set([
+  'intake_received',
+  'diagnosis_pending',
+  'diagnosis_completed',
+  'quote_pending',
+  'quote_approved',
+  'repair_in_progress',
+  'quality_check',
+]);
+
+const DEPOT_WORKFLOW_TYPES = new Set([
+  'depot',
+  'carry_in',
+  'mail_in',
+  'pickup_delivery',
+]);
+
+const FORBIDDEN_INPUT_KEYS = new Set([
+  'rawDbRow',
+  'raw_db_row',
+  'rawCustomerData',
+  'raw_customer_data',
+  'customerName',
+  'customer_name',
+  'customerPhone',
+  'customer_phone',
+  'phone',
+  'address',
+  'providerPayload',
+  'provider_payload',
+  'token',
+  'secret',
+  'DATABASE_URL',
+  'JWT_SECRET',
+  'stack',
+  'sql',
+  'billingInternals',
+  'billing_internals',
+  'aiOutput',
+  'ai_output',
+  'aiProviderOutput',
+  'ai_provider_output',
+  'completionReport',
+  'completion_report',
+  'fieldServiceReport',
+  'field_service_report',
+  'finalAppointmentId',
+  'final_appointment_id',
+  'customerVisiblePublication',
+  'customer_visible_publication',
+]);
+
+function isObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringValue(value) {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  return undefined;
+}
+
+function compactRecord(record) {
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined),
+  );
+}
+
+function firstString(...values) {
+  return values.map(stringValue).find(Boolean);
+}
+
+function actorIdFrom(input = {}) {
+  const actor = isObject(input.actor) ? input.actor : {};
+  const user = isObject(input.user) ? input.user : {};
+
+  return firstString(input.actorId, actor.id, actor.userId, actor.sub, user.id, user.userId, user.sub);
+}
+
+function actorRoleFrom(input = {}) {
+  const actor = isObject(input.actor) ? input.actor : {};
+  const user = isObject(input.user) ? input.user : {};
+
+  return firstString(input.actorRole, input.role, actor.role, actor.actorRole, user.role);
+}
+
+function organizationIdFrom(input = {}) {
+  const actor = isObject(input.actor) ? input.actor : {};
+  const user = isObject(input.user) ? input.user : {};
+  const context = isObject(input.context) ? input.context : {};
+
+  return firstString(input.organizationId, actor.organizationId, user.organizationId, context.organizationId);
+}
+
+function requestIdFrom(input = {}) {
+  const context = isObject(input.context) ? input.context : {};
+
+  return firstString(input.requestId, context.requestId);
+}
+
+function permissionContextFrom(input = {}) {
+  const context = isObject(input.context) ? input.context : {};
+  const contextPermission = isObject(context.permissionContext) ? context.permissionContext : {};
+  const directPermission = isObject(input.permissionContext) ? input.permissionContext : {};
+
+  return {
+    ...contextPermission,
+    ...directPermission,
+  };
+}
+
+function hasWorkshopAssignPermission(input = {}) {
+  const permissionContext = permissionContextFrom(input);
+
+  if (permissionContext.canAssignWorkshop === true) {
+    return true;
+  }
+
+  if (permissionContext.permission === WORKSHOP_ASSIGN_PERMISSION) {
+    return true;
+  }
+
+  if (Array.isArray(permissionContext.permissions)) {
+    return permissionContext.permissions.includes(WORKSHOP_ASSIGN_PERMISSION);
+  }
+
+  return false;
+}
+
+function hasForbiddenInput(input = {}) {
+  return Object.keys(input).some((key) => FORBIDDEN_INPUT_KEYS.has(key));
+}
+
+function hasExplicitSubcontractorAssignmentScope(input = {}) {
+  const context = isObject(input.context) ? input.context : {};
+
+  return input.subcontractorAssignmentApproved === true
+    || context.subcontractorAssignmentApproved === true
+    || firstString(input.assignmentRelationship, context.assignmentRelationship, context.caseRelationship) === 'assigned_executor';
+}
+
+function resolveDepotIntakeRepository(options = {}) {
+  if (!isObject(options)) {
+    return undefined;
+  }
+
+  return options.depotIntakeRepository
+    || options.depotRepository
+    || options.repository;
+}
+
+function failure(reasonCode, context = {}) {
+  return compactRecord({
+    ok: false,
+    prepared: false,
+    written: false,
+    serviceKind: WORKSHOP_ASSIGNMENT_SERVICE_KIND,
+    reasonCode,
+    requestId: requestIdFrom(context),
+  });
+}
+
+function success(assignmentIntent, context = {}) {
+  return compactRecord({
+    ok: true,
+    prepared: true,
+    written: false,
+    serviceKind: WORKSHOP_ASSIGNMENT_SERVICE_KIND,
+    reasonCode: 'workshop_assignment_intent_prepared',
+    requestId: requestIdFrom(context),
+    assignmentIntent,
+  });
+}
+
+function draftIdFrom(input = {}) {
+  return firstString(input.depotIntakeId, input.depot_intake_id, input.draftId, input.draft_id, input.intakeDraftId);
+}
+
+function assignmentFieldsFrom(input = {}) {
+  return {
+    workshopId: stringValue(input.workshopId || input.workshop_id),
+    workshopTeamId: stringValue(input.workshopTeamId || input.workshop_team_id),
+    assignedTechnicianId: stringValue(input.assignedTechnicianId || input.assigned_technician_id),
+    subcontractorOrganizationId: stringValue(input.subcontractorOrganizationId || input.subcontractor_organization_id),
+    assignmentNote: stringValue(input.assignmentNote || input.assignment_note) || null,
+  };
+}
+
+function hasAssignmentIntent(fields) {
+  return Boolean(
+    fields.workshopId
+    || fields.workshopTeamId
+    || fields.assignedTechnicianId
+    || fields.subcontractorOrganizationId
+    || fields.assignmentNote,
+  );
+}
+
+function validateCommand(input = {}) {
+  const requestId = requestIdFrom(input);
+  const actorId = actorIdFrom(input);
+  const actorRole = actorRoleFrom(input);
+  const organizationId = organizationIdFrom(input);
+  const draftId = draftIdFrom(input);
+  const tenantId = stringValue(input.tenantId || input.tenant_id);
+  const brandId = stringValue(input.brandId || input.brand_id);
+  const serviceProviderId = stringValue(input.serviceProviderId || input.service_provider_id || input.providerId);
+  const subcontractorId = stringValue(input.subcontractorId || input.subcontractor_id);
+  const assignmentFields = assignmentFieldsFrom(input);
+
+  if (input.writeRequested === true || input.writeApproved === true || input.persist === true) {
+    return { ok: false, reasonCode: 'workshop_assignment_write_scope_not_approved', requestId };
+  }
+
+  if (hasForbiddenInput(input)) {
+    return { ok: false, reasonCode: 'workshop_assignment_payload_forbidden_fields', requestId };
+  }
+
+  if (!draftId) {
+    return { ok: false, reasonCode: 'depot_intake_required', requestId };
+  }
+
+  if (!organizationId) {
+    return { ok: false, reasonCode: 'organization_id_required', requestId };
+  }
+
+  if (!actorId) {
+    return { ok: false, reasonCode: 'workshop_assignment_actor_required', requestId };
+  }
+
+  if (!hasWorkshopAssignPermission(input)) {
+    return { ok: false, reasonCode: 'workshop_assignment_permission_required', requestId };
+  }
+
+  if (!hasAssignmentIntent(assignmentFields)) {
+    return { ok: false, reasonCode: 'workshop_assignment_intent_required', requestId };
+  }
+
+  const subcontractorScoped = actorRole === 'subcontractor'
+    || Boolean(subcontractorId)
+    || Boolean(assignmentFields.subcontractorOrganizationId);
+
+  if (subcontractorScoped && !hasExplicitSubcontractorAssignmentScope(input)) {
+    return { ok: false, reasonCode: 'workshop_assignment_subcontractor_scope_required', requestId };
+  }
+
+  return {
+    ok: true,
+    draftId,
+    organizationId,
+    tenantId,
+    brandId,
+    serviceProviderId,
+    subcontractorId,
+    actorId,
+    actorRole,
+    requestId,
+    assignmentFields,
+  };
+}
+
+function depotIntakeFromResult(result) {
+  if (!isObject(result)) {
+    return undefined;
+  }
+
+  if (isObject(result.depotIntake)) {
+    return result.depotIntake;
+  }
+
+  if (result.ok === true && isObject(result.assignment)) {
+    return result.assignment;
+  }
+
+  return undefined;
+}
+
+function normalizeDepotIntake(depotIntake) {
+  if (!isObject(depotIntake)) {
+    return undefined;
+  }
+
+  return compactRecord({
+    draftId: firstString(depotIntake.draftId, depotIntake.depotIntakeId),
+    organizationId: stringValue(depotIntake.organizationId),
+    tenantId: stringValue(depotIntake.tenantId) || null,
+    workflowType: firstString(depotIntake.workflowType, depotIntake.serviceType),
+    depotStatus: firstString(depotIntake.depotStatus, depotIntake.status),
+    brandId: stringValue(depotIntake.brandId) || null,
+    serviceProviderId: stringValue(depotIntake.serviceProviderId) || null,
+    itemRef: stringValue(depotIntake.itemRef) || null,
+    productRef: stringValue(depotIntake.productRef) || null,
+    issueSummaryRef: stringValue(depotIntake.issueSummaryRef) || null,
+  });
+}
+
+function depotIntakeVisible(depotIntake, validation) {
+  if (!depotIntake) {
+    return false;
+  }
+
+  if (depotIntake.organizationId !== validation.organizationId) {
+    return false;
+  }
+
+  if (validation.tenantId && depotIntake.tenantId !== validation.tenantId) {
+    return false;
+  }
+
+  if (validation.brandId && depotIntake.brandId !== validation.brandId) {
+    return false;
+  }
+
+  if (validation.serviceProviderId && depotIntake.serviceProviderId !== validation.serviceProviderId) {
+    return false;
+  }
+
+  return true;
+}
+
+function depotIntakeEligible(depotIntake) {
+  return Boolean(depotIntake)
+    && DEPOT_WORKFLOW_TYPES.has(depotIntake.workflowType)
+    && ASSIGNABLE_DEPOT_STATUSES.has(depotIntake.depotStatus);
+}
+
+function buildRepositoryLookup(validation) {
+  return compactRecord({
+    draftId: validation.draftId,
+    organizationId: validation.organizationId,
+    tenantId: validation.tenantId,
+    brandId: validation.brandId,
+    serviceProviderId: validation.serviceProviderId,
+    requestId: validation.requestId,
+  });
+}
+
+function buildAssignmentIntent(depotIntake, validation) {
+  return compactRecord({
+    depotIntakeId: depotIntake.draftId,
+    organizationId: validation.organizationId,
+    tenantId: validation.tenantId || null,
+    workflowType: depotIntake.workflowType,
+    depotStatus: depotIntake.depotStatus,
+    brandId: depotIntake.brandId || null,
+    serviceProviderId: depotIntake.serviceProviderId || null,
+    itemRef: depotIntake.itemRef || null,
+    productRef: depotIntake.productRef || null,
+    issueSummaryRef: depotIntake.issueSummaryRef || null,
+    workshopId: validation.assignmentFields.workshopId || null,
+    workshopTeamId: validation.assignmentFields.workshopTeamId || null,
+    assignedTechnicianId: validation.assignmentFields.assignedTechnicianId || null,
+    subcontractorOrganizationId: validation.assignmentFields.subcontractorOrganizationId || null,
+    assignmentNote: validation.assignmentFields.assignmentNote,
+    assignedByActorId: validation.actorId,
+    actorRole: validation.actorRole || null,
+    permission: WORKSHOP_ASSIGN_PERMISSION,
+    writeRequired: false,
+    requestId: validation.requestId || null,
+  });
+}
+
+function createWorkshopAssignmentService(options = {}) {
+  const depotIntakeRepository = resolveDepotIntakeRepository(options);
+
+  return {
+    kind: WORKSHOP_ASSIGNMENT_SERVICE_KIND,
+
+    async prepareAssignmentIntent(input = {}) {
+      if (!depotIntakeRepository || typeof depotIntakeRepository.findDepotIntakeState !== 'function') {
+        return failure('depot_intake_repository_required', input);
+      }
+
+      const validation = validateCommand(input);
+
+      if (!validation.ok) {
+        return failure(validation.reasonCode, validation);
+      }
+
+      try {
+        const readResult = await depotIntakeRepository.findDepotIntakeState(buildRepositoryLookup(validation));
+        const depotIntake = normalizeDepotIntake(depotIntakeFromResult(readResult));
+
+        if (!readResult || readResult.ok !== true || !depotIntakeVisible(depotIntake, validation)) {
+          return failure('depot_intake_not_found_or_denied', validation);
+        }
+
+        if (!depotIntakeEligible(depotIntake)) {
+          return failure('workshop_assignment_depot_status_ineligible', validation);
+        }
+
+        return success(buildAssignmentIntent(depotIntake, validation), validation);
+      } catch (caught) {
+        return failure('workshop_assignment_service_failed', validation);
+      }
+    },
+  };
+}
+
+module.exports = {
+  WORKSHOP_ASSIGNMENT_SERVICE_KIND,
+  WORKSHOP_ASSIGN_PERMISSION,
+  ASSIGNABLE_DEPOT_STATUSES,
+  createWorkshopAssignmentService,
+};
