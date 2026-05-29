@@ -174,10 +174,34 @@ function allAllowRows() {
       status: 'available',
       final_appointment_id: 'appt_should_not_be_in_response',
       internal_note: 'internal_note_should_not_leak',
+      engineer_only_note: 'engineer_only_note_should_not_leak',
+      dispatcher_note: 'dispatcher_note_should_not_leak',
+      service_provider_internal_note: 'service_provider_internal_note_should_not_leak',
+      subcontractor_internal_note: 'subcontractor_internal_note_should_not_leak',
+      query_metadata: 'query_metadata_should_not_leak',
+      query_config: 'query_config_should_not_leak',
+      connector_internals: 'connector_internals_should_not_leak',
+      raw_db_rows: 'raw_db_rows_should_not_leak',
+      debug_marker: 'debug_marker_should_not_leak',
       audit_log: 'audit_log_should_not_leak',
+      audit_metadata: 'audit_metadata_should_not_leak',
       ai_raw_payload: 'ai_raw_payload_should_not_leak',
+      provider_payload: 'provider_payload_should_not_leak',
+      webhook_payload: 'webhook_payload_should_not_leak',
       billing_internal_data: 'billing_internal_should_not_leak',
+      billing_amount: 'billing_amount_should_not_leak',
       settlement_internal_data: 'settlement_internal_should_not_leak',
+      settlement_amount: 'settlement_amount_should_not_leak',
+      cost_amount: 'cost_amount_should_not_leak',
+      invoice_id: 'invoice_should_not_leak',
+      payment_id: 'payment_should_not_leak',
+      organization_internal_fields: 'organization_internal_should_not_leak',
+      unpublished_report_draft: 'unpublished_report_should_not_leak',
+      raw_customer_phone: 'raw_customer_phone_should_not_leak',
+      raw_customer_address: 'raw_customer_address_should_not_leak',
+      raw_customer_contact: 'raw_customer_contact_should_not_leak',
+      completion_report_approval_state: 'completion_report_approval_should_not_leak',
+      fsr_publication_workflow: 'fsr_publication_workflow_should_not_leak',
       token: 'token_should_not_leak',
       secret: 'secret_should_not_leak',
     },
@@ -347,10 +371,34 @@ function assertNoLeak(value) {
     'raw_projection_row_should_not_leak',
     'stack_should_not_leak',
     'internal_note_should_not_leak',
+    'engineer_only_note_should_not_leak',
+    'dispatcher_note_should_not_leak',
+    'service_provider_internal_note_should_not_leak',
+    'subcontractor_internal_note_should_not_leak',
+    'query_metadata_should_not_leak',
+    'query_config_should_not_leak',
+    'connector_internals_should_not_leak',
+    'raw_db_rows_should_not_leak',
+    'debug_marker_should_not_leak',
     'audit_log_should_not_leak',
+    'audit_metadata_should_not_leak',
     'ai_raw_payload_should_not_leak',
+    'provider_payload_should_not_leak',
+    'webhook_payload_should_not_leak',
     'billing_internal_should_not_leak',
+    'billing_amount_should_not_leak',
     'settlement_internal_should_not_leak',
+    'settlement_amount_should_not_leak',
+    'cost_amount_should_not_leak',
+    'invoice_should_not_leak',
+    'payment_should_not_leak',
+    'organization_internal_should_not_leak',
+    'unpublished_report_should_not_leak',
+    'raw_customer_phone_should_not_leak',
+    'raw_customer_address_should_not_leak',
+    'raw_customer_contact_should_not_leak',
+    'completion_report_approval_should_not_leak',
+    'fsr_publication_workflow_should_not_leak',
     'appt_should_not_be_in_response',
     'finalAppointmentId',
     'final_appointment_id',
@@ -386,6 +434,25 @@ function assertSafeHttpResponseMetadata(response) {
   assertJsonContentType(response);
   assertNoDebugOrSecretHeaders(response);
   assertNoStatusTextLeak(response);
+}
+
+function assertStableFullRouteServiceReportShape(body) {
+  assert.deepEqual(Object.keys(body).sort(), [
+    'customerVisible',
+    'data',
+    'messageKey',
+    'status',
+  ].sort());
+  assert.deepEqual(Object.keys(body.data).sort(), ['serviceReport']);
+  assert.deepEqual(Object.keys(body.data.serviceReport).sort(), [
+    'appointmentWindow',
+    'caseReference',
+    'completionTime',
+    'customerReportReference',
+    'engineerDisplayName',
+    'serviceStatus',
+    'serviceSummary',
+  ].sort());
 }
 
 test('server explicit pool all-allow rows return HTTP 200 allow envelope', async () => {
@@ -462,6 +529,7 @@ test('server explicit async pool service report full route passes allow context 
       completionTime: '2026-05-29T10:00:00.000Z',
     },
   });
+  assertStableFullRouteServiceReportShape(response.body);
 
   const directResponse = await handleCustomerServiceReportProjectionRequest({
     request: authorizedProjectionRequest(),
@@ -469,6 +537,56 @@ test('server explicit async pool service report full route passes allow context 
   });
 
   assert.equal(directResponse.statusCode, 200);
+  assert.deepEqual(response.body, directResponse.body);
+  assertNoLeak(response.body);
+});
+
+test('server explicit async pool service report full route omits null empty optional DTO fields', async () => {
+  const queryCalls = [];
+  const rows = allAllowRows();
+
+  rows.serviceReportRow = {
+    ...rows.serviceReportRow,
+    case_display_id: '',
+    service_status_display: undefined,
+    appointment_window: null,
+    engineer_display_name: '   ',
+    service_summary: '',
+    completion_time: undefined,
+    public_attachments: [
+      {
+        attachment_id: '',
+        label: '',
+        mime_type: '',
+        signed_url: 'https://signed.example.invalid/secret',
+      },
+    ],
+  };
+
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls, rows),
+  }));
+  const response = await requestApp(
+    bootstrap.app,
+    '/customer-access/case_full_route_001/service-report/report_public_full_route_001',
+  );
+  const directResponse = await handleCustomerServiceReportProjectionRequest({
+    request: authorizedProjectionRequest(),
+    dbClient: createAsyncSyntheticPool([], rows),
+  });
+
+  assert.equal(response.statusCode, 200);
+  assertSafeHttpResponseMetadata(response);
+  assert.deepEqual(response.body, {
+    status: 'allow',
+    messageKey: 'customerAccess.serviceReport.available',
+    customerVisible: true,
+    data: {
+      serviceReport: {
+        customerReportReference: 'report_public_full_route_001',
+      },
+    },
+  });
   assert.deepEqual(response.body, directResponse.body);
   assertNoLeak(response.body);
 });

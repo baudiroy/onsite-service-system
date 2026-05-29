@@ -69,14 +69,38 @@ function reportRow(overrides = {}) {
     lineUserId: 'line_user_should_not_leak',
     finalAppointmentId: 'appt_final_should_not_leak',
     internalNote: 'internal note should not leak',
+    engineerOnlyNote: 'engineer_only_note_should_not_leak',
     technicianPrivateNote: 'technician note should not leak',
+    dispatcherNote: 'dispatcher_note_should_not_leak',
     dispatchNote: 'dispatch note should not leak',
+    serviceProviderInternalNote: 'service_provider_internal_note_should_not_leak',
+    subcontractorInternalNote: 'subcontractor_internal_note_should_not_leak',
     sql: 'select secret',
+    queryMetadata: 'query_metadata_should_not_leak',
+    queryConfig: 'query_config_should_not_leak',
+    connectorInternals: 'connector_internals_should_not_leak',
+    rawDbRows: 'raw_db_rows_should_not_leak',
+    debugMarker: 'debug_marker_should_not_leak',
     stack: 'stack should not leak',
     token: 'token_should_not_leak',
     providerRawPayload: { id: 'provider_should_not_leak' },
+    providerPayload: 'provider_payload_should_not_leak',
+    webhookPayload: 'webhook_payload_should_not_leak',
+    auditMetadata: 'audit_metadata_should_not_leak',
     aiRawPayload: { id: 'ai_should_not_leak' },
     billingInternalData: { amount: 999 },
+    billingAmount: 'billing_amount_should_not_leak',
+    settlementAmount: 'settlement_amount_should_not_leak',
+    costAmount: 'cost_amount_should_not_leak',
+    invoiceId: 'invoice_should_not_leak',
+    paymentId: 'payment_should_not_leak',
+    organizationInternalFields: 'organization_internal_should_not_leak',
+    unpublishedReportDraft: 'unpublished_report_should_not_leak',
+    rawCustomerPhone: 'raw_customer_phone_should_not_leak',
+    rawCustomerAddress: 'raw_customer_address_should_not_leak',
+    rawCustomerContact: 'raw_customer_contact_should_not_leak',
+    completionReportApprovalState: 'completion_report_approval_should_not_leak',
+    fsrPublicationWorkflow: 'fsr_publication_workflow_should_not_leak',
     ...overrides,
   };
 }
@@ -162,22 +186,72 @@ function assertNoSensitiveLeak(output) {
     'line_user_should_not_leak',
     'appt_final_should_not_leak',
     'internal note should not leak',
+    'engineer_only_note_should_not_leak',
     'technician note should not leak',
+    'dispatcher_note_should_not_leak',
     'dispatch note should not leak',
+    'service_provider_internal_note_should_not_leak',
+    'subcontractor_internal_note_should_not_leak',
     'select secret',
+    'query_metadata_should_not_leak',
+    'query_config_should_not_leak',
+    'connector_internals_should_not_leak',
+    'raw_db_rows_should_not_leak',
+    'debug_marker_should_not_leak',
     'projection_query_config_should_not_leak',
     'raw_projection_row_should_not_leak',
     'connector_internal_should_not_leak',
     'stack should not leak',
     'token_should_not_leak',
     'provider_should_not_leak',
+    'provider_payload_should_not_leak',
+    'webhook_payload_should_not_leak',
+    'audit_metadata_should_not_leak',
     'ai_should_not_leak',
     'signed.example.invalid',
     '999',
+    'billing_amount_should_not_leak',
+    'settlement_amount_should_not_leak',
+    'cost_amount_should_not_leak',
+    'invoice_should_not_leak',
+    'payment_should_not_leak',
+    'organization_internal_should_not_leak',
+    'unpublished_report_should_not_leak',
+    'raw_customer_phone_should_not_leak',
+    'raw_customer_address_should_not_leak',
+    'raw_customer_contact_should_not_leak',
+    'completion_report_approval_should_not_leak',
+    'fsr_publication_workflow_should_not_leak',
     'database sql',
   ]) {
     assert.equal(serialized.includes(forbidden), false, `handler response leaked ${forbidden}`);
   }
+}
+
+function assertStableHandlerDtoShape(response) {
+  assert.deepEqual(Object.keys(response).sort(), ['body', 'statusCode']);
+  assert.deepEqual(Object.keys(response.body).sort(), [
+    'customerVisible',
+    'data',
+    'messageKey',
+    'status',
+  ].sort());
+  assert.deepEqual(Object.keys(response.body.data).sort(), ['serviceReport']);
+  assert.deepEqual(Object.keys(response.body.data.serviceReport).sort(), [
+    'appointmentWindow',
+    'caseReference',
+    'completionTime',
+    'customerReportReference',
+    'engineerDisplayName',
+    'publicAttachments',
+    'serviceStatus',
+    'serviceSummary',
+  ].sort());
+  assert.deepEqual(Object.keys(response.body.data.serviceReport.publicAttachments[0]).sort(), [
+    'attachmentId',
+    'label',
+    'mimeType',
+  ].sort());
 }
 
 test('missing injected dbClient returns generic safe-deny without real DB access', async () => {
@@ -363,8 +437,49 @@ test('valid authorized request returns HTTP 200 with only Task908 safe projectio
     },
   });
   assertNoSensitiveLeak(response);
+  assertStableHandlerDtoShape(response);
   assert.equal(dbClient.calls.length, 1);
   assert.equal(dbClient.calls[0].readOnly, true);
+});
+
+test('valid handler response omits null empty optional DTO fields safely', async () => {
+  const dbClient = dbClientWithRows([
+    reportRow({
+      case_display_id: '',
+      service_status_display: undefined,
+      appointment_window: null,
+      engineer_display_name: '   ',
+      service_summary: '',
+      completion_time: undefined,
+      publicAttachments: [
+        {
+          attachmentId: '',
+          label: '',
+          mimeType: '',
+          signedUrl: 'https://signed.example.invalid/secret',
+        },
+      ],
+    }),
+  ]);
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient,
+  });
+
+  assert.deepEqual(response, {
+    statusCode: 200,
+    body: {
+      status: 'allow',
+      messageKey: 'customerAccess.serviceReport.available',
+      customerVisible: true,
+      data: {
+        serviceReport: {
+          customerReportReference: 'report_public_handler_001',
+        },
+      },
+    },
+  });
+  assertNoSensitiveLeak(response);
 });
 
 test('projection DB query selects internal scope and publication fields required by post-filter', async () => {
