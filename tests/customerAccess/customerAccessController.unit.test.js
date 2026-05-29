@@ -11,6 +11,12 @@ const {
   CUSTOMER_ACCESS_AUDIT_EVENT_KEYS,
   CUSTOMER_ACCESS_AUDIT_METADATA_KEYS,
 } = require('../../src/customerAccess/customerAccessAuditEventBuilder');
+const {
+  CUSTOMER_ACCESS_AUDIT_REPOSITORY_RECORD_KEYS,
+} = require('../../src/customerAccess/customerAccessAuditRepositoryContract');
+const {
+  createCustomerAccessAuditPersistenceWriter,
+} = require('../../src/customerAccess/customerAccessAuditPersistenceWriterAdapter');
 
 function validReq() {
   return {
@@ -169,6 +175,27 @@ function assertSafeAuditEvent(auditEvent) {
   for (const value of forbiddenValues) {
     assert.equal(serialized.includes(value), false, `audit event leaked forbidden value: ${value}`);
   }
+}
+
+function assertSafePersistenceRecord(record) {
+  const serialized = JSON.stringify(record);
+
+  assert.deepEqual(
+    Object.keys(record).sort(),
+    Object.keys(record)
+      .filter((key) => CUSTOMER_ACCESS_AUDIT_REPOSITORY_RECORD_KEYS.includes(key))
+      .sort(),
+  );
+
+  for (const value of forbiddenValues) {
+    assert.equal(serialized.includes(value), false, `persistence record leaked forbidden value: ${value}`);
+  }
+}
+
+function flushAuditWriter() {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
 }
 
 function assertGenericDeny(response) {
@@ -983,6 +1010,107 @@ test('case overview safe-deny response writes one injected deny audit event with
     },
   });
   assertSafeAuditEvent(auditEvents[0]);
+});
+
+test('case overview composition with persistence writer keeps response unchanged and records sanitized audit', async () => {
+  const records = [];
+  const expected = buildCustomerAccessControllerResponse(
+    validReq(),
+    injectedFacade(() => validFacadeAllowResult()),
+  );
+  const response = buildCustomerAccessControllerResponse(
+    validReq(),
+    {
+      buildCustomerAccessHttpResponse: () => validFacadeAllowResult(),
+      auditWriter: createCustomerAccessAuditPersistenceWriter({
+        auditRepository: {
+          recordCustomerAccessAuditEvent(record) {
+            records.push(record);
+
+            return {
+              ok: true,
+              status: 'recorded',
+              auditWritten: true,
+              persisted: true,
+              rawDbResult: 'raw_row_should_not_leak',
+            };
+          },
+        },
+      }),
+    },
+  );
+
+  await flushAuditWriter();
+
+  assert.deepEqual(response, expected);
+  assert.equal(records.length, 1);
+  assert.deepEqual(records[0], {
+    eventType: 'customer_access.case_overview.allow',
+    organizationId: 'org-synthetic',
+    customerId: 'customer-synthetic',
+    caseId: 'case-synthetic',
+    decision: 'allow',
+    route: '/customer-access/:caseId',
+    method: 'GET',
+    source: 'customer_access_controller',
+    metadata: {
+      routeMatched: true,
+      contextPresent: true,
+      identifierValid: true,
+    },
+  });
+  assertSafePersistenceRecord(records[0]);
+  assertSafeResponse(response);
+  assert.equal(JSON.stringify(response).includes('auditWritten'), false);
+  assert.equal(JSON.stringify(response).includes('customer_access.case_overview'), false);
+});
+
+test('case overview persistence repository failure remains customer-invisible', async () => {
+  const expected = buildCustomerAccessControllerResponse(
+    validReq(),
+    injectedFacade(() => validFacadeAllowResult()),
+  );
+  const repositoryCases = [
+    {
+      recordCustomerAccessAuditEvent() {
+        throw new Error('select secret_should_not_leak stack_should_not_leak');
+      },
+    },
+    {
+      async recordCustomerAccessAuditEvent() {
+        throw new Error('Bearer token_should_not_leak');
+      },
+    },
+    {
+      recordCustomerAccessAuditEvent() {
+        return {
+          ok: true,
+          status: 'recorded',
+          auditWritten: false,
+          persisted: true,
+          raw: 'raw_row_should_not_leak',
+        };
+      },
+    },
+  ];
+
+  for (const auditRepository of repositoryCases) {
+    const response = buildCustomerAccessControllerResponse(
+      validReq(),
+      {
+        buildCustomerAccessHttpResponse: () => validFacadeAllowResult(),
+        auditWriter: createCustomerAccessAuditPersistenceWriter({ auditRepository }),
+      },
+    );
+
+    await flushAuditWriter();
+
+    assert.deepEqual(response, expected);
+    assertSafeResponse(response);
+    assert.equal(JSON.stringify(response).includes('auditWritten'), false);
+    assert.equal(JSON.stringify(response).includes('stack_should_not_leak'), false);
+    assert.equal(JSON.stringify(response).includes('Bearer token_should_not_leak'), false);
+  }
 });
 
 test('case overview without auditWriter preserves allow and deny responses with no audit attempt', () => {

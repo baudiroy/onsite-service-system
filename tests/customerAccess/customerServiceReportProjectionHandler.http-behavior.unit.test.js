@@ -11,6 +11,12 @@ const {
   CUSTOMER_ACCESS_AUDIT_EVENT_KEYS,
   CUSTOMER_ACCESS_AUDIT_METADATA_KEYS,
 } = require('../../src/customerAccess/customerAccessAuditEventBuilder');
+const {
+  CUSTOMER_ACCESS_AUDIT_REPOSITORY_RECORD_KEYS,
+} = require('../../src/customerAccess/customerAccessAuditRepositoryContract');
+const {
+  createCustomerAccessAuditPersistenceWriter,
+} = require('../../src/customerAccess/customerAccessAuditPersistenceWriterAdapter');
 
 function authorizedContext(overrides = {}) {
   return {
@@ -314,6 +320,34 @@ function assertSafeAuditEvent(event) {
     'internal field should not leak',
   ]) {
     assert.equal(serialized.includes(forbidden), false, `audit event leaked ${forbidden}`);
+  }
+}
+
+function assertSafePersistenceRecord(record) {
+  const serialized = JSON.stringify(record);
+
+  assert.deepEqual(
+    Object.keys(record).sort(),
+    Object.keys(record)
+      .filter((key) => CUSTOMER_ACCESS_AUDIT_REPOSITORY_RECORD_KEYS.includes(key))
+      .sort(),
+  );
+
+  for (const forbidden of [
+    '0912345678',
+    'No. 1 Secret Road',
+    'line_user_should_not_leak',
+    'token_should_not_leak',
+    'provider_payload_should_not_leak',
+    'query_metadata_should_not_leak',
+    'raw_db_rows_should_not_leak',
+    'debug_marker_should_not_leak',
+    'select secret',
+    'stack should not leak',
+    'auditWritten',
+    'persisted',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `persistence record leaked ${forbidden}`);
   }
 }
 
@@ -644,6 +678,115 @@ test('valid service-report allow response writes one injected audit event withou
   assertSafeAuditEvent(auditEvents[0]);
   assertNoSensitiveLeak(response);
   assert.equal(JSON.stringify(response).includes('auditWritten'), false);
+});
+
+test('service-report composition with persistence writer keeps response unchanged and records sanitized audit', async () => {
+  const records = [];
+  const expected = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient: dbClientWithRows([reportRow()]),
+  });
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request({
+      headers: {
+        authorization: 'token_should_not_leak',
+      },
+      query: {
+        sql: 'select secret',
+      },
+      body: {
+        provider_payload: 'provider_payload_should_not_leak',
+      },
+    }),
+    dbClient: dbClientWithRows([
+      reportRow({
+        queryMetadata: 'query_metadata_should_not_leak',
+        rawDbRows: 'raw_db_rows_should_not_leak',
+        debugMarker: 'debug_marker_should_not_leak',
+      }),
+    ]),
+    auditWriter: createCustomerAccessAuditPersistenceWriter({
+      auditRepository: {
+        recordCustomerAccessAuditEvent(record) {
+          records.push(record);
+
+          return {
+            ok: true,
+            status: 'recorded',
+            auditWritten: true,
+            persisted: true,
+            rows: [{ raw: 'raw_db_rows_should_not_leak' }],
+          };
+        },
+      },
+    }),
+  });
+
+  assert.deepEqual(response, expected);
+  assert.equal(records.length, 1);
+  assert.deepEqual(records[0], {
+    eventType: 'customer_access.service_report.allow',
+    organizationId: 'org_handler_001',
+    customerId: 'customer_handler_001',
+    caseId: 'case_handler_001',
+    reportId: 'report_public_handler_001',
+    decision: 'allow',
+    route: '/customer-access/:caseId/service-report/:reportId',
+    method: 'GET',
+    source: 'customer_access_projection_service',
+    metadata: {
+      routeMatched: true,
+      contextPresent: true,
+      identifierValid: true,
+    },
+  });
+  assertSafePersistenceRecord(records[0]);
+  assertNoSensitiveLeak(response);
+  assert.equal(JSON.stringify(response).includes('auditWritten'), false);
+  assert.equal(JSON.stringify(response).includes('customer_access.service_report'), false);
+});
+
+test('service-report persistence repository failure remains customer-invisible', async () => {
+  const expected = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient: dbClientWithRows([reportRow()]),
+  });
+  const repositoryCases = [
+    {
+      recordCustomerAccessAuditEvent() {
+        throw new Error('stack should not leak token_should_not_leak');
+      },
+    },
+    {
+      async recordCustomerAccessAuditEvent() {
+        throw new Error('select secret');
+      },
+    },
+    {
+      recordCustomerAccessAuditEvent() {
+        return {
+          ok: true,
+          status: 'recorded',
+          auditWritten: false,
+          persisted: true,
+          raw: 'raw_db_rows_should_not_leak',
+        };
+      },
+    },
+  ];
+
+  for (const auditRepository of repositoryCases) {
+    const response = await handleCustomerServiceReportProjectionRequest({
+      request: request(),
+      dbClient: dbClientWithRows([reportRow()]),
+      auditWriter: createCustomerAccessAuditPersistenceWriter({ auditRepository }),
+    });
+
+    assert.deepEqual(response, expected);
+    assertNoSensitiveLeak(response);
+    assert.equal(JSON.stringify(response).includes('auditWritten'), false);
+    assert.equal(JSON.stringify(response).includes('token_should_not_leak'), false);
+  }
 });
 
 test('service-report safe-deny response writes one injected deny audit event without changing response', async () => {

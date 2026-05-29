@@ -80,6 +80,29 @@ test('runtime boundary imports remain narrow and do not add DB migration provide
   }
 });
 
+test('customer access audit persistence writer is not wired into runtime composition in this branch', () => {
+  for (const file of [
+    FILES.route,
+    FILES.customerAccessController,
+    FILES.projectionHandler,
+    FILES.projectionService,
+    FILES.app,
+    FILES.server,
+    FILES.publicRoutes,
+  ]) {
+    const source = read(file);
+    const serializedSpecifiers = JSON.stringify(requireSpecifiers(source));
+
+    assert.doesNotMatch(source, /customerAccessAuditPersistenceWriterAdapter|createCustomerAccessAuditPersistenceWriter/, file);
+    assert.doesNotMatch(
+      serializedSpecifiers,
+      /customerAccessAuditPersistenceWriterAdapter|customerAccessAuditRepositoryContract/,
+      file,
+    );
+    assert.doesNotMatch(source, /recordCustomerAccessAuditEvent\(/, file);
+  }
+});
+
 test('customer-facing report runtime boundary cannot create publish or mutate operational records', () => {
   for (const file of runtimeBoundaryFiles) {
     const source = read(file);

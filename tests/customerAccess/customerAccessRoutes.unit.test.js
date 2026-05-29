@@ -10,6 +10,12 @@ const {
   CUSTOMER_ACCESS_ROUTE_PATH,
   registerCustomerAccessRoutes,
 } = require('../../src/routes/customerAccessRoutes');
+const {
+  CUSTOMER_ACCESS_AUDIT_REPOSITORY_RECORD_KEYS,
+} = require('../../src/customerAccess/customerAccessAuditRepositoryContract');
+const {
+  createCustomerAccessAuditPersistenceWriter,
+} = require('../../src/customerAccess/customerAccessAuditPersistenceWriterAdapter');
 
 const repoRoot = path.resolve(__dirname, '../..');
 
@@ -387,6 +393,29 @@ function assertAuditSafe(event) {
     '2026-05-23 10:00-12:00',
   ]) {
     assert.equal(serialized.includes(value), false, `audit event leaked forbidden value: ${value}`);
+  }
+}
+
+function assertSafePersistenceRecord(record) {
+  const serialized = JSON.stringify(record);
+
+  assert.deepEqual(
+    Object.keys(record).sort(),
+    Object.keys(record)
+      .filter((key) => CUSTOMER_ACCESS_AUDIT_REPOSITORY_RECORD_KEYS.includes(key))
+      .sort(),
+  );
+
+  for (const value of [
+    ...forbiddenValues,
+    'Customer-safe route summary',
+    'Completed',
+    'CASE-ROUTE-001',
+    '2026-05-23 10:00-12:00',
+    'auditWritten',
+    'persisted',
+  ]) {
+    assert.equal(serialized.includes(value), false, `persistence record leaked forbidden value: ${value}`);
   }
 }
 
@@ -964,6 +993,109 @@ test('successful route registration writes one sanitized audit event per accepte
     dependencyValid: true,
     registrationResult: 'success',
   });
+});
+
+test('route registration composition with persistence writer keeps summary unchanged and records sanitized audits', async () => {
+  const router = createSyntheticRouter();
+  const records = [];
+  const summary = registerCustomerAccessRoutes(router, {
+    dbClient: createSyntheticDbClient([reportRow()]),
+    repository: allowRepository(),
+    auditWriter: createCustomerAccessAuditPersistenceWriter({
+      auditRepository: {
+        recordCustomerAccessAuditEvent(record) {
+          records.push(record);
+
+          return {
+            ok: true,
+            status: 'recorded',
+            auditWritten: true,
+            persisted: true,
+            rawResult: 'raw_writer_result_should_not_leak',
+          };
+        },
+      },
+    }),
+    rawOptions: 'raw_options_should_not_leak',
+    providerDebug: 'provider_should_not_leak',
+  });
+
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+
+  assert.deepEqual(summary, expectedRegistrationSummary());
+  assertNoAuditSummaryOutput(summary);
+  assert.equal(records.length, 2);
+  assert.deepEqual(records[0], {
+    eventType: 'customer_access.route_registration.success',
+    route: CUSTOMER_ACCESS_ROUTE_PATH,
+    method: 'GET',
+    source: 'customer_access_route_registration',
+    decision: 'success',
+    metadata: {
+      dependencyValid: true,
+      registrationResult: 'success',
+    },
+  });
+  assert.deepEqual(records[1], {
+    eventType: 'customer_access.route_registration.success',
+    route: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+    method: 'GET',
+    source: 'customer_access_route_registration',
+    decision: 'success',
+    metadata: {
+      dependencyValid: true,
+      registrationResult: 'success',
+    },
+  });
+  for (const record of records) {
+    assertSafePersistenceRecord(record);
+  }
+});
+
+test('route registration persistence repository failure keeps summary unchanged and non-leaking', async () => {
+  const repositoryCases = [
+    {
+      recordCustomerAccessAuditEvent() {
+        throw new Error('raw_stack_should_not_leak token_should_not_leak');
+      },
+    },
+    {
+      async recordCustomerAccessAuditEvent() {
+        throw new Error('debug_sql_should_not_leak');
+      },
+    },
+    {
+      recordCustomerAccessAuditEvent() {
+        return {
+          ok: true,
+          status: 'recorded',
+          auditWritten: false,
+          persisted: true,
+          raw: 'raw_writer_result_should_not_leak',
+        };
+      },
+    },
+  ];
+
+  for (const auditRepository of repositoryCases) {
+    const summary = registerCustomerAccessRoutes(createSyntheticRouter(), {
+      dbClient: createSyntheticDbClient([reportRow()]),
+      repository: allowRepository(),
+      auditWriter: createCustomerAccessAuditPersistenceWriter({ auditRepository }),
+    });
+
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+
+    assert.deepEqual(summary, expectedRegistrationSummary());
+    assertNoAuditSummaryOutput(summary);
+    assertNoRouteRegistrationSummaryLeak(summary);
+    assert.equal(JSON.stringify(summary).includes('raw_stack_should_not_leak'), false);
+    assert.equal(JSON.stringify(summary).includes('debug_sql_should_not_leak'), false);
+  }
 });
 
 test('route registration failure audit is skipped for early dependency failures and safe for route failures', () => {
