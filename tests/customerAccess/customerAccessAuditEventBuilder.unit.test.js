@@ -61,7 +61,7 @@ function baseInput(overrides = {}) {
     reportId: 'report_audit_builder_001',
     route: '/customer-access/:caseId/service-report/:reportId',
     method: 'get',
-    source: 'customer_access_route',
+    source: 'customer_access_projection_service',
     metadata: {
       routeMatched: true,
       contextPresent: true,
@@ -71,6 +71,24 @@ function baseInput(overrides = {}) {
     },
     ...overrides,
   };
+}
+
+function routeForEventType(eventType) {
+  return eventType.includes('case_overview')
+    ? '/customer-access/:caseId'
+    : '/customer-access/:caseId/service-report/:reportId';
+}
+
+function sourceForEventType(eventType) {
+  if (eventType.includes('case_overview')) {
+    return 'customer_access_controller';
+  }
+
+  if (eventType.includes('route_registration')) {
+    return 'customer_access_route_registration';
+  }
+
+  return 'customer_access_projection_service';
 }
 
 function assertAllowedAuditEventKeys(auditEvent) {
@@ -141,11 +159,10 @@ test('builds each supported event type with sanitized output keys and inferred d
   for (const eventType of SUPPORTED_CUSTOMER_ACCESS_AUDIT_EVENT_TYPES) {
     const result = buildCustomerAccessAuditEvent(baseInput({
       eventType,
-      route: eventType.includes('case_overview')
-        ? '/customer-access/:caseId'
-        : '/customer-access/:caseId/service-report/:reportId',
+      route: routeForEventType(eventType),
+      source: sourceForEventType(eventType),
       reasonCode: eventType.endsWith('.failure') || eventType.endsWith('.deny')
-        ? 'customer_access_unavailable'
+        ? 'customerAccess.unavailable'
         : undefined,
     }));
 
@@ -161,7 +178,6 @@ test('builds each supported event type with sanitized output keys and inferred d
 test('normalizes a full valid service report audit event without extra keys', () => {
   const result = buildCustomerAccessAuditEvent(baseInput({
     decision: 'allow',
-    reasonCode: 'dependency_invalid',
     unsafeExtra: 'unknown_field_should_not_leak',
   }));
 
@@ -177,10 +193,9 @@ test('normalizes a full valid service report audit event without extra keys', ()
       caseId: 'case_audit_builder_001',
       reportId: 'report_audit_builder_001',
       decision: 'allow',
-      reasonCode: 'dependency_invalid',
       route: '/customer-access/:caseId/service-report/:reportId',
       method: 'GET',
-      source: 'customer_access_route',
+      source: 'customer_access_projection_service',
       metadata: {
         routeMatched: true,
         contextPresent: true,
@@ -373,7 +388,7 @@ test('metadata allows only safe primitive diagnostic flags and labels', () => {
   assertNoLeak(result);
 });
 
-test('unsafe allowed fields are omitted instead of leaking raw values', () => {
+test('matrix-invalid allowed fields fail closed without leaking raw values', () => {
   const result = buildCustomerAccessAuditEvent(baseInput({
     occurredAt: 'not a timestamp token_should_not_leak',
     requestId: 'Bearer token_should_not_leak',
@@ -392,12 +407,134 @@ test('unsafe allowed fields are omitted instead of leaking raw values', () => {
     },
   }));
 
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.auditEvent, {
-    eventType: 'customer_access.service_report.allow',
-    decision: 'allow',
+  assert.deepEqual(result, {
+    ok: false,
+    reasonCode: 'invalid_decision',
   });
   assertNoLeak(result);
+});
+
+test('matrix rejects mismatched decision per event type without leaking raw decision', () => {
+  const cases = [
+    ['customer_access.case_overview.allow', 'deny'],
+    ['customer_access.case_overview.deny', 'allow'],
+    ['customer_access.service_report.allow', 'failure'],
+    ['customer_access.service_report.deny', 'success'],
+    ['customer_access.route_registration.success', 'allow'],
+    ['customer_access.route_registration.failure', 'deny'],
+  ];
+
+  for (const [eventType, decision] of cases) {
+    const result = buildCustomerAccessAuditEvent(baseInput({
+      eventType,
+      decision,
+      route: routeForEventType(eventType),
+      source: sourceForEventType(eventType),
+      reasonCode: eventType.endsWith('.deny') || eventType.endsWith('.failure')
+        ? 'customerAccess.unavailable'
+        : undefined,
+    }));
+
+    assert.deepEqual(result, {
+      ok: false,
+      reasonCode: 'invalid_decision',
+    });
+    assertNoLeak(result);
+  }
+});
+
+test('matrix rejects invalid reasonCode values and allow-event reason details', () => {
+  const invalidReasonCode = buildCustomerAccessAuditEvent(baseInput({
+    eventType: 'customer_access.service_report.deny',
+    decision: 'deny',
+    reasonCode: 'select secret_should_not_leak',
+  }));
+  const allowReasonCode = buildCustomerAccessAuditEvent(baseInput({
+    eventType: 'customer_access.service_report.allow',
+    decision: 'allow',
+    reasonCode: 'access_denied',
+  }));
+  const validDenyReasonCode = buildCustomerAccessAuditEvent(baseInput({
+    eventType: 'customer_access.service_report.deny',
+    decision: 'deny',
+    reasonCode: 'not_found',
+  }));
+
+  assert.deepEqual(invalidReasonCode, {
+    ok: false,
+    reasonCode: 'invalid_reason_code',
+  });
+  assert.deepEqual(allowReasonCode, {
+    ok: false,
+    reasonCode: 'invalid_reason_code',
+  });
+  assert.equal(validDenyReasonCode.ok, true);
+  assert.equal(validDenyReasonCode.auditEvent.reasonCode, 'not_found');
+  assertNoLeak(invalidReasonCode);
+  assertNoLeak(allowReasonCode);
+  assertNoLeak(validDenyReasonCode);
+});
+
+test('matrix rejects invalid route and method values without leaking raw values', () => {
+  for (const [overrides, expectedReasonCode] of [
+    [
+      {
+        route: '/customer-access/:caseId/',
+      },
+      'invalid_route',
+    ],
+    [
+      {
+        route: '/__internal/customer-access/service-reports/:caseId/:reportId',
+      },
+      'invalid_route',
+    ],
+    [
+      {
+        route: '/customer-access/raw_token_should_not_leak',
+      },
+      'invalid_route',
+    ],
+    [
+      {
+        method: 'POST',
+      },
+      'invalid_method',
+    ],
+    [
+      {
+        method: 'DELETE',
+      },
+      'invalid_method',
+    ],
+  ]) {
+    const result = buildCustomerAccessAuditEvent(baseInput(overrides));
+
+    assert.deepEqual(result, {
+      ok: false,
+      reasonCode: expectedReasonCode,
+    });
+    assertNoLeak(result);
+  }
+});
+
+test('matrix rejects invalid source values without leaking raw source', () => {
+  for (const source of [
+    'customer_access_route',
+    '../routes/customerAccessRoutes.js',
+    'Error: stack_should_not_leak',
+    'select secret_should_not_leak',
+    'DATABASE_URL',
+    'provider_should_not_leak',
+  ]) {
+    const result = buildCustomerAccessAuditEvent(baseInput({ source }));
+
+    assert.deepEqual(result, {
+      ok: false,
+      reasonCode: 'invalid_source',
+    });
+    assertNoLeak(result);
+  }
 });
 
 test('malformed input never throws and returns safe invalid result', () => {

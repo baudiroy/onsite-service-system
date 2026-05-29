@@ -22,13 +22,14 @@ function exists(file) {
   return fs.existsSync(path.join(repoRoot, file));
 }
 
-test('Task2101 and Task2102 audit event builder source tests and docs exist', () => {
+test('Task2101 through Task2103 audit event builder source tests and docs exist', () => {
   for (const file of [
     FILES.builder,
     'tests/customerAccess/customerAccessAuditEventBuilder.unit.test.js',
     'tests/customerAccess/customerAccessAuditEventBuilderBoundary.static.test.js',
     'docs/task-2101-customer-access-audit-event-contract-skeleton-no-db-no-provider-no-smoke.md',
     'docs/task-2102-customer-access-audit-event-builder-immutability-determinism-guard-no-db-no-provider-no-smoke.md',
+    'docs/task-2103-customer-access-audit-event-builder-decision-reason-matrix-guard-no-db-no-provider-no-smoke.md',
   ]) {
     assert.equal(exists(file), true, `${file} should exist`);
   }
@@ -59,6 +60,13 @@ test('audit event builder output contract is explicit and allowlisted', () => {
   assert.match(source, /CUSTOMER_ACCESS_AUDIT_EVENT_KEYS = Object\.freeze\(\[/);
   assert.match(source, /CUSTOMER_ACCESS_AUDIT_METADATA_KEYS = Object\.freeze\(\[/);
   assert.match(source, /function sanitizedMetadata\(value\)/);
+  assert.match(source, /const EVENT_MATRIX = Object\.freeze\(\{/);
+  assert.match(source, /function normalizedMatrixFields\(input, eventType\)/);
+  assert.match(source, /invalid_decision/);
+  assert.match(source, /invalid_reason_code/);
+  assert.match(source, /invalid_route/);
+  assert.match(source, /invalid_method/);
+  assert.match(source, /invalid_source/);
   assert.match(source, /function buildCustomerAccessAuditEvent\(input\)/);
   assert.match(source, /ok: true,\s*auditEvent/);
   assert.match(source, /ok: false,\s*reasonCode/);

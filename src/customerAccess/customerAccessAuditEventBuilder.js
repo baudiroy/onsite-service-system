@@ -38,33 +38,73 @@ const VALID_EVENT_TYPES = new Set(SUPPORTED_CUSTOMER_ACCESS_AUDIT_EVENT_TYPES);
 const VALID_ACTOR_TYPES = new Set(['customer', 'runtime', 'system']);
 const VALID_DECISIONS = new Set(['allow', 'deny', 'success', 'failure']);
 const VALID_METHODS = new Set(['GET']);
-const VALID_ROUTES = new Set([
-  '/customer-access/:caseId',
-  '/customer-access/:caseId/service-report/:reportId',
-]);
-const VALID_SOURCES = new Set([
-  'customer_access_route',
-  'customer_access_controller',
-  'customer_access_context',
-  'customer_access_http_adapter',
-  'customer_access_projection',
-  'route_registration',
-  'synthetic_test',
-]);
-const VALID_REASON_CODES = new Set([
+const VALID_AUDIT_REASON_CODES = new Set([
+  'customerAccess.unavailable',
+  'invalid_input',
+  'invalid_context',
+  'invalid_identifier',
+  'access_denied',
+  'not_found',
+  'service_unavailable',
   'mount_target_invalid',
   'db_client_invalid',
   'route_registration_failed',
-  'customer_access_unavailable',
-  'context_missing',
-  'identifier_invalid',
-  'dependency_invalid',
-  'publication_not_allowed',
-  'policy_failed',
+]);
+const VALID_INVALID_RESULT_REASON_CODES = new Set([
   'invalid_input',
   'invalid_event_type',
+  'invalid_event_matrix',
+  'invalid_decision',
+  'invalid_reason_code',
+  'invalid_route',
+  'invalid_method',
+  'invalid_source',
 ]);
 const VALID_REGISTRATION_RESULTS = new Set(['success', 'failure', 'invalid', 'skipped', 'unavailable']);
+const EVENT_MATRIX = Object.freeze({
+  'customer_access.case_overview.allow': Object.freeze({
+    decision: 'allow',
+    routes: Object.freeze(['/customer-access/:caseId']),
+    sources: Object.freeze(['customer_access_controller', 'customer_access_context_middleware']),
+    reasonCodeAllowed: false,
+  }),
+  'customer_access.case_overview.deny': Object.freeze({
+    decision: 'deny',
+    routes: Object.freeze(['/customer-access/:caseId']),
+    sources: Object.freeze(['customer_access_controller', 'customer_access_context_middleware']),
+    reasonCodeAllowed: true,
+  }),
+  'customer_access.service_report.allow': Object.freeze({
+    decision: 'allow',
+    routes: Object.freeze(['/customer-access/:caseId/service-report/:reportId']),
+    sources: Object.freeze(['customer_access_projection_service', 'customer_access_controller']),
+    reasonCodeAllowed: false,
+  }),
+  'customer_access.service_report.deny': Object.freeze({
+    decision: 'deny',
+    routes: Object.freeze(['/customer-access/:caseId/service-report/:reportId']),
+    sources: Object.freeze(['customer_access_projection_service', 'customer_access_controller']),
+    reasonCodeAllowed: true,
+  }),
+  'customer_access.route_registration.success': Object.freeze({
+    decision: 'success',
+    routes: Object.freeze([
+      '/customer-access/:caseId',
+      '/customer-access/:caseId/service-report/:reportId',
+    ]),
+    sources: Object.freeze(['customer_access_route_registration']),
+    reasonCodeAllowed: false,
+  }),
+  'customer_access.route_registration.failure': Object.freeze({
+    decision: 'failure',
+    routes: Object.freeze([
+      '/customer-access/:caseId',
+      '/customer-access/:caseId/service-report/:reportId',
+    ]),
+    sources: Object.freeze(['customer_access_route_registration']),
+    reasonCodeAllowed: true,
+  }),
+});
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 const SAFE_OCCURRED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const UNSAFE_STRING_PATTERN = /bearer|authorization|token|secret|select|insert|update|delete|drop|postgres|database|password|stack|debug|sql/i;
@@ -163,9 +203,122 @@ function sanitizedMetadata(value) {
 }
 
 function safeInvalid(reasonCode) {
+  const safeReasonCode = safeSetValue(reasonCode, VALID_INVALID_RESULT_REASON_CODES) || 'invalid_event_matrix';
+
   return {
     ok: false,
-    reasonCode,
+    reasonCode: safeReasonCode,
+  };
+}
+
+function hasInputValue(input, key) {
+  return Object.prototype.hasOwnProperty.call(input, key) && input[key] !== undefined;
+}
+
+function safeMatrixValue(input, key, allowedValues, invalidReasonCode) {
+  if (!hasInputValue(input, key)) {
+    return {
+      ok: true,
+      value: undefined,
+    };
+  }
+
+  const value = safeSetValue(input[key], allowedValues);
+
+  return value
+    ? {
+      ok: true,
+      value,
+    }
+    : safeInvalid(invalidReasonCode);
+}
+
+function safeMatrixMethod(input) {
+  if (!hasInputValue(input, 'method')) {
+    return {
+      ok: true,
+      value: undefined,
+    };
+  }
+
+  const method = safeMethod(input.method);
+
+  return method
+    ? {
+      ok: true,
+      value: method,
+    }
+    : safeInvalid('invalid_method');
+}
+
+function safeMatrixReasonCode(input, matrix) {
+  if (!hasInputValue(input, 'reasonCode')) {
+    return {
+      ok: true,
+      value: undefined,
+    };
+  }
+
+  if (!matrix.reasonCodeAllowed) {
+    return safeInvalid('invalid_reason_code');
+  }
+
+  const reasonCode = safeSetValue(input.reasonCode, VALID_AUDIT_REASON_CODES);
+
+  return reasonCode
+    ? {
+      ok: true,
+      value: reasonCode,
+    }
+    : safeInvalid('invalid_reason_code');
+}
+
+function normalizedMatrixFields(input, eventType) {
+  const matrix = EVENT_MATRIX[eventType];
+
+  if (!matrix) {
+    return safeInvalid('invalid_event_matrix');
+  }
+
+  const decision = hasInputValue(input, 'decision')
+    ? safeSetValue(input.decision, VALID_DECISIONS)
+    : decisionFromEventType(eventType);
+
+  if (decision !== matrix.decision) {
+    return safeInvalid('invalid_decision');
+  }
+
+  const reasonCodeResult = safeMatrixReasonCode(input, matrix);
+
+  if (reasonCodeResult.ok === false) {
+    return reasonCodeResult;
+  }
+
+  const routeResult = safeMatrixValue(input, 'route', new Set(matrix.routes), 'invalid_route');
+
+  if (routeResult.ok === false) {
+    return routeResult;
+  }
+
+  const methodResult = safeMatrixMethod(input);
+
+  if (methodResult.ok === false) {
+    return methodResult;
+  }
+
+  const sourceResult = safeMatrixValue(input, 'source', new Set(matrix.sources), 'invalid_source');
+
+  if (sourceResult.ok === false) {
+    return sourceResult;
+  }
+
+  return {
+    ok: true,
+    decision,
+    reasonCode: reasonCodeResult.value,
+    route: routeResult.value,
+    method: methodResult.value,
+    source: sourceResult.value,
   };
 }
 
@@ -180,6 +333,12 @@ function buildCustomerAccessAuditEvent(input) {
     return safeInvalid('invalid_event_type');
   }
 
+  const matrixFields = normalizedMatrixFields(input, eventType);
+
+  if (matrixFields.ok === false) {
+    return matrixFields;
+  }
+
   const auditEvent = {
     eventType,
   };
@@ -191,11 +350,11 @@ function buildCustomerAccessAuditEvent(input) {
     customerId: safeIdentifier(input.customerId),
     caseId: safeIdentifier(input.caseId),
     reportId: safeIdentifier(input.reportId),
-    decision: safeSetValue(input.decision, VALID_DECISIONS) || decisionFromEventType(eventType),
-    reasonCode: safeSetValue(input.reasonCode, VALID_REASON_CODES),
-    route: safeSetValue(input.route, VALID_ROUTES),
-    method: safeMethod(input.method),
-    source: safeSetValue(input.source, VALID_SOURCES),
+    decision: matrixFields.decision,
+    reasonCode: matrixFields.reasonCode,
+    route: matrixFields.route,
+    method: matrixFields.method,
+    source: matrixFields.source,
     metadata: sanitizedMetadata(input.metadata),
   };
 
