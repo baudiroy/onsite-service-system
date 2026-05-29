@@ -33,8 +33,22 @@ function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isPromiseLike(value) {
+  return Boolean(value) && typeof value.then === 'function';
+}
+
 function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function mapMaybeAsync(value, mapper) {
+  if (isPromiseLike(value)) {
+    return value
+      .then((resolved) => mapper(resolved))
+      .catch(() => mapper(undefined));
+  }
+
+  return mapper(value);
 }
 
 function sanitizeCustomerVisibleData(value) {
@@ -87,7 +101,9 @@ function buildReadModelFromQueryExecutor(queryExecutor, input) {
 
     const rows = queryExecutor(querySpec, input);
 
-    return isObject(rows) ? mapCustomerAccessDbRowsToReadModel(rows) : undefined;
+    return mapMaybeAsync(rows, (resolvedRows) => (
+      isObject(resolvedRows) ? mapCustomerAccessDbRowsToReadModel(resolvedRows) : undefined
+    ));
   } catch (error) {
     return undefined;
   }
@@ -151,6 +167,82 @@ function unavailableProjection() {
   };
 }
 
+function sectionFromInput(sourceForInput, sectionName, input) {
+  return mapMaybeAsync(sourceForInput(input), (source) => readSection(source, sectionName, input));
+}
+
+function normalizeOrganizationScope(section) {
+  const organizationId = stringValue(section && section.organizationId);
+  const matched = Boolean(section && (section.matched === true || section.organizationScopeMatched === true));
+
+  if (!organizationId || !matched) {
+    return unmatchedOrganizationScope();
+  }
+
+  return {
+    available: true,
+    matched: true,
+    organizationId,
+  };
+}
+
+function normalizeCustomerIdentity(section) {
+  const customerId = stringValue(section && section.customerId);
+  const verified = Boolean(section && (section.verified === true || section.customerIdentityVerified === true));
+
+  if (!customerId || !verified) {
+    return unverifiedCustomerIdentity();
+  }
+
+  return {
+    available: true,
+    verified: true,
+    customerId,
+  };
+}
+
+function normalizeCaseLinkage(section) {
+  const caseId = stringValue(section && section.caseId);
+  const linked = Boolean(section && (section.linked === true || section.caseLinkedToCustomer === true));
+
+  if (!caseId || !linked) {
+    return unlinkedCase();
+  }
+
+  return {
+    available: true,
+    linked: true,
+    caseId,
+  };
+}
+
+function normalizePublicationState(section) {
+  const allowed = Boolean(section && (section.allowed === true || section.publicationAllowed === true));
+
+  if (!allowed) {
+    return unpublishedState();
+  }
+
+  return {
+    available: true,
+    allowed: true,
+    customerVisiblePolicyPassed: false,
+  };
+}
+
+function normalizeCustomerVisibleProjection(section) {
+  const data = section && (isObject(section.data) ? section.data : section.customerVisibleData);
+
+  if (!section || section.available !== true || !isObject(data)) {
+    return unavailableProjection();
+  }
+
+  return {
+    available: true,
+    data: sanitizeCustomerVisibleData(data),
+  };
+}
+
 function createCustomerAccessReadOnlyRepository(options) {
   const source = sourceFromOptions(options);
   const queryExecutor = queryExecutorFromOptions(options);
@@ -161,76 +253,34 @@ function createCustomerAccessReadOnlyRepository(options) {
 
   return {
     getOrganizationScope(input) {
-      const section = readSection(sourceForInput(input), 'organizationScope', input);
-      const organizationId = stringValue(section && section.organizationId);
-      const matched = Boolean(section && (section.matched === true || section.organizationScopeMatched === true));
-
-      if (!organizationId || !matched) {
-        return unmatchedOrganizationScope();
-      }
-
-      return {
-        available: true,
-        matched: true,
-        organizationId,
-      };
+      return mapMaybeAsync(
+        sectionFromInput(sourceForInput, 'organizationScope', input),
+        normalizeOrganizationScope,
+      );
     },
     getVerifiedCustomerIdentity(input) {
-      const section = readSection(sourceForInput(input), 'customerIdentity', input);
-      const customerId = stringValue(section && section.customerId);
-      const verified = Boolean(section && (section.verified === true || section.customerIdentityVerified === true));
-
-      if (!customerId || !verified) {
-        return unverifiedCustomerIdentity();
-      }
-
-      return {
-        available: true,
-        verified: true,
-        customerId,
-      };
+      return mapMaybeAsync(
+        sectionFromInput(sourceForInput, 'customerIdentity', input),
+        normalizeCustomerIdentity,
+      );
     },
     getCaseLinkage(input) {
-      const section = readSection(sourceForInput(input), 'caseLinkage', input);
-      const caseId = stringValue(section && section.caseId);
-      const linked = Boolean(section && (section.linked === true || section.caseLinkedToCustomer === true));
-
-      if (!caseId || !linked) {
-        return unlinkedCase();
-      }
-
-      return {
-        available: true,
-        linked: true,
-        caseId,
-      };
+      return mapMaybeAsync(
+        sectionFromInput(sourceForInput, 'caseLinkage', input),
+        normalizeCaseLinkage,
+      );
     },
     getPublicationState(input) {
-      const section = readSection(sourceForInput(input), 'publication', input);
-      const allowed = Boolean(section && (section.allowed === true || section.publicationAllowed === true));
-
-      if (!allowed) {
-        return unpublishedState();
-      }
-
-      return {
-        available: true,
-        allowed: true,
-        customerVisiblePolicyPassed: false,
-      };
+      return mapMaybeAsync(
+        sectionFromInput(sourceForInput, 'publication', input),
+        normalizePublicationState,
+      );
     },
     getCustomerVisibleProjection(input) {
-      const section = readSection(sourceForInput(input), 'customerVisibleProjection', input);
-      const data = section && (isObject(section.data) ? section.data : section.customerVisibleData);
-
-      if (!section || section.available !== true || !isObject(data)) {
-        return unavailableProjection();
-      }
-
-      return {
-        available: true,
-        data: sanitizeCustomerVisibleData(data),
-      };
+      return mapMaybeAsync(
+        sectionFromInput(sourceForInput, 'customerVisibleProjection', input),
+        normalizeCustomerVisibleProjection,
+      );
     },
   };
 }

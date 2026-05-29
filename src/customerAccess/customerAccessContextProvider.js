@@ -32,6 +32,10 @@ function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isPromiseLike(value) {
+  return Boolean(value) && typeof value.then === 'function';
+}
+
 function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -136,23 +140,25 @@ function safeRepositoryCall(repository, methodName, input) {
   try {
     const result = repository[methodName](input);
 
+    if (isPromiseLike(result)) {
+      return result
+        .then((resolved) => (isObject(resolved) ? resolved : undefined))
+        .catch(() => undefined);
+    }
+
     return isObject(result) ? result : undefined;
   } catch (error) {
     return undefined;
   }
 }
 
-function buildCustomerAccessContextFromRepository(input, repository) {
-  if (!hasRepositoryContract(repository)) {
-    return emptyContext();
-  }
-
-  const organizationScope = safeRepositoryCall(repository, 'getOrganizationScope', input);
-  const customerIdentity = safeRepositoryCall(repository, 'getVerifiedCustomerIdentity', input);
-  const caseLinkage = safeRepositoryCall(repository, 'getCaseLinkage', input);
-  const publication = safeRepositoryCall(repository, 'getPublicationState', input);
-  const projection = safeRepositoryCall(repository, 'getCustomerVisibleProjection', input);
-
+function buildCustomerAccessContextFromRepositoryResults(input, {
+  organizationScope,
+  customerIdentity,
+  caseLinkage,
+  publication,
+  projection,
+}) {
   if (!organizationScope || !customerIdentity || !caseLinkage || !publication || !projection) {
     return emptyContext();
   }
@@ -230,6 +236,46 @@ function buildCustomerAccessContextFromRepository(input, repository) {
       ? sanitizeCustomerVisibleData(isObject(sourceData) ? sourceData : {})
       : {},
   };
+}
+
+function buildCustomerAccessContextFromRepository(input, repository) {
+  if (!hasRepositoryContract(repository)) {
+    return emptyContext();
+  }
+
+  const repositoryResults = {
+    organizationScope: safeRepositoryCall(repository, 'getOrganizationScope', input),
+    customerIdentity: safeRepositoryCall(repository, 'getVerifiedCustomerIdentity', input),
+    caseLinkage: safeRepositoryCall(repository, 'getCaseLinkage', input),
+    publication: safeRepositoryCall(repository, 'getPublicationState', input),
+    projection: safeRepositoryCall(repository, 'getCustomerVisibleProjection', input),
+  };
+
+  if (Object.values(repositoryResults).some(isPromiseLike)) {
+    return Promise.all([
+      repositoryResults.organizationScope,
+      repositoryResults.customerIdentity,
+      repositoryResults.caseLinkage,
+      repositoryResults.publication,
+      repositoryResults.projection,
+    ])
+      .then(([
+        organizationScope,
+        customerIdentity,
+        caseLinkage,
+        publication,
+        projection,
+      ]) => buildCustomerAccessContextFromRepositoryResults(input, {
+        organizationScope,
+        customerIdentity,
+        caseLinkage,
+        publication,
+        projection,
+      }))
+      .catch(() => emptyContext());
+  }
+
+  return buildCustomerAccessContextFromRepositoryResults(input, repositoryResults);
 }
 
 function buildCustomerAccessContext(input, options) {

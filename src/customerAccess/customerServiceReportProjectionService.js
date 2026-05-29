@@ -371,8 +371,10 @@ function buildQuerySpec({ organizationId, customerId, caseId, reportId }) {
     name: 'customerServiceReportProjection',
     readOnly: true,
     text: [
-      'select public_report_id, case_display_id, service_status_display,',
-      'appointment_window, engineer_display_name, service_summary, completion_time',
+      'select organization_id, customer_id, case_id, public_report_id,',
+      'publication_allowed, customer_visible_policy_passed, publication_state, customer_visible,',
+      'case_display_id, service_status_display, appointment_window,',
+      'engineer_display_name, service_summary, completion_time, public_attachments',
       'from customer_visible_service_reports',
       'where organization_id = $1 and customer_id = $2 and case_id = $3 and public_report_id = $4',
       'limit 1',

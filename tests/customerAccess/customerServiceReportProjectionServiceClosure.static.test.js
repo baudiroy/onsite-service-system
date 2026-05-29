@@ -37,7 +37,8 @@ test('projection service remains read-only and does not define mutation executio
   const source = read(SERVICE_FILE);
 
   assert.match(source, /readOnly: true/);
-  assert.match(source, /select public_report_id/);
+  assert.match(source, /select organization_id, customer_id, case_id, public_report_id/);
+  assert.match(source, /publication_allowed, customer_visible_policy_passed, publication_state, customer_visible/);
   assert.doesNotMatch(source, /\binsert\s+into\b|\bupdate\s+\w+\s+set\b|\bdelete\s+from\b|\bdrop\s+table\b|\balter\s+table\b/i);
   assert.doesNotMatch(source, /finalAppointmentId\s*=|caseStatus\s*=|appointmentStatus\s*=|fieldServiceReport\s*=/);
 });

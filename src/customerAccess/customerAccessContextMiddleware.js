@@ -7,6 +7,10 @@ function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isPromiseLike(value) {
+  return Boolean(value) && typeof value.then === 'function';
+}
+
 function contextInputFromRequest(req) {
   return isObject(req) ? req.customerAccessContextInput : undefined;
 }
@@ -60,7 +64,30 @@ function buildCustomerAccessContextMiddleware(options) {
   );
 
   return function customerAccessContextMiddleware(req, res, next) {
-    const context = buildCustomerAccessContext(getInput(req, res), { repository });
+    const input = getInput(req, res);
+    const context = buildCustomerAccessContext(input, { repository });
+
+    if (isPromiseLike(context)) {
+      return context
+        .then((resolvedContext) => {
+          applyCustomerAccessContextToRequest(req, resolvedContext);
+
+          if (typeof next === 'function') {
+            return next();
+          }
+
+          return undefined;
+        })
+        .catch(() => {
+          applyCustomerAccessContextToRequest(req, buildCustomerAccessContext());
+
+          if (typeof next === 'function') {
+            return next();
+          }
+
+          return undefined;
+        });
+    }
 
     applyCustomerAccessContextToRequest(req, context);
 

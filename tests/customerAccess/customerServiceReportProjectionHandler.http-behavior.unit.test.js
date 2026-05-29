@@ -112,6 +112,12 @@ function dbClientWithRows(rows, options = {}) {
   };
 }
 
+function selectListFromQuerySpec(querySpec) {
+  return String(querySpec && querySpec.text || '')
+    .toLowerCase()
+    .split(' from ')[0];
+}
+
 function syntheticRes() {
   const calls = {
     status: [],
@@ -279,6 +285,56 @@ test('valid authorized request returns HTTP 200 with only Task908 safe projectio
   assertNoSensitiveLeak(response);
   assert.equal(dbClient.calls.length, 1);
   assert.equal(dbClient.calls[0].readOnly, true);
+});
+
+test('projection DB query selects internal scope and publication fields required by post-filter', async () => {
+  const dbClient = dbClientWithRows([reportRow()]);
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient,
+  });
+  const selectList = selectListFromQuerySpec(dbClient.calls[0]);
+
+  for (const field of [
+    'organization_id',
+    'customer_id',
+    'case_id',
+    'public_report_id',
+    'publication_allowed',
+    'customer_visible_policy_passed',
+    'publication_state',
+  ]) {
+    assert.match(selectList, new RegExp(`\\b${field}\\b`), `projection query should select ${field}`);
+  }
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.status, 'allow');
+  assertNoSensitiveLeak(response);
+});
+
+test('DB-backed projection row without required scope fields returns generic safe-deny', async () => {
+  const {
+    organization_id,
+    customer_id,
+    case_id,
+    publication_allowed,
+    customer_visible_policy_passed,
+    publication_state,
+    customer_visible,
+    ...displayOnlyRow
+  } = reportRow({
+    publication_allowed: true,
+    customer_visible_policy_passed: true,
+    publication_state: 'published',
+    customer_visible: true,
+  });
+  const dbClient = dbClientWithRows([displayOnlyRow]);
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request(),
+    dbClient,
+  });
+
+  assertGenericSafeDeny(response);
 });
 
 test('query throw returns generic safe-deny without stack SQL or raw error leakage', async () => {

@@ -185,6 +185,16 @@ function createSyntheticPool(queryCalls, rowsOverride) {
   };
 }
 
+function createAsyncSyntheticPool(queryCalls, rowsOverride) {
+  const syntheticPool = createSyntheticPool(queryCalls, rowsOverride);
+
+  return {
+    query(sql, params) {
+      return Promise.resolve(syntheticPool.query(sql, params));
+    },
+  };
+}
+
 function createMalformedResultPool(queryCalls) {
   const safeCalls = Array.isArray(queryCalls) ? queryCalls : [];
 
@@ -260,6 +270,28 @@ test('server explicit pool all-allow rows return HTTP 200 allow envelope', async
   const queryCalls = [];
   const bootstrap = createServerBootstrap(enabledOptions({
     customerAccessPool: createSyntheticPool(queryCalls),
+  }));
+
+  assert.deepEqual(queryCalls, []);
+
+  const response = await requestApp(bootstrap.app, '/customer-access/case_full_route_001');
+
+  assert.equal(queryCalls.length > 0, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.status, 'allow');
+  assert.deepEqual(response.body.data, {
+    serviceReport: {
+      publicReportId: 'report_public_full_route_001',
+      status: 'available',
+    },
+  });
+  assertNoLeak(response.body);
+});
+
+test('server explicit async pool all-allow rows return HTTP 200 allow envelope', async () => {
+  const queryCalls = [];
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls),
   }));
 
   assert.deepEqual(queryCalls, []);
