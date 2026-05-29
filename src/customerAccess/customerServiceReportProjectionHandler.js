@@ -18,6 +18,19 @@ const SERVICE_REPORT_KEYS = Object.freeze([
   'serviceSummary',
 ]);
 const PUBLIC_ATTACHMENT_KEYS = Object.freeze(['attachmentId', 'label', 'mimeType']);
+const SERVICE_INPUT_KEYS = Object.freeze(['caseId', 'customerAccessContext', 'dbClient', 'reportId']);
+const CUSTOMER_ACCESS_CONTEXT_KEYS = Object.freeze([
+  'caseId',
+  'caseLinkedToCustomer',
+  'customerId',
+  'customerIdentityVerified',
+  'customerVisiblePolicyPassed',
+  'organizationId',
+  'organizationScopeMatched',
+  'publicationAllowed',
+]);
+const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+const UNSAFE_IDENTIFIER_PATTERN = /(?:\.\.|['"`;]|--|\/\*|\*\/|\b(?:select|insert|update|delete|drop|union|alter|grant|revoke|authorization|bearer|cookie|token|headers?)\b)/i;
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -43,6 +56,22 @@ function isNativePromise(value) {
 
 function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function safeIdentifierValue(value) {
+  const candidate = stringValue(value);
+
+  if (!candidate) {
+    return undefined;
+  }
+
+  return SAFE_IDENTIFIER_PATTERN.test(candidate) && !UNSAFE_IDENTIFIER_PATTERN.test(candidate)
+    ? candidate
+    : undefined;
+}
+
+function booleanValue(...values) {
+  return values.some((value) => value === true);
 }
 
 function safeDenyEnvelope() {
@@ -158,8 +187,74 @@ function requestParams(request) {
   return isObject(request.params) ? request.params : {};
 }
 
-function customerAccessContextFromRequest(request) {
-  return isObject(request.customerAccessContext) ? request.customerAccessContext : undefined;
+function sanitizedCustomerAccessContextFromRequest(request) {
+  if (!isObject(request.customerAccessContext)) {
+    return undefined;
+  }
+
+  const context = request.customerAccessContext;
+  const access = isObject(context.access) ? context.access : {};
+  const auth = isObject(context.auth) ? context.auth : {};
+  const customerIdentity = isObject(context.customerIdentity) ? context.customerIdentity : {};
+  const contextParams = isObject(context.params) ? context.params : {};
+  const organizationId = safeIdentifierValue(context.organizationId) || safeIdentifierValue(auth.organizationId);
+  const customerId = safeIdentifierValue(context.customerId) || safeIdentifierValue(auth.customerId);
+  const caseId = safeIdentifierValue(context.caseId) || safeIdentifierValue(contextParams.caseId);
+
+  if (!organizationId || !customerId || !caseId) {
+    return undefined;
+  }
+
+  return {
+    organizationId,
+    customerId,
+    caseId,
+    organizationScopeMatched: booleanValue(
+      context.organizationScopeMatched,
+      access.organizationScopeMatched,
+      access.organizationScope,
+      access.organizationScopeMatches,
+    ),
+    customerIdentityVerified: booleanValue(
+      context.customerIdentityVerified,
+      auth.customerIdentityVerified,
+      customerIdentity.verified,
+    ),
+    caseLinkedToCustomer: booleanValue(
+      context.caseLinkedToCustomer,
+      access.caseLinkedToCustomer,
+      access.caseLinkage,
+    ),
+    publicationAllowed: booleanValue(
+      context.publicationAllowed,
+      access.publicationAllowed,
+      access.allowed,
+    ),
+    customerVisiblePolicyPassed: booleanValue(
+      context.customerVisiblePolicyPassed,
+      access.customerVisiblePolicyPassed,
+      access.customerVisiblePolicy,
+    ),
+  };
+}
+
+function buildProjectionServiceInput(options) {
+  const request = isObject(options.request) ? options.request : {};
+  const params = requestParams(request);
+  const caseId = safeIdentifierValue(params.caseId);
+  const reportId = safeIdentifierValue(params.reportId);
+  const customerAccessContext = sanitizedCustomerAccessContextFromRequest(request);
+
+  if (!caseId || !reportId || !customerAccessContext) {
+    return undefined;
+  }
+
+  return {
+    dbClient: options.dbClient,
+    customerAccessContext,
+    caseId,
+    reportId,
+  };
 }
 
 async function handleCustomerServiceReportProjectionRequest(options = {}) {
@@ -170,20 +265,22 @@ async function handleCustomerServiceReportProjectionRequest(options = {}) {
     };
   }
 
-  const request = isObject(options.request) ? options.request : {};
-  const params = requestParams(request);
+  const serviceInput = buildProjectionServiceInput(options);
+
+  if (!serviceInput) {
+    return {
+      statusCode: 404,
+      body: safeDenyEnvelope(),
+    };
+  }
+
   const projectionService = typeof options.projectionService === 'function'
     ? options.projectionService
     : getCustomerServiceReportProjection;
   let envelope;
 
   try {
-    const serviceResult = await invokeProjectionService(projectionService, {
-      dbClient: options.dbClient,
-      customerAccessContext: customerAccessContextFromRequest(request),
-      caseId: stringValue(params.caseId),
-      reportId: stringValue(params.reportId),
-    });
+    const serviceResult = await invokeProjectionService(projectionService, serviceInput);
     envelope = safeHttpEnvelopeFromServiceResult(serviceResult);
   } catch (_error) {
     envelope = safeDenyEnvelope();

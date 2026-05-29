@@ -146,6 +146,50 @@ function assertNoSensitiveLeak(output) {
   }
 }
 
+function assertNoRawRequestInputLeak(input) {
+  const serialized = JSON.stringify(input);
+
+  assert.deepEqual(Object.keys(input).sort(), [
+    'caseId',
+    'customerAccessContext',
+    'dbClient',
+    'reportId',
+  ].sort());
+  assert.deepEqual(Object.keys(input.customerAccessContext).sort(), [
+    'caseId',
+    'caseLinkedToCustomer',
+    'customerId',
+    'customerIdentityVerified',
+    'customerVisiblePolicyPassed',
+    'organizationId',
+    'organizationScopeMatched',
+    'publicationAllowed',
+  ].sort());
+
+  for (const forbidden of [
+    '"headers"',
+    '"authorization"',
+    '"cookies"',
+    '"query"',
+    '"params"',
+    '"body"',
+    '"socket"',
+    '"connection"',
+    '"auth"',
+    '"access"',
+    '"user"',
+    '"session"',
+    '"provider_payload"',
+    '"sql"',
+    '"token"',
+    'adapter_authorization_should_not_pass',
+    'adapter_cookie_should_not_pass',
+    'adapter_provider_should_not_pass',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `adapter service input leaked ${forbidden}`);
+  }
+}
+
 test('registers exactly one GET-like handler on injected synthetic app with explicit path', () => {
   const app = syntheticApp();
   const dbClient = dbClientWithRows([reportRow()]);
@@ -224,6 +268,69 @@ test('registered handler preserves Task909 safe allow behavior through synthetic
     },
   });
   assert.equal(dbClient.calls.length, 1);
+  assertNoSensitiveLeak(response);
+});
+
+test('registered handler passes only explicit sanitized DTO keys to projection service', async () => {
+  const app = syntheticApp();
+  const serviceInputs = [];
+  const result = registerCustomerServiceReportProjectionRoute({
+    app,
+    dbClient: dbClientWithRows([reportRow()]),
+    path: '/internal/customer-access/:caseId/service-report',
+    projectionService: (input) => {
+      serviceInputs.push(input);
+
+      return {
+        status: 'allow',
+        messageKey: 'customerAccess.serviceReport.available',
+        customerVisible: true,
+        data: {
+          serviceReport: {
+            customerReportReference: 'report_public_adapter_001',
+          },
+        },
+      };
+    },
+  });
+
+  const response = await app.calls.get[0].handler(request({
+    headers: {
+      authorization: 'adapter_authorization_should_not_pass',
+    },
+    cookies: {
+      session: 'adapter_cookie_should_not_pass',
+    },
+    query: {
+      sql: 'select secret',
+    },
+    body: {
+      provider_payload: 'adapter_provider_should_not_pass',
+    },
+    socket: {
+      remoteAddress: '127.0.0.1',
+    },
+    user: {
+      token: 'token_should_not_leak',
+    },
+  }));
+
+  assert.equal(result.registered, true);
+  assert.equal(response.statusCode, 200);
+  assert.equal(serviceInputs.length, 1);
+  assertNoRawRequestInputLeak(serviceInputs[0]);
+  assert.deepEqual(serviceInputs[0].customerAccessContext, {
+    organizationId: 'org_adapter_001',
+    customerId: 'customer_adapter_001',
+    caseId: 'case_adapter_001',
+    organizationScopeMatched: true,
+    customerIdentityVerified: true,
+    caseLinkedToCustomer: true,
+    publicationAllowed: true,
+    customerVisiblePolicyPassed: true,
+  });
+  assert.equal(serviceInputs[0].caseId, 'case_adapter_001');
+  assert.equal(serviceInputs[0].reportId, 'report_public_adapter_001');
   assertNoSensitiveLeak(response);
 });
 

@@ -275,6 +275,68 @@ function assertForbiddenBoundaryKeysAbsent(output) {
   }
 }
 
+function assertNoRawRequestInputLeak(input) {
+  const serialized = JSON.stringify(input);
+
+  assert.deepEqual(Object.keys(input).sort(), [
+    'caseId',
+    'customerAccessContext',
+    'dbClient',
+    'reportId',
+  ].sort());
+  assert.deepEqual(Object.keys(input.customerAccessContext).sort(), [
+    'caseId',
+    'caseLinkedToCustomer',
+    'customerId',
+    'customerIdentityVerified',
+    'customerVisiblePolicyPassed',
+    'organizationId',
+    'organizationScopeMatched',
+    'publicationAllowed',
+  ].sort());
+
+  for (const forbidden of [
+    '"req"',
+    '"request"',
+    '"headers"',
+    '"rawHeaders"',
+    '"authorization"',
+    '"cookie"',
+    '"cookies"',
+    '"token"',
+    '"query"',
+    '"params"',
+    '"body"',
+    '"rawBody"',
+    '"socket"',
+    '"connection"',
+    '"ip"',
+    '"auth"',
+    '"access"',
+    '"user"',
+    '"session"',
+    '"provider_payload"',
+    '"raw_payload"',
+    '"debug"',
+    '"stack"',
+    '"sql"',
+    '"internal_notes"',
+    '"customer_phone_raw"',
+    '"customer_address_raw"',
+    '"line_user_id"',
+    '0912345678',
+    'No. 1 Secret Road',
+    'authorization_should_not_pass',
+    'cookie_should_not_pass',
+    'raw_body_should_not_pass',
+    'provider_should_not_pass',
+    'select secret',
+    'token_should_not_pass',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `service input leaked ${forbidden}`);
+  }
+}
+
 function assertStableHandlerDtoShape(response) {
   assert.deepEqual(Object.keys(response).sort(), ['body', 'statusCode']);
   assert.deepEqual(Object.keys(response.body).sort(), [
@@ -529,6 +591,81 @@ test('valid handler response omits null empty optional DTO fields safely', async
   assertNoSensitiveLeak(response);
 });
 
+test('valid request passes only explicit sanitized DTO keys to projection service', async () => {
+  const serviceInputs = [];
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request({
+      headers: {
+        authorization: 'authorization_should_not_pass',
+        cookie: 'cookie_should_not_pass',
+        public_report_id: 'report_alias_should_not_pass',
+      },
+      rawHeaders: ['authorization', 'authorization_should_not_pass'],
+      query: {
+        public_report_id: 'report_query_alias_should_not_pass',
+        sql: 'select secret',
+      },
+      body: {
+        rawBody: 'raw_body_should_not_pass',
+        public_report_id: 'report_body_alias_should_not_pass',
+        provider_payload: 'provider_should_not_pass',
+        customer_phone_raw: '0912345678',
+      },
+      cookies: {
+        session: 'cookie_should_not_pass',
+      },
+      ip: '127.0.0.1',
+      socket: {
+        remoteAddress: '127.0.0.1',
+      },
+      connection: {
+        remoteAddress: '127.0.0.1',
+      },
+      user: {
+        token: 'token_should_not_pass',
+      },
+      session: {
+        token: 'token_should_not_pass',
+      },
+      debug: {
+        sql: 'select secret',
+      },
+    }),
+    projectionService: (input) => {
+      serviceInputs.push(input);
+
+      return {
+        status: 'allow',
+        messageKey: 'customerAccess.serviceReport.available',
+        customerVisible: true,
+        data: {
+          serviceReport: {
+            customerReportReference: 'report_public_handler_001',
+            serviceSummary: 'Customer-safe handler service summary',
+          },
+        },
+      };
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(serviceInputs.length, 1);
+  assertNoRawRequestInputLeak(serviceInputs[0]);
+  assert.deepEqual(serviceInputs[0].customerAccessContext, {
+    organizationId: 'org_handler_001',
+    customerId: 'customer_handler_001',
+    caseId: 'case_handler_001',
+    organizationScopeMatched: true,
+    customerIdentityVerified: true,
+    caseLinkedToCustomer: true,
+    publicationAllowed: true,
+    customerVisiblePolicyPassed: true,
+  });
+  assert.equal(serviceInputs[0].caseId, 'case_handler_001');
+  assert.equal(serviceInputs[0].reportId, 'report_public_handler_001');
+  assertNoSensitiveLeak(response);
+});
+
 test('valid injected allow and safe-deny service results preserve HTTP response behavior', async () => {
   const allowEnvelope = {
     status: 'allow',
@@ -579,6 +716,99 @@ test('valid injected allow and safe-deny service results preserve HTTP response 
   assert.deepEqual(denyResponse.body, denyEnvelope);
   assertNoSensitiveLeak(allowResponse);
   assertNoSensitiveLeak(denyResponse);
+});
+
+test('invalid route identifiers fail closed before projection service invocation', async () => {
+  for (const params of [
+    { caseId: '', reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001', reportId: '' },
+    { caseId: ['case_handler_001'], reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001', reportId: ['report_public_handler_001'] },
+    { caseId: { id: 'case_handler_001' }, reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001', reportId: { id: 'report_public_handler_001' } },
+    { caseId: 123, reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001', reportId: 123 },
+    { caseId: true, reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001', reportId: false },
+    { caseId: new Date('2026-05-22T08:00:00.000Z'), reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001', reportId: new Error('raw_invalid_identifier_should_not_leak') },
+    { caseId: { type: 'Buffer', data: [114, 97, 119] }, reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001', reportId: Promise.resolve('report_public_handler_001') },
+    { caseId: 'case_handler_001', reportId: { then() {} } },
+    { caseId: "case_handler_001' or '1'='1", reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001', reportId: 'report_public_handler_001;select secret' },
+    { caseId: 'case_handler_001', reportId: 'Bearer token_should_not_pass' },
+  ]) {
+    let serviceCalled = false;
+    const response = await handleCustomerServiceReportProjectionRequest({
+      request: request({ params }),
+      projectionService: () => {
+        serviceCalled = true;
+
+        return {
+          status: 'allow',
+          messageKey: 'customerAccess.serviceReport.available',
+          customerVisible: true,
+          data: {
+            serviceReport: {
+              customerReportReference: 'report_public_handler_001',
+            },
+          },
+        };
+      },
+    });
+
+    assert.equal(serviceCalled, false);
+    assertGenericSafeDeny(response);
+    assert.equal(JSON.stringify(response).includes('raw_invalid_identifier_should_not_leak'), false);
+  }
+});
+
+test('identifier aliases in body headers query and debug containers are not used', async () => {
+  let serviceCalled = false;
+  const response = await handleCustomerServiceReportProjectionRequest({
+    request: request({
+      params: {
+        caseId: 'case_handler_001',
+      },
+      query: {
+        reportId: 'report_query_alias_should_not_win',
+        public_report_id: 'report_query_public_alias_should_not_win',
+      },
+      body: {
+        report_id: 'report_body_alias_should_not_win',
+        public_report_id: 'report_body_public_alias_should_not_win',
+        raw_public_report_id: 'report_raw_body_alias_should_not_win',
+      },
+      headers: {
+        report_id: 'report_header_alias_should_not_win',
+        public_report_id: 'report_header_public_alias_should_not_win',
+      },
+      customer_id: 'customer_id_alias_should_not_win',
+      line_user_id: 'line_user_id_alias_should_not_win',
+      debug: {
+        public_report_id: 'report_debug_alias_should_not_win',
+      },
+    }),
+    projectionService: () => {
+      serviceCalled = true;
+
+      return {
+        status: 'allow',
+        messageKey: 'customerAccess.serviceReport.available',
+        customerVisible: true,
+        data: {
+          serviceReport: {
+            customerReportReference: 'report_public_handler_001',
+          },
+        },
+      };
+    },
+  });
+
+  assert.equal(serviceCalled, false);
+  assertGenericSafeDeny(response);
+  assertNoSensitiveLeak(response);
 });
 
 test('projection service throw and rejection return sanitized HTTP safe-deny without raw error leak', async () => {

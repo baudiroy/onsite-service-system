@@ -140,6 +140,22 @@ test('projection HTTP boundary validates service envelopes before serialization'
   );
 });
 
+test('projection HTTP boundary builds an explicit service input allowlist', () => {
+  const projectionHandler = read(FILES.projectionHandler);
+
+  assert.match(projectionHandler, /const SERVICE_INPUT_KEYS = Object\.freeze\(\['caseId', 'customerAccessContext', 'dbClient', 'reportId'\]\)/);
+  assert.match(projectionHandler, /const CUSTOMER_ACCESS_CONTEXT_KEYS = Object\.freeze/);
+  assert.match(projectionHandler, /function safeIdentifierValue\(value\)/);
+  assert.match(projectionHandler, /function sanitizedCustomerAccessContextFromRequest\(request\)/);
+  assert.match(projectionHandler, /function buildProjectionServiceInput\(options\)/);
+  assert.match(projectionHandler, /const serviceInput = buildProjectionServiceInput\(options\)/);
+  assert.match(projectionHandler, /invokeProjectionService\(projectionService, serviceInput\)/);
+  assert.doesNotMatch(
+    projectionHandler,
+    /invokeProjectionService\(projectionService,\s*\{\s*request|projectionService\(\s*request|projectionService\(\s*req|customerAccessContext:\s*request\.customerAccessContext/,
+  );
+});
+
 test('Task1885 documentation records no DB migration deploy smoke provider AI billing or publication mutation scope', () => {
   const doc = read(FILES.doc);
 
