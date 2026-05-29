@@ -265,6 +265,68 @@ function assertAuditSafe(event) {
   }
 }
 
+function expectedRegistrationSummary() {
+  return {
+    registered: true,
+    routes: [
+      {
+        method: 'GET',
+        path: CUSTOMER_ACCESS_ROUTE_PATH,
+      },
+      {
+        method: 'GET',
+        path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+      },
+    ],
+  };
+}
+
+function expectedRegistrationFailure(reasonCode = 'mount_target_invalid') {
+  return {
+    registered: false,
+    messageKey: 'customerAccess.unavailable',
+    customerVisible: false,
+    reasonCode,
+  };
+}
+
+function assertNoRouteRegistrationSummaryLeak(summary) {
+  const serialized = JSON.stringify(summary);
+
+  assert.equal(typeof summary.get, 'undefined');
+  assert.equal(typeof summary.handler, 'undefined');
+  assert.equal(typeof summary.router, 'undefined');
+  assert.equal(typeof summary.route, 'undefined');
+  assert.equal(typeof summary.dbClient, 'undefined');
+  assert.equal(typeof summary.options, 'undefined');
+
+  for (const forbidden of [
+    'function',
+    'handler',
+    'raw_router_should_not_leak',
+    'raw_route_should_not_leak',
+    'raw_adapter_result_should_not_leak',
+    'request_should_not_leak',
+    'headers_should_not_leak',
+    'cookies_should_not_leak',
+    'body_should_not_leak',
+    'query_should_not_leak',
+    'params_should_not_leak',
+    'user_should_not_leak',
+    'session_should_not_leak',
+    'db_client_should_not_leak',
+    'zeabur_should_not_leak',
+    'provider_should_not_leak',
+    'debug_should_not_leak',
+    'internal_should_not_leak',
+    'Bearer token_should_not_leak',
+    'select secret_should_not_leak',
+    'route registration stack should not leak',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `route registration summary leaked ${forbidden}`);
+  }
+}
+
 test('exports registerCustomerAccessRoutes', () => {
   assert.equal(typeof registerCustomerAccessRoutes, 'function');
 });
@@ -272,13 +334,14 @@ test('exports registerCustomerAccessRoutes', () => {
 test('registers customer access and service report GET routes on synthetic router', () => {
   const router = createSyntheticRouter();
 
-  const returnedRouter = registerCustomerAccessRoutes(router);
+  const summary = registerCustomerAccessRoutes(router);
 
-  assert.equal(returnedRouter, router);
+  assert.deepEqual(summary, expectedRegistrationSummary());
   assert.deepEqual(router.routes.map((route) => `${route.method} ${route.path}`), [
     'GET /customer-access/:caseId',
     'GET /customer-access/:caseId/service-report/:reportId',
   ]);
+  assertNoRouteRegistrationSummaryLeak(summary);
 });
 
 test('registered path includes caseId param', () => {
@@ -305,10 +368,92 @@ test('registered middleware and handler are functions', () => {
   }
 });
 
-test('invalid or missing router no-ops without external side effect', () => {
-  assert.equal(registerCustomerAccessRoutes(), undefined);
-  assert.equal(registerCustomerAccessRoutes(null), null);
-  assert.deepEqual(registerCustomerAccessRoutes({}), {});
+test('invalid or missing router returns sanitized failure without external side effect', () => {
+  for (const candidate of [
+    undefined,
+    null,
+    {},
+    { get: 'not function' },
+    {
+      rawRouter: 'raw_router_should_not_leak',
+      route: {
+        raw: 'raw_route_should_not_leak',
+      },
+      request: {
+        headers: 'headers_should_not_leak',
+      },
+      dbClient: {
+        secret: 'db_client_should_not_leak',
+      },
+    },
+  ]) {
+    const summary = registerCustomerAccessRoutes(candidate);
+
+    assert.deepEqual(summary, expectedRegistrationFailure('mount_target_invalid'));
+    assertNoRouteRegistrationSummaryLeak(summary);
+  }
+});
+
+test('route registration summary never exposes raw router handler route or dependency objects', () => {
+  const router = createSyntheticRouter();
+  router.rawRouter = 'raw_router_should_not_leak';
+  router.routeObject = {
+    raw: 'raw_route_should_not_leak',
+  };
+  router.request = {
+    headers: 'headers_should_not_leak',
+    cookies: 'cookies_should_not_leak',
+    body: 'body_should_not_leak',
+    query: 'query_should_not_leak',
+    params: 'params_should_not_leak',
+    user: 'user_should_not_leak',
+    session: 'session_should_not_leak',
+  };
+  const options = {
+    dbClient: createSyntheticDbClient([reportRow()]),
+    providerDebug: 'provider_should_not_leak',
+    internalDebug: 'internal_should_not_leak',
+    zeaburEnv: 'zeabur_should_not_leak',
+    adapterResult: {
+      raw: 'raw_adapter_result_should_not_leak',
+    },
+  };
+
+  const summary = registerCustomerAccessRoutes(router, options);
+
+  assert.deepEqual(summary, expectedRegistrationSummary());
+  assert.deepEqual(Object.keys(summary).sort(), ['registered', 'routes'].sort());
+  assert.deepEqual(summary.routes.map((route) => Object.keys(route).sort()), [
+    ['method', 'path'],
+    ['method', 'path'],
+  ]);
+  assert.equal(router.routes.length, 2);
+  assert.equal(typeof router.routes[0].handlers[0], 'function');
+  assert.equal(typeof router.routes[1].handlers[1], 'function');
+  assertNoRouteRegistrationSummaryLeak(summary);
+});
+
+test('route registration failure returns sanitized summary without raw thrown error leak', () => {
+  const throwError = new Error(
+    'route registration stack should not leak select secret_should_not_leak Bearer token_should_not_leak provider_should_not_leak debug_should_not_leak internal_should_not_leak',
+  );
+  throwError.stack = 'route registration stack should not leak\nat select secret_should_not_leak';
+  const router = {
+    get() {
+      throw throwError;
+    },
+    rawRouter: 'raw_router_should_not_leak',
+    dbClient: {
+      secret: 'db_client_should_not_leak',
+    },
+  };
+
+  const summary = registerCustomerAccessRoutes(router, {
+    dbClient: createSyntheticDbClient([reportRow()]),
+  });
+
+  assert.deepEqual(summary, expectedRegistrationFailure('route_registration_failed'));
+  assertNoRouteRegistrationSummaryLeak(summary);
 });
 
 test('registered handler can be invoked with synthetic req/res and returns generic safe-deny', () => {

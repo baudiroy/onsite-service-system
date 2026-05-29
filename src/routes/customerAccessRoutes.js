@@ -95,6 +95,39 @@ function auditWriterFromRouteOptions(options) {
     : undefined;
 }
 
+function safeProperty(value, key) {
+  try {
+    return value ? value[key] : undefined;
+  } catch (error) {
+    return undefined;
+  }
+}
+
+function safeRegistrationFailed(reasonCode = 'mount_target_invalid') {
+  return {
+    registered: false,
+    messageKey: 'customerAccess.unavailable',
+    customerVisible: false,
+    reasonCode,
+  };
+}
+
+function safeRegistrationSucceeded() {
+  return {
+    registered: true,
+    routes: [
+      {
+        method: 'GET',
+        path: CUSTOMER_ACCESS_ROUTE_PATH,
+      },
+      {
+        method: 'GET',
+        path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+      },
+    ],
+  };
+}
+
 function writeSafeDeny(res) {
   if (res && typeof res.status === 'function' && typeof res.json === 'function') {
     return res.status(404).json(SAFE_DENY_ENVELOPE);
@@ -157,18 +190,24 @@ function createCustomerAccessReportRouteHandler(options) {
 }
 
 function registerCustomerAccessRoutes(router, options) {
-  if (!router || typeof router.get !== 'function') {
-    return router;
+  const registerGet = safeProperty(router, 'get');
+
+  if (typeof registerGet !== 'function') {
+    return safeRegistrationFailed('mount_target_invalid');
   }
 
-  const routeOptions = middlewareOptionsFromRouteOptions(options);
-  const customerAccessContextMiddleware = buildCustomerAccessContextMiddleware(routeOptions);
-  const reportRouteHandler = createCustomerAccessReportRouteHandler(routeOptions);
+  try {
+    const routeOptions = middlewareOptionsFromRouteOptions(options);
+    const customerAccessContextMiddleware = buildCustomerAccessContextMiddleware(routeOptions);
+    const reportRouteHandler = createCustomerAccessReportRouteHandler(routeOptions);
 
-  router.get(CUSTOMER_ACCESS_ROUTE_PATH, customerAccessContextMiddleware, handleCustomerAccessRequest);
-  router.get(CUSTOMER_ACCESS_REPORT_ROUTE_PATH, customerAccessContextMiddleware, reportRouteHandler);
+    registerGet.call(router, CUSTOMER_ACCESS_ROUTE_PATH, customerAccessContextMiddleware, handleCustomerAccessRequest);
+    registerGet.call(router, CUSTOMER_ACCESS_REPORT_ROUTE_PATH, customerAccessContextMiddleware, reportRouteHandler);
 
-  return router;
+    return safeRegistrationSucceeded();
+  } catch (error) {
+    return safeRegistrationFailed('route_registration_failed');
+  }
 }
 
 module.exports = {

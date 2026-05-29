@@ -198,9 +198,20 @@ test('customer access public report route remains param based without new global
   const server = read(FILES.server);
 
   assert.match(route, /CUSTOMER_ACCESS_REPORT_ROUTE_PATH = '\/customer-access\/:caseId\/service-report\/:reportId'/);
-  assert.match(route, /router\.get\(CUSTOMER_ACCESS_REPORT_ROUTE_PATH,\s*customerAccessContextMiddleware,\s*reportRouteHandler\)/);
+  assert.match(route, /registerGet\.call\(router,\s*CUSTOMER_ACCESS_REPORT_ROUTE_PATH,\s*customerAccessContextMiddleware,\s*reportRouteHandler\)/);
   assert.match(route, /buildCustomerAccessControllerResponse\(req\)/);
   assert.match(route, /handleCustomerServiceReportProjectionRequest\(\{\s*request: req,\s*dbClient,\s*\}\)/);
+  assert.match(route, /function safeRegistrationFailed\(reasonCode = 'mount_target_invalid'\)/);
+  assert.match(route, /messageKey: 'customerAccess\.unavailable'/);
+  assert.match(route, /function safeRegistrationSucceeded\(\)/);
+  assert.match(route, /registered: true,\s*routes: \[/);
+  assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_ROUTE_PATH/);
+  assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH/);
+  assert.match(route, /return safeRegistrationFailed\('mount_target_invalid'\)/);
+  assert.match(route, /return safeRegistrationFailed\('route_registration_failed'\)/);
+  assert.doesNotMatch(route, /return router;/);
+  assert.doesNotMatch(route, /return \{\s*registered: true,[\s\S]*handler/);
+  assert.doesNotMatch(route, /rawRouter|rawRoute|handler:/);
   assert.match(routeIndex, /registerCustomerAccessRoutesWithOptions\(appRouter,\s*options\.customerAccess\)/);
 
   for (const [name, source] of [
