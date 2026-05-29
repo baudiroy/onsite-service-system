@@ -8,6 +8,7 @@ const test = require('node:test');
 const SRC_DIR = path.join(__dirname, '../../src/repairIntake');
 
 const EXPECTED_MODULES = [
+  'repairIntakeContactRoleDtoGuard.js',
   'repairIntakeDuplicateCandidateGuard.js',
   'repairIntakeDraftCaseCandidateBuilder.js',
   'repairIntakeDraftCaseCreatorInputNormalizer.js',
@@ -102,6 +103,7 @@ test('covers every current repair intake draft-to-case no-DB submission module',
     .filter((fileName) => (
       /^repairIntakeDraftCase.*\.js$/.test(fileName)
       || fileName === 'repairIntakeDuplicateCandidateGuard.js'
+      || fileName === 'repairIntakeContactRoleDtoGuard.js'
     ))
     .filter((fileName) => !LATER_PHASE_RUNTIME_MODULES.includes(fileName))
     .sort();
@@ -125,7 +127,7 @@ test('covered modules only import accepted local no-DB submission modules', () =
     for (const specifier of specifiers) {
       assert.match(
         specifier,
-        /^\.\/(?:repairIntakeDraftCase[A-Za-z0-9]+|repairIntakeDuplicateCandidateGuard)$/,
+        /^\.\/(?:repairIntakeDraftCase[A-Za-z0-9]+|repairIntakeDuplicateCandidateGuard|repairIntakeContactRoleDtoGuard)$/,
         `${fileName} imports non-local module ${specifier}`,
       );
 

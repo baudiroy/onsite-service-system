@@ -1,5 +1,9 @@
 'use strict';
 
+const {
+  normalizeRepairIntakeContactRoleDto,
+} = require('./repairIntakeContactRoleDtoGuard');
+
 const ACTION = 'repair_intake_draft_to_case_candidate_build';
 
 function isObject(value) {
@@ -24,17 +28,6 @@ function firstString(source, keys) {
   }
 
   return undefined;
-}
-
-function blocked(reasonCode, requiredActions = ['manual_review']) {
-  return {
-    ok: false,
-    action: ACTION,
-    candidateReady: false,
-    reasonCode,
-    requiredActions,
-    caseCandidate: null,
-  };
 }
 
 function sanitizeRef(value) {
@@ -71,6 +64,17 @@ function sanitizeRef(value) {
   return Object.keys(sanitized).length > 0 ? sanitized : null;
 }
 
+function blocked(reasonCode, requiredActions = ['manual_review']) {
+  return {
+    ok: false,
+    action: ACTION,
+    candidateReady: false,
+    reasonCode,
+    requiredActions,
+    caseCandidate: null,
+  };
+}
+
 function normalizedPreflight(preflightResult) {
   return isObject(preflightResult) ? preflightResult : undefined;
 }
@@ -92,6 +96,14 @@ function buildCandidate({ draft, preflightResult, actorContext }) {
     return undefined;
   }
 
+  const contactRoleDto = normalizeRepairIntakeContactRoleDto({
+    reporterRef: draft.reporterRef || draft.reporter_ref,
+    customerRef: draft.customerRef || draft.customer_ref,
+    billingContactRef: draft.billingContactRef || draft.billing_contact_ref,
+    onSiteContactOverrideRef: draft.onSiteContactOverrideRef || draft.on_site_contact_override_ref,
+  });
+  const onSiteContactOverrideRef = contactRoleDto.onSiteContactOverrideRef;
+
   return {
     sourceDraftId,
     organizationId,
@@ -100,9 +112,10 @@ function buildCandidate({ draft, preflightResult, actorContext }) {
     intakeSource,
     serviceType: firstString(draft, ['serviceType', 'service_type']) || null,
     priority: firstString(draft, ['priority']) || null,
-    reporterRef: sanitizeRef(draft.reporterRef || draft.reporter_ref),
-    customerRef: sanitizeRef(draft.customerRef || draft.customer_ref),
-    billingContactRef: sanitizeRef(draft.billingContactRef || draft.billing_contact_ref),
+    reporterRef: contactRoleDto.reporterRef,
+    customerRef: contactRoleDto.customerRef,
+    billingContactRef: contactRoleDto.billingContactRef,
+    ...(onSiteContactOverrideRef ? { onSiteContactOverrideRef } : {}),
     siteRef: sanitizeRef(draft.siteRef || draft.site_ref),
     issueSummaryRef: sanitizeRef(draft.issueSummaryRef || draft.issue_summary_ref),
     createdByActorId: firstString(actorContext, ['actorId', 'actor_id', 'userId', 'user_id']) || null,

@@ -254,6 +254,72 @@ test('candidate preserves allowed sanitized refs and nullable scope fields', () 
   assert.equal(result.caseCandidate.issueSummaryRef, null);
 });
 
+test('candidate preserves on-site contact override separately from reporter customer and billing', () => {
+  const result = buildRepairIntakeDraftCaseCandidate({
+    draft: sanitizedDraft({
+      reporterRef: { refId: 'same_person_task1892', type: 'customer', role: 'customer' },
+      customerRef: { refId: 'same_person_task1892', type: 'customer', role: 'customer' },
+      billingContactRef: { refId: 'same_person_task1892', type: 'customer', role: 'customer' },
+      onSiteContactOverrideRef: { refId: 'same_person_task1892', type: 'customer', role: 'customer' },
+    }),
+    preflightResult: eligiblePreflight(),
+  });
+
+  assert.deepEqual(result.caseCandidate.reporterRef, {
+    refId: 'same_person_task1892',
+    type: 'reporter',
+    role: 'reporter',
+  });
+  assert.deepEqual(result.caseCandidate.customerRef, {
+    refId: 'same_person_task1892',
+    type: 'customer',
+    role: 'customer',
+  });
+  assert.deepEqual(result.caseCandidate.billingContactRef, {
+    refId: 'same_person_task1892',
+    type: 'billing_contact',
+    role: 'billing_contact',
+  });
+  assert.deepEqual(result.caseCandidate.onSiteContactOverrideRef, {
+    refId: 'same_person_task1892',
+    type: 'on_site_contact_override',
+    role: 'on_site_contact_override',
+  });
+  assertNoForbiddenFields(result);
+});
+
+test('candidate keeps safe contact summary but strips raw phone address payloads', () => {
+  const result = buildRepairIntakeDraftCaseCandidate({
+    draft: sanitizedDraft({
+      customerRef: {
+        refId: 'customer_safe_summary_task1892',
+        type: 'customer',
+        phone: 'phone',
+        address: 'address',
+        safeContactSummary: {
+          displayName: 'Masked Customer',
+          maskedPhone: '+8869*****001',
+          maskedAddress: 'Taipei ***',
+          phone: 'phone',
+          address: 'address',
+        },
+      },
+    }),
+    preflightResult: eligiblePreflight(),
+  });
+
+  assert.deepEqual(result.caseCandidate.customerRef, {
+    refId: 'customer_safe_summary_task1892',
+    type: 'customer',
+    safeContactSummary: {
+      displayName: 'Masked Customer',
+      maskedPhone: '+8869*****001',
+      maskedAddress: 'Taipei ***',
+    },
+  });
+  assertNoForbiddenFields(result);
+});
+
 test('unsafe raw fields are ignored and incomplete metadata uses stable reason code', () => {
   const result = buildRepairIntakeDraftCaseCandidate({
     draft: sanitizedDraft({
@@ -291,8 +357,13 @@ test('input is not mutated', () => {
 test('source has no DB repository provider or audit dependencies', () => {
   const source = fs.readFileSync(SOURCE_PATH, 'utf8');
 
+  assert.equal(
+    source.includes("require('./repairIntakeContactRoleDtoGuard')"),
+    true,
+    'builder should use the local contact role DTO guard',
+  );
+
   for (const forbidden of [
-    'require(',
     'Repository',
     'query(',
     'execute(',
@@ -300,10 +371,6 @@ test('source has no DB repository provider or audit dependencies', () => {
     'axios',
     'fetch(',
   ]) {
-    if (forbidden === 'require(') {
-      assert.equal(source.includes(forbidden), false, 'builder should not import dependencies');
-    } else {
-      assert.equal(source.includes(forbidden), false, `source should not include ${forbidden}`);
-    }
+    assert.equal(source.includes(forbidden), false, `source should not include ${forbidden}`);
   }
 });
