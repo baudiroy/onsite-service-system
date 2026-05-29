@@ -55,6 +55,9 @@ function invokeMountedRoute(req) {
 
 function verifiedSyntheticRequest() {
   return {
+    params: {
+      caseId: 'case_test_001',
+    },
     customerAccessContextInput: {
       organizationId: 'org_test_001',
       caseId: 'case_test_001',
@@ -140,11 +143,18 @@ test('mounted customer access route returns allow envelope with verified synthet
   assert.equal(body.status, 'allow');
   assert.equal(body.messageKey, 'customerAccess.available');
   assert.equal(body.customerVisible, true);
+  assert.deepEqual(Object.keys(body), ['status', 'messageKey', 'customerVisible', 'data']);
+  assert.deepEqual(Object.keys(body.data), ['serviceReport']);
+  assert.deepEqual(Object.keys(body.data.serviceReport), [
+    'finalAppointmentId',
+    'publicReportId',
+    'status',
+  ]);
   assert.deepEqual(body.data, {
     serviceReport: {
+      finalAppointmentId: 'appt_final_test_001',
       publicReportId: 'report_public_test_001',
       status: 'available',
-      finalAppointmentId: 'appt_final_test_001',
     },
   });
   assert.deepEqual(req.customerAccessContextInput, originalReq.customerAccessContextInput);

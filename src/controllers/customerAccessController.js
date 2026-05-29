@@ -11,6 +11,14 @@ const SAFE_DENY_ENVELOPE = Object.freeze({
     messageKey: 'customerAccess.unavailable',
   }),
 });
+const SAFE_ALLOW_MESSAGE_KEY = 'customerAccess.available';
+const SERVICE_REPORT_RESPONSE_KEYS = Object.freeze([
+  'caseNo',
+  'finalAppointmentId',
+  'publicReportId',
+  'status',
+  'summary',
+]);
 
 function isPlainObject(value) {
   return Boolean(value)
@@ -50,6 +58,107 @@ function safeIdentifierValue(value) {
 
 function objectOrEmpty(value) {
   return isPlainObject(value) ? value : {};
+}
+
+function isThenable(value) {
+  return Boolean(value) && typeof safeProperty(value, 'then') === 'function';
+}
+
+function isPlainEnvelopeObject(value) {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null;
+}
+
+function safeDenyEnvelope() {
+  return {
+    status: SAFE_DENY_ENVELOPE.status,
+    messageKey: SAFE_DENY_ENVELOPE.messageKey,
+    customerVisible: SAFE_DENY_ENVELOPE.customerVisible,
+    data: SAFE_DENY_ENVELOPE.data,
+    error: {
+      messageKey: SAFE_DENY_ENVELOPE.error.messageKey,
+    },
+  };
+}
+
+function isSafeDisplayValue(value) {
+  return value === null || ['string', 'number', 'boolean'].includes(typeof value);
+}
+
+function allowlistedServiceReport(candidate) {
+  if (!isPlainEnvelopeObject(candidate)) {
+    return undefined;
+  }
+
+  const serviceReport = {};
+
+  for (const key of SERVICE_REPORT_RESPONSE_KEYS) {
+    const value = safeProperty(candidate, key);
+
+    if (isSafeDisplayValue(value)) {
+      serviceReport[key] = value;
+    }
+  }
+
+  return serviceReport;
+}
+
+function safeAllowEnvelopeFromFacadeResult(facadeResult) {
+  if (!isPlainEnvelopeObject(facadeResult)) {
+    return safeDenyEnvelope();
+  }
+
+  if (
+    safeProperty(facadeResult, 'status') !== 'allow' ||
+    safeProperty(facadeResult, 'messageKey') !== SAFE_ALLOW_MESSAGE_KEY ||
+    safeProperty(facadeResult, 'customerVisible') !== true
+  ) {
+    return safeDenyEnvelope();
+  }
+
+  const data = safeProperty(facadeResult, 'data');
+
+  if (!isPlainEnvelopeObject(data)) {
+    return safeDenyEnvelope();
+  }
+
+  const serviceReport = allowlistedServiceReport(safeProperty(data, 'serviceReport'));
+
+  if (!serviceReport) {
+    return safeDenyEnvelope();
+  }
+
+  return {
+    status: 'allow',
+    messageKey: SAFE_ALLOW_MESSAGE_KEY,
+    customerVisible: true,
+    data: {
+      serviceReport,
+    },
+  };
+}
+
+function safeEnvelopeFromFacadeResult(facadeResult) {
+  if (isThenable(facadeResult)) {
+    try {
+      facadeResult.catch(() => undefined);
+    } catch (error) {
+      // Ignore thenable catch failures; the customer response remains safe-deny.
+    }
+
+    return safeDenyEnvelope();
+  }
+
+  if (isPlainEnvelopeObject(facadeResult) && safeProperty(facadeResult, 'status') === 'allow') {
+    return safeAllowEnvelopeFromFacadeResult(facadeResult);
+  }
+
+  return safeDenyEnvelope();
 }
 
 function sanitizedCustomerAccessContextFromRequest(request, caseId) {
@@ -98,11 +207,21 @@ function buildCustomerAccessOverviewInput(req) {
   };
 }
 
-function buildCustomerAccessControllerResponse(req) {
+function buildCustomerAccessControllerResponse(req, options) {
+  return buildCustomerAccessControllerResponseWithOptions(req, options);
+}
+
+function buildCustomerAccessControllerResponseWithOptions(req, options) {
+  const facade = isPlainObject(options) && typeof safeProperty(options, 'buildCustomerAccessHttpResponse') === 'function'
+    ? safeProperty(options, 'buildCustomerAccessHttpResponse')
+    : buildCustomerAccessHttpResponse;
+
   try {
-    return buildCustomerAccessHttpResponse(buildCustomerAccessOverviewInput(req));
+    const facadeResult = facade(buildCustomerAccessOverviewInput(req));
+
+    return safeEnvelopeFromFacadeResult(facadeResult);
   } catch (error) {
-    return SAFE_DENY_ENVELOPE;
+    return safeDenyEnvelope();
   }
 }
 
