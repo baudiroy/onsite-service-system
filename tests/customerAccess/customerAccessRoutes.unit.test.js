@@ -241,6 +241,13 @@ const forbiddenValues = [
   'MISSING_CASE_LINKAGE',
   'PUBLICATION_NOT_ALLOWED',
   'CUSTOMER_VISIBLE_POLICY_FAILED',
+  'case_query_override',
+  'case_body_override',
+  'case_header_override',
+  'case_cookie_override',
+  'raw request stack should not leak',
+  'select secret_should_not_leak',
+  'Bearer token_should_not_leak',
 ];
 
 function assertSafeResponse(response) {
@@ -632,6 +639,118 @@ test('registered handler can be invoked with synthetic req/res and returns gener
     },
   });
   assertSafeResponse(body);
+});
+
+test('case overview route allows only params caseId with middleware customerAccessContext DTO', () => {
+  const router = createSyntheticRouter();
+  registerCustomerAccessRoutes(router);
+
+  const { body, nextCallCount, res } = invokeRoute(
+    router.routes[0],
+    {
+      params: {
+        caseId: 'case_route_001',
+      },
+      query: {
+        caseId: 'case_query_override',
+      },
+      body: {
+        caseId: 'case_body_override',
+      },
+      headers: {
+        'x-case-id': 'case_header_override',
+      },
+      cookies: {
+        caseId: 'case_cookie_override',
+      },
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  );
+
+  assert.equal(nextCallCount, 1);
+  assert.deepEqual(res.calls.status, [200]);
+  assert.equal(body.status, 'allow');
+  assert.deepEqual(body.data, {
+    serviceReport: {
+      publicReportId: 'report_public_route_001',
+      status: 'available',
+    },
+  });
+  assertSafeResponse(body);
+});
+
+test('case overview route rejects query body header cookie caseId aliases when route param is absent', () => {
+  const router = createSyntheticRouter();
+  registerCustomerAccessRoutes(router);
+
+  const { body, nextCallCount, res } = invokeRoute(
+    router.routes[0],
+    {
+      params: {},
+      query: {
+        caseId: 'case_query_override',
+      },
+      body: {
+        caseId: 'case_body_override',
+      },
+      headers: {
+        'x-case-id': 'case_header_override',
+      },
+      cookies: {
+        caseId: 'case_cookie_override',
+      },
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  );
+
+  assert.equal(nextCallCount, 1);
+  assert.deepEqual(res.calls.status, [404]);
+  assert.deepEqual(body, {
+    status: 'deny',
+    messageKey: 'customerAccess.unavailable',
+    customerVisible: false,
+    data: null,
+    error: {
+      messageKey: 'customerAccess.unavailable',
+    },
+  });
+  assertSafeResponse(body);
+});
+
+test('case overview route malformed caseId returns safe-deny without raw value leak', () => {
+  const router = createSyntheticRouter();
+  registerCustomerAccessRoutes(router);
+
+  for (const candidate of [
+    '',
+    '   ',
+    {},
+    [],
+    123,
+    true,
+    new Date('2026-05-30T00:00:00.000Z'),
+    new Error('raw request stack should not leak'),
+    Buffer.from('case_route_001'),
+    { then() {} },
+    "case_route_001' or '1'='1",
+    'case_route_001; select secret_should_not_leak',
+    'Bearer token_should_not_leak',
+  ]) {
+    const { body, nextCallCount, res } = invokeRoute(
+      router.routes[0],
+      {
+        params: {
+          caseId: candidate,
+        },
+        customerAccessContextInput: authorizedContextInput(),
+      },
+    );
+
+    assert.equal(nextCallCount, 1);
+    assert.deepEqual(res.calls.status, [404]);
+    assert.equal(body.status, 'deny');
+    assertSafeResponse(body);
+  }
 });
 
 test('registered handler response does not expose raw phone, address, LINE id, or internal reason', () => {

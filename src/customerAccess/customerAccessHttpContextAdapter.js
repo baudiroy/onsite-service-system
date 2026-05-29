@@ -66,7 +66,40 @@ function emptyRequestLikeInput() {
 }
 
 function stringValue(value) {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (
+    !trimmed ||
+    trimmed.length > 128 ||
+    /(?:['"`;=]|--|\/\*|\*\/|\bselect\b|\binsert\b|\bupdate\b|\bdelete\b|\bdrop\b|\bunion\b|\bbearer\b|\bauthorization\b|\bcookie\b|\bset-cookie\b|\btoken\b|\bjwt\b|\bapi[-_ ]?key\b|\bheader\b)/i
+      .test(trimmed)
+  ) {
+    return undefined;
+  }
+
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(trimmed) ? trimmed : undefined;
+}
+
+function contextFromInput(input) {
+  if (!isObject(input.customerAccessContext)) {
+    return input;
+  }
+
+  return {
+    params: {
+      caseId: input.caseId,
+    },
+    auth: isObject(input.customerAccessContext.auth) ? input.customerAccessContext.auth : {},
+    channel: isObject(input.customerAccessContext.channel) ? input.customerAccessContext.channel : {},
+    access: isObject(input.customerAccessContext.access) ? input.customerAccessContext.access : {},
+    customerVisibleData: isObject(input.customerAccessContext.customerVisibleData)
+      ? input.customerAccessContext.customerVisibleData
+      : {},
+  };
 }
 
 function mapCustomerAccessHttpContext(input) {
@@ -74,10 +107,11 @@ function mapCustomerAccessHttpContext(input) {
     return emptyRequestLikeInput();
   }
 
-  const params = isObject(input.params) ? input.params : {};
-  const auth = isObject(input.auth) ? input.auth : {};
-  const channel = isObject(input.channel) ? input.channel : {};
-  const access = isObject(input.access) ? input.access : {};
+  const context = contextFromInput(input);
+  const params = isObject(context.params) ? context.params : {};
+  const auth = isObject(context.auth) ? context.auth : {};
+  const channel = isObject(context.channel) ? context.channel : {};
+  const access = isObject(context.access) ? context.access : {};
   const organizationId = stringValue(auth.organizationId);
   const caseId = stringValue(params.caseId);
   const customerId = stringValue(auth.customerId);
@@ -96,7 +130,7 @@ function mapCustomerAccessHttpContext(input) {
     channelIdentityPresent: Boolean(lineChannelId && lineUserId),
     scopedChannelIdentityPresent: Boolean(organizationId && lineChannelId && lineUserId),
     customerVisibleData: sanitizeCustomerVisibleData(
-      isObject(input.customerVisibleData) ? input.customerVisibleData : {},
+      isObject(context.customerVisibleData) ? context.customerVisibleData : {},
     ),
   };
 }

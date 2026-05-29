@@ -9,6 +9,8 @@ const repoRoot = path.resolve(__dirname, '../..');
 
 const FILES = Object.freeze({
   route: 'src/routes/customerAccessRoutes.js',
+  customerAccessController: 'src/controllers/customerAccessController.js',
+  customerAccessHttpContextAdapter: 'src/customerAccess/customerAccessHttpContextAdapter.js',
   projectionHandler: 'src/customerAccess/customerServiceReportProjectionHandler.js',
   projectionService: 'src/customerAccess/customerServiceReportProjectionService.js',
   auditBoundary: 'src/customerAccess/customerServiceReportAuditBoundary.js',
@@ -187,6 +189,32 @@ test('projection HTTP boundary builds an explicit service input allowlist', () =
   assert.doesNotMatch(
     projectionHandler,
     /invokeProjectionService\(projectionService,\s*\{\s*request|projectionService\(\s*request|projectionService\(\s*req|customerAccessContext:\s*request\.customerAccessContext/,
+  );
+});
+
+test('case overview HTTP boundary uses params-only caseId and customerAccessContext DTO', () => {
+  const controller = read(FILES.customerAccessController);
+  const httpContextAdapter = read(FILES.customerAccessHttpContextAdapter);
+
+  assert.match(controller, /function buildCustomerAccessOverviewInput\(req\)/);
+  assert.match(controller, /safeProperty\(request,\s*'customerAccessRouteParams'\)/);
+  assert.match(controller, /safeIdentifierValue\(safeProperty\(params,\s*'caseId'\)\)/);
+  assert.match(controller, /safeProperty\(request,\s*'customerAccessContext'\)/);
+  assert.match(controller, /return \{\s*caseId,\s*customerAccessContext,\s*\};/);
+  assert.match(controller, /buildCustomerAccessHttpResponse\(buildCustomerAccessOverviewInput\(req\)\)/);
+  assert.match(controller, /catch \(error\) \{\s*return SAFE_DENY_ENVELOPE;\s*\}/);
+  assert.match(controller, /contextCaseId !== caseId/);
+  assert.match(httpContextAdapter, /function contextFromInput\(input\)/);
+  assert.match(httpContextAdapter, /input\.customerAccessContext/);
+  assert.match(httpContextAdapter, /caseId: input\.caseId/);
+  assert.match(httpContextAdapter, /isSuspicious|select|bearer|authorization|token/);
+  assert.doesNotMatch(
+    controller,
+    /request\.(auth|channel|access|customerVisibleData)|params:\s*request\.params|auth:\s*request\.auth|channel:\s*request\.channel|access:\s*request\.access|customerVisibleData:\s*request\.customerVisibleData/,
+  );
+  assert.doesNotMatch(
+    controller,
+    /request\.(query|body|headers|cookies|user|session|socket|connection)|req\.(query|body|headers|cookies|user|session|socket|connection)/,
   );
 });
 

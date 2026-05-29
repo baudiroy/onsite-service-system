@@ -15,6 +15,10 @@ const forbiddenValues = [
   'internal billing data should never leak',
   'token should never leak',
   'secret should never leak',
+  'case_query_override',
+  'case_body_override',
+  'select secret_should_not_leak',
+  'Bearer token_should_not_leak',
 ];
 
 function validContext() {
@@ -76,6 +80,36 @@ test('maps valid HTTP-like context into request-like facade input', () => {
   assertNoForbiddenValues(mapped);
 });
 
+test('maps narrow case overview DTO from caseId and customerAccessContext', () => {
+  const context = validContext();
+  const mapped = mapCustomerAccessHttpContext({
+    caseId: 'case-synthetic',
+    customerAccessContext: {
+      params: { caseId: 'case-synthetic' },
+      auth: context.auth,
+      channel: context.channel,
+      access: context.access,
+      customerVisibleData: context.customerVisibleData,
+    },
+    params: { caseId: 'case_query_override' },
+    query: { caseId: 'case_query_override' },
+    body: { caseId: 'case_body_override' },
+    headers: { authorization: 'Bearer token_should_not_leak' },
+  });
+
+  assert.equal(mapped.caseId, 'case-synthetic');
+  assert.equal(mapped.organizationId, 'org-synthetic');
+  assert.equal(mapped.customerId, 'customer-synthetic');
+  assert.equal(mapped.isCaseLinkedToCustomer, true);
+  assert.deepEqual(mapped.customerVisibleData, {
+    serviceReport: {
+      caseNo: 'CASE-001',
+      finalAppointmentId: 'appointment-final-001',
+    },
+  });
+  assertNoForbiddenValues(mapped);
+});
+
 test('missing input maps to fail-closed request-like input', () => {
   const mapped = mapCustomerAccessHttpContext();
 
@@ -109,6 +143,31 @@ test('missing params.caseId maps to fail-closed input', () => {
 
   assert.equal(mapped.caseId, undefined);
   assertNoForbiddenValues(mapped);
+});
+
+test('malformed caseId maps to fail-closed input without raw identifier leak', () => {
+  for (const candidate of [
+    {},
+    [],
+    123,
+    true,
+    new Date('2026-05-30T00:00:00.000Z'),
+    new Error('raw request stack should not leak'),
+    Buffer.from('case-synthetic'),
+    { then() {} },
+    "case-synthetic' or '1'='1",
+    'case-synthetic; select secret_should_not_leak',
+    'Bearer token_should_not_leak',
+  ]) {
+    const context = validContext();
+    context.params.caseId = candidate;
+
+    const mapped = mapCustomerAccessHttpContext(context);
+
+    assert.equal(mapped.caseId, undefined);
+    assert.equal(mapped.isCaseLinkedToCustomer, false);
+    assertNoForbiddenValues(mapped);
+  }
 });
 
 test('unverified identity remains unverified', () => {

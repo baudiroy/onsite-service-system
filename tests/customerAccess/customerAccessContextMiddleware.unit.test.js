@@ -53,6 +53,7 @@ test('valid req.customerAccessContextInput populates controller-compatible req f
   const nextCallCount = invokeMiddleware(req);
 
   assert.equal(nextCallCount, 1);
+  assert.deepEqual(req.customerAccessRouteParams, {});
   assert.deepEqual(req.params, {
     caseId: 'case_test_001',
   });
@@ -247,6 +248,7 @@ test('middleware does not mutate unrelated req fields', () => {
 test('applyCustomerAccessContextToRequest performs bounded request mutation', () => {
   const req = {
     existing: 'keep-me',
+    params: { caseId: 'case_route_original' },
   };
   const returned = applyCustomerAccessContextToRequest(req, {
     params: { caseId: 'case_test_001' },
@@ -258,6 +260,7 @@ test('applyCustomerAccessContextToRequest performs bounded request mutation', ()
 
   assert.equal(returned, req);
   assert.equal(req.existing, 'keep-me');
-  assert.deepEqual(req.params, { caseId: 'case_test_001' });
+  assert.deepEqual(req.customerAccessRouteParams, { caseId: 'case_route_original' });
+  assert.deepEqual(req.params, { caseId: 'case_route_original' });
   assert.deepEqual(req.auth, { customerIdentityVerified: false });
 });

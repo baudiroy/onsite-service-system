@@ -19,12 +19,20 @@ function objectOrEmpty(value) {
   return isObject(value) ? value : {};
 }
 
+function hasOwn(value, key) {
+  return isObject(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
 function applyCustomerAccessContextToRequest(req, context) {
   if (!isObject(req)) {
     return req;
   }
 
   const safeContext = isObject(context) ? context : buildCustomerAccessContext();
+
+  if (!hasOwn(req, 'customerAccessRouteParams')) {
+    req.customerAccessRouteParams = objectOrEmpty(req.params);
+  }
 
   req.params = {
     ...objectOrEmpty(safeContext.params),
