@@ -102,6 +102,10 @@ function createDbClient(rows, options = {}) {
         throw new Error('database hostname token_should_not_leak');
       }
 
+      if (Object.prototype.hasOwnProperty.call(options, 'result')) {
+        return options.result;
+      }
+
       return { rows };
     },
     insert() {
@@ -688,6 +692,127 @@ test('not found fails closed without revealing whether a report exists', async (
   });
 
   assertSafeDeny(output);
+  assert.equal(dbClient.calls.length, 1);
+});
+
+test('multiple DB result rows fail closed without projecting the first row', async () => {
+  const firstRowSummary = 'first_row_summary_should_not_leak';
+  const duplicateRowSummary = 'duplicate_row_summary_should_not_leak';
+  const dbClient = createDbClient([
+    reportRow({
+      approved_service_summary: firstRowSummary,
+    }),
+    reportRow({
+      public_report_id: 'report_public_projection_001',
+      approved_service_summary: duplicateRowSummary,
+    }),
+  ]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+  const serialized = JSON.stringify(output);
+
+  assertSafeDeny(output);
+  assert.equal(serialized.includes(firstRowSummary), false);
+  assert.equal(serialized.includes(duplicateRowSummary), false);
+  assert.equal(serialized.includes('2'), false);
+  assertNoSensitiveLeak(output);
+  assert.equal(dbClient.calls.length, 1);
+});
+
+test('malformed DB result shapes fail closed without raw result leak', async () => {
+  class ResultContainer {}
+
+  const malformedRow = {
+    then() {},
+    approved_service_summary: 'malformed_row_summary_should_not_leak',
+  };
+  const malformedResults = [
+    null,
+    undefined,
+    [reportRow({ approved_service_summary: 'array_direct_summary_should_not_leak' })],
+    'db_result_string_should_not_leak',
+    123,
+    true,
+    new Date('2026-05-21T04:00:00.000Z'),
+    new Error('db_result_error_should_not_leak'),
+    Buffer.from('db_result_buffer_should_not_leak'),
+    Object.assign(new ResultContainer(), {
+      rows: [reportRow({ approved_service_summary: 'class_result_summary_should_not_leak' })],
+    }),
+    {},
+    { rows: null, raw: 'null_rows_should_not_leak' },
+    { rows: {}, raw: 'object_rows_should_not_leak' },
+    { rows: 'rows_string_should_not_leak' },
+    { rows: [malformedRow] },
+  ];
+
+  for (const result of malformedResults) {
+    const dbClient = createDbClient([], { result });
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+    const serialized = JSON.stringify(output);
+
+    assertSafeDeny(output);
+    assert.equal(serialized.includes('should_not_leak'), false);
+    assertNoSensitiveLeak(output);
+    assert.equal(dbClient.calls.length, 1);
+  }
+});
+
+test('DB driver metadata is ignored and never leaks into response JSON', async () => {
+  const dbClient = createDbClient([], {
+    result: {
+      rows: [reportRow()],
+      rowCount: 'row_count_should_not_leak',
+      fields: [{ name: 'fields_should_not_leak' }],
+      command: 'command_should_not_leak',
+      oid: 'oid_should_not_leak',
+      queryText: 'select sql_should_not_leak',
+      parameters: ['parameter_should_not_leak'],
+      debug: 'debug_should_not_leak',
+      stack: 'stack_should_not_leak',
+      sql: 'sql_should_not_leak',
+      rawRow: 'raw_row_should_not_leak',
+      dbRow: 'db_row_should_not_leak',
+      payload: 'payload_should_not_leak',
+      result: 'result_should_not_leak',
+    },
+  });
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+  const serialized = JSON.stringify(output);
+
+  assert.equal(output.status, 'allow');
+  assertStableAllowEnvelopeShape(output);
+  for (const forbiddenValue of [
+    'row_count_should_not_leak',
+    'fields_should_not_leak',
+    'command_should_not_leak',
+    'oid_should_not_leak',
+    'sql_should_not_leak',
+    'parameter_should_not_leak',
+    'debug_should_not_leak',
+    'stack_should_not_leak',
+    'raw_row_should_not_leak',
+    'db_row_should_not_leak',
+    'payload_should_not_leak',
+    'result_should_not_leak',
+  ]) {
+    assert.equal(serialized.includes(forbiddenValue), false, `response leaked ${forbiddenValue}`);
+  }
+  assertNoSensitiveLeak(output);
   assert.equal(dbClient.calls.length, 1);
 });
 

@@ -95,11 +95,15 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
   assert.match(projectionService, /function customerAccessContextIdentifierValue\(value\)/);
   assert.match(projectionService, /function customerServiceReportResponseAllowlist\(candidate\)/);
   assert.match(projectionService, /function customerPublicAttachmentResponseAllowlist\(candidate\)/);
+  assert.match(projectionService, /function rowsFromResult\(result\)/);
+  assert.match(projectionService, /if \(!isPlainObject\(result\)\) \{\s*return undefined;\s*\}/);
+  assert.match(projectionService, /if \(!Array\.isArray\(result\.rows\)\) \{\s*return undefined;\s*\}/);
   assert.match(projectionService, /context\[key\] !== true/);
   assert.match(projectionService, /!hasOnlyCustomerAccessContextKeys\(context\)/);
   assert.match(projectionService, /for \(const key of SERVICE_INPUT_IDENTIFIER_KEYS\)/);
   assert.match(projectionService, /contextScope\.caseId !== identifiers\.caseId/);
   assert.match(projectionService, /const scope = serviceInputScope\(options\)/);
+  assert.match(projectionService, /if \(!Array\.isArray\(rows\) \|\| rows\.length !== 1\) \{\s*return buildSafeDenyEnvelope\(\);\s*\}/);
   assert.match(projectionService, /serviceReport: allowlistedServiceReport/);
   assert.match(projectionService, /serviceReport\.customerReportReference = customerReportReference/);
   assert.match(projectionService, /serviceReport\.serviceSummary = serviceSummary/);
@@ -111,6 +115,8 @@ test('projection output allowlist does not expose raw internal DTO fields', () =
   assert.match(projectionService, /const attachmentId = identifierValue\(value\.attachmentId \|\| value\.attachment_id \|\| value\.publicAttachmentId\)/);
   assert.match(projectionService, /return customerPublicAttachmentResponseAllowlist\(attachment\)/);
   assert.match(projectionService, /rowValue\(row,\s*'approved_service_summary'\)/);
+  assert.doesNotMatch(projectionService, /if \(Array\.isArray\(result\)\)/);
+  assert.doesNotMatch(projectionService, /rows\.find\(/);
   assert.doesNotMatch(
     projectionService,
     /rowValue\(row,\s*'serviceSummary',\s*'service_summary',\s*'approved_service_summary'\)/,

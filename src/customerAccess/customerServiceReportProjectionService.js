@@ -645,15 +645,15 @@ function buildQuerySpec({ organizationId, customerId, caseId, reportId }) {
 }
 
 function rowsFromResult(result) {
-  if (Array.isArray(result)) {
-    return result;
+  if (!isPlainObject(result)) {
+    return undefined;
   }
 
-  if (isObject(result) && Array.isArray(result.rows)) {
-    return result.rows;
+  if (!Array.isArray(result.rows)) {
+    return undefined;
   }
 
-  return [];
+  return result.rows;
 }
 
 function attachmentValue(value, key) {
@@ -901,13 +901,22 @@ async function getCustomerServiceReportProjection(options = {}) {
 
   try {
     const rows = await queryProjection(dbClient, querySpec);
-    const row = rows.find((candidate) => (
-      isCustomerVisibleRow(candidate, { caseId: scope.caseId, reportId: scope.reportId }) &&
-      valuesMatch(rowValue(candidate, 'organization_id', 'organizationId'), scope.organizationId) &&
-      valuesMatch(rowValue(candidate, 'customer_id', 'customerId'), scope.customerId) &&
-      valuesMatch(rowValue(candidate, 'case_id', 'caseId'), scope.caseId) &&
-      valuesMatch(rowReportId(candidate), scope.reportId)
-    ));
+    if (!Array.isArray(rows) || rows.length !== 1) {
+      return buildSafeDenyEnvelope();
+    }
+
+    const row = rows[0];
+
+    if (
+      !isCustomerVisibleRow(row, { caseId: scope.caseId, reportId: scope.reportId }) ||
+      !valuesMatch(rowValue(row, 'organization_id', 'organizationId'), scope.organizationId) ||
+      !valuesMatch(rowValue(row, 'customer_id', 'customerId'), scope.customerId) ||
+      !valuesMatch(rowValue(row, 'case_id', 'caseId'), scope.caseId) ||
+      !valuesMatch(rowReportId(row), scope.reportId)
+    ) {
+      return buildSafeDenyEnvelope();
+    }
+
     const projection = mapProjection(row);
 
     return projection ? buildAllowEnvelope(projection) : buildSafeDenyEnvelope();
