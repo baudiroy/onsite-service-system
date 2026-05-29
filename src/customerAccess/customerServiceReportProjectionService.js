@@ -41,6 +41,27 @@ const FORBIDDEN_ATTACHMENT_KEYS = new Set([
   'token',
 ]);
 
+const ALLOWED_PUBLICATION_STATES = new Set([
+  'allowed',
+  'customer_published',
+  'customer-visible',
+  'customer_visible',
+  'public',
+  'published',
+]);
+
+const DENIED_PUBLICATION_STATES = new Set([
+  'disabled',
+  'draft',
+  'hidden',
+  'internal',
+  'internal-only',
+  'internal_only',
+  'private',
+  'revoked',
+  'unpublished',
+]);
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -51,6 +72,199 @@ function stringValue(value) {
 
 function booleanTrue(value) {
   return value === true;
+}
+
+function hasOwn(value, key) {
+  return isObject(value) && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function normalizedState(value) {
+  const candidate = stringValue(value);
+
+  return candidate ? candidate.toLowerCase() : undefined;
+}
+
+function publicationStateValue(source) {
+  if (typeof source === 'string') {
+    return normalizedState(source);
+  }
+
+  if (!isObject(source)) {
+    return undefined;
+  }
+
+  return normalizedState(source.publicationState)
+    || normalizedState(source.publication_state)
+    || normalizedState(source.publicationStatus)
+    || normalizedState(source.publication_status)
+    || normalizedState(source.customerPublicationState)
+    || normalizedState(source.customer_publication_state)
+    || normalizedState(source.state);
+}
+
+function hasPublicationSignal(source) {
+  if (source === true || source === false) {
+    return true;
+  }
+
+  if (typeof source === 'string') {
+    return Boolean(normalizedState(source));
+  }
+
+  if (!isObject(source)) {
+    return false;
+  }
+
+  return [
+    'allowed',
+    'publicationAllowed',
+    'publication_allowed',
+    'publicationState',
+    'publication_state',
+    'publicationStatus',
+    'publication_status',
+    'published',
+    'customerPublished',
+    'customer_published',
+    'customerVisible',
+    'customer_visible',
+    'customerVisiblePolicyPassed',
+    'customer_visible_policy_passed',
+    'draft',
+    'internalOnly',
+    'internal_only',
+    'revoked',
+    'unpublished',
+  ].some((key) => hasOwn(source, key));
+}
+
+function publicationGuardDenied(source) {
+  if (!isObject(source)) {
+    return source === false;
+  }
+
+  const state = publicationStateValue(source);
+
+  if (state && DENIED_PUBLICATION_STATES.has(state)) {
+    return true;
+  }
+
+  return source.allowed === false
+    || source.publicationAllowed === false
+    || source.publication_allowed === false
+    || source.published === false
+    || source.customerPublished === false
+    || source.customer_published === false
+    || source.customerVisible === false
+    || source.customer_visible === false
+    || source.customerVisiblePolicyPassed === false
+    || source.customer_visible_policy_passed === false
+    || source.draft === true
+    || source.internalOnly === true
+    || source.internal_only === true
+    || source.revoked === true
+    || source.unpublished === true;
+}
+
+function publicationGuardAllows(source) {
+  if (source === true) {
+    return true;
+  }
+
+  if (!isObject(source) || publicationGuardDenied(source)) {
+    return false;
+  }
+
+  const state = publicationStateValue(source);
+
+  return source.allowed === true
+    || source.publicationAllowed === true
+    || source.publication_allowed === true
+    || source.published === true
+    || source.customerPublished === true
+    || source.customer_published === true
+    || (state && ALLOWED_PUBLICATION_STATES.has(state));
+}
+
+function publicationSourcesFromContext(context) {
+  if (!isObject(context)) {
+    return [];
+  }
+
+  const access = isObject(context.access) ? context.access : {};
+  const sources = [];
+
+  if (hasPublicationSignal(context.publication)) {
+    sources.push(context.publication);
+  }
+
+  if (hasPublicationSignal(access.publication)) {
+    sources.push(access.publication);
+  }
+
+  if (hasPublicationSignal(access.publicationState)) {
+    sources.push(access.publicationState);
+  }
+
+  if (hasPublicationSignal(context)) {
+    sources.push(context);
+  }
+
+  if (hasPublicationSignal(access)) {
+    sources.push(access);
+  }
+
+  return sources;
+}
+
+function customerAccessPublicationStateGuardPasses(context) {
+  const sources = publicationSourcesFromContext(context);
+
+  if (sources.length === 0 || sources.some(publicationGuardDenied)) {
+    return false;
+  }
+
+  return sources.some(publicationGuardAllows);
+}
+
+function rowPublicationReferenceMatches(row, expectedCaseId, expectedReportId) {
+  const publicationCaseId = rowValue(
+    row,
+    'publication_case_id',
+    'publicationCaseId',
+    'published_case_id',
+    'publishedCaseId',
+  );
+  const publicationReportId = rowValue(
+    row,
+    'publication_report_id',
+    'publicationReportId',
+    'published_report_id',
+    'publishedReportId',
+  );
+
+  return (!publicationCaseId || publicationCaseId === expectedCaseId)
+    && (!publicationReportId || publicationReportId === expectedReportId);
+}
+
+function serviceReportRowPublicationStateGuardPasses(row, scope) {
+  if (!isObject(row)) {
+    return false;
+  }
+
+  if (!rowPublicationReferenceMatches(row, scope.caseId, scope.reportId)) {
+    return false;
+  }
+
+  if (publicationGuardDenied(row)) {
+    return false;
+  }
+
+  if (!hasPublicationSignal(row)) {
+    return true;
+  }
+
+  return publicationGuardAllows(row);
 }
 
 function buildSafeDenyEnvelope() {
@@ -120,9 +334,7 @@ function isAuthorizedContext(context) {
   const caseLinkedToCustomer = context.caseLinkedToCustomer === true
     || access.caseLinkedToCustomer === true
     || access.caseLinkage === true;
-  const publicationAllowed = context.publicationAllowed === true
-    || access.publicationAllowed === true
-    || access.publication === true;
+  const publicationAllowed = customerAccessPublicationStateGuardPasses(context);
   const customerVisiblePolicyPassed = context.customerVisiblePolicyPassed === true
     || access.customerVisiblePolicyPassed === true
     || access.customerVisiblePolicy === true;
@@ -284,7 +496,7 @@ function mapProjection(row) {
   return Object.keys(serviceReport).length > 0 ? serviceReport : undefined;
 }
 
-function isCustomerVisibleRow(row) {
+function isCustomerVisibleRow(row, scope) {
   if (!isObject(row)) {
     return false;
   }
@@ -301,7 +513,7 @@ function isCustomerVisibleRow(row) {
     return false;
   }
 
-  return true;
+  return serviceReportRowPublicationStateGuardPasses(row, scope);
 }
 
 async function queryProjection(dbClient, querySpec) {
@@ -349,7 +561,7 @@ async function getCustomerServiceReportProjection(options = {}) {
   try {
     const rows = await queryProjection(dbClient, querySpec);
     const row = rows.find((candidate) => (
-      isCustomerVisibleRow(candidate) &&
+      isCustomerVisibleRow(candidate, { caseId, reportId }) &&
       valuesMatch(rowValue(candidate, 'organization_id', 'organizationId'), organizationId) &&
       valuesMatch(rowValue(candidate, 'customer_id', 'customerId'), customerId) &&
       valuesMatch(rowValue(candidate, 'case_id', 'caseId'), caseId) &&

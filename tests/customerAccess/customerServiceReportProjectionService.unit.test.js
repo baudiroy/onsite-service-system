@@ -21,6 +21,12 @@ function authorizedContext(overrides = {}) {
       organizationScopeMatched: true,
       caseLinkedToCustomer: true,
       publicationAllowed: true,
+      publicationState: 'published',
+      customerVisiblePolicyPassed: true,
+    },
+    publication: {
+      state: 'published',
+      allowed: true,
       customerVisiblePolicyPassed: true,
     },
     ...overrides,
@@ -33,6 +39,9 @@ function reportRow(overrides = {}) {
     customer_id: 'customer_projection_001',
     case_id: 'case_projection_001',
     public_report_id: 'report_public_projection_001',
+    publication_allowed: true,
+    publication_state: 'published',
+    customer_visible_policy_passed: true,
     case_display_id: 'CASE-001',
     service_status_display: 'Completed',
     appointment_window: '2026-05-21 10:00-12:00',
@@ -260,6 +269,103 @@ test('authorized context returns only allowlisted customer-visible projection', 
     },
   });
   assertNoSensitiveLeak(output);
+});
+
+test('publication state guard allows only explicit customer-published state before query', async () => {
+  const dbClient = createDbClient([reportRow()]);
+  const missingPublicationContext = authorizedContext();
+
+  delete missingPublicationContext.publication;
+  delete missingPublicationContext.access.publicationAllowed;
+  delete missingPublicationContext.access.publicationState;
+
+  for (const customerAccessContext of [
+    missingPublicationContext,
+    authorizedContext({
+      publication: {
+        state: 'draft',
+        allowed: true,
+      },
+    }),
+    authorizedContext({
+      publication: {
+        state: 'internal_only',
+        allowed: true,
+      },
+    }),
+    authorizedContext({
+      publication: {
+        state: 'revoked',
+        allowed: true,
+      },
+    }),
+    authorizedContext({
+      publication: {
+        state: 'unpublished',
+        allowed: true,
+      },
+    }),
+    authorizedContext({
+      access: {
+        organizationScopeMatched: true,
+        caseLinkedToCustomer: true,
+        publicationAllowed: false,
+        customerVisiblePolicyPassed: true,
+      },
+    }),
+  ]) {
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext,
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assertSafeDeny(output);
+    assertNoSensitiveLeak(output);
+  }
+
+  assert.equal(dbClient.calls.length, 0);
+});
+
+test('publication row state guard denies unpublished or mismatched report case state', async () => {
+  const deniedRows = [
+    reportRow({
+      publication_state: 'draft',
+      publication_allowed: true,
+    }),
+    reportRow({
+      publication_state: 'internal_only',
+      publication_allowed: true,
+    }),
+    reportRow({
+      revoked: true,
+      publication_allowed: true,
+    }),
+    reportRow({
+      publication_case_id: 'case_other_001',
+      publication_allowed: true,
+    }),
+    reportRow({
+      publication_report_id: 'report_other_001',
+      publication_allowed: true,
+    }),
+  ];
+
+  for (const row of deniedRows) {
+    const dbClient = createDbClient([row]);
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assertSafeDeny(output);
+    assertNoSensitiveLeak(output);
+    assert.equal(dbClient.calls.length, 1);
+    assert.deepEqual(dbClient.mutationCalls, []);
+  }
 });
 
 test('filtered DTO never exposes raw case appointment report or organization internals', async () => {
