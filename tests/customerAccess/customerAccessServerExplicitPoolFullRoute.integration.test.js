@@ -702,6 +702,18 @@ test('server explicit async pool service report full route filters attachment vi
         customer_visible: true,
       },
       {
+        attachment_id: 'att_visible_full_route_004',
+        label: 'https://signed.example.invalid/private/internal-secret-photo.jpg',
+        mime_type: 'image/jpeg',
+        customer_visible: true,
+      },
+      {
+        attachment_id: 'att_visible_full_route_005',
+        fileName: '../private/internal-token-photo.jpg',
+        mime_type: 'image/jpeg',
+        visibility: 'public',
+      },
+      {
         attachment_id: 'https://signed.example.invalid/secret',
         label: 'invalid_attachment_should_not_leak',
         mime_type: 'image/png',
@@ -782,6 +794,14 @@ test('server explicit async pool service report full route filters attachment vi
     {
       attachmentId: 'att_visible_full_route_003',
       label: 'Visible full-route attachment without trusted MIME',
+    },
+    {
+      attachmentId: 'att_visible_full_route_004',
+      mimeType: 'image/jpeg',
+    },
+    {
+      attachmentId: 'att_visible_full_route_005',
+      mimeType: 'image/jpeg',
     },
   ]);
   assert.deepEqual(response.body, directResponse.body);

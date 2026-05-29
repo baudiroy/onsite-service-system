@@ -474,6 +474,20 @@ function attachmentValue(value, key) {
   return stringValue(value);
 }
 
+function attachmentLabelValue(value) {
+  const candidate = attachmentValue(value, 'label');
+
+  if (!candidate) {
+    return undefined;
+  }
+
+  if (/^(?:[a-z][a-z0-9+.-]*:|\/|\.{1,2}\/|.*(?:token|secret|password|signed|private).*)/i.test(candidate)) {
+    return undefined;
+  }
+
+  return candidate;
+}
+
 function attachmentMimeTypeValue(value) {
   const candidate = stringValue(value);
 
@@ -552,7 +566,7 @@ function mapAttachment(value) {
 
   const attachment = {};
   const attachmentId = identifierValue(value.attachmentId || value.attachment_id || value.publicAttachmentId);
-  const label = attachmentValue(value.label || value.displayName || value.fileName, 'label');
+  const label = attachmentLabelValue(value.label || value.displayName || value.fileName);
   const mimeType = attachmentMimeTypeValue(value.mimeType || value.mime_type);
 
   if (!attachmentId) {
