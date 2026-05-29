@@ -211,11 +211,19 @@ test('customer access public report route remains param based without new global
   assert.match(route, /registered: true,\s*routes: \[/);
   assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_ROUTE_PATH/);
   assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH/);
+  assert.match(route, /try \{\s*const routeOptions = middlewareOptionsFromRouteOptions\(options\)/);
+  assert.match(route, /registerGet\.call\(router,\s*CUSTOMER_ACCESS_ROUTE_PATH,\s*customerAccessContextMiddleware,\s*handleCustomerAccessRequest\)/);
+  assert.match(route, /registerGet\.call\(router,\s*CUSTOMER_ACCESS_REPORT_ROUTE_PATH,\s*customerAccessContextMiddleware,\s*reportRouteHandler\)/);
+  assert.match(route, /catch \(error\) \{\s*return safeRegistrationFailed\('route_registration_failed'\)/);
   assert.match(route, /return safeRegistrationFailed\('mount_target_invalid'\)/);
   assert.match(route, /return safeRegistrationFailed\('db_client_invalid'\)/);
   assert.match(route, /return safeRegistrationFailed\('route_registration_failed'\)/);
+  const safeRegistrationFailedSource = route.match(
+    /function safeRegistrationFailed\(reasonCode = 'mount_target_invalid'\) \{[\s\S]*?\n\}/,
+  )[0];
   assert.doesNotMatch(route, /return router;/);
   assert.doesNotMatch(route, /return \{\s*registered: true,[\s\S]*handler/);
+  assert.doesNotMatch(safeRegistrationFailedSource, /routes:/);
   assert.doesNotMatch(route, /rawRouter|rawRoute|handler:/);
   assert.doesNotMatch(JSON.stringify(requireSpecifiers(route)), /src\/app|src\/server|public\.routes|routes\/index|pg|knex|sequelize|prisma|provider|openai|rag|billing|line|sms|email/i);
   assert.doesNotMatch(route, /process\.env|DATABASE_URL|JWT_SECRET|new Pool|createPool|psql|db:migrate|db:seed|\.listen\s*\(|app\.listen|server\.listen|express\s*\(/i);

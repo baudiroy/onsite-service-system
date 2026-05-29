@@ -544,6 +544,71 @@ test('route registration failure returns sanitized summary without raw thrown er
   assertNoRouteRegistrationSummaryLeak(summary);
 });
 
+test('first route registration failure returns atomic sanitized failure without partial route leak', () => {
+  const throwError = new Error(
+    'first route failed select secret_should_not_leak Bearer token_should_not_leak provider_should_not_leak debug_should_not_leak internal_should_not_leak',
+  );
+  throwError.stack = 'first route stack should not leak\nat select secret_should_not_leak';
+  const router = {
+    routes: [],
+    get(path, ...handlers) {
+      this.routes.push({
+        method: 'GET',
+        path,
+        handlers,
+        rawRoute: 'raw_route_should_not_leak',
+      });
+      throw throwError;
+    },
+    rawRouter: 'raw_router_should_not_leak',
+  };
+
+  const summary = registerCustomerAccessRoutes(router, {
+    dbClient: createSyntheticDbClient([reportRow()]),
+  });
+
+  assert.deepEqual(summary, expectedRegistrationFailure('route_registration_failed'));
+  assert.equal(router.routes.length, 1);
+  assert.equal(typeof summary.routes, 'undefined');
+  assertNoRouteRegistrationSummaryLeak(summary);
+});
+
+test('second route registration failure returns atomic sanitized failure without partial route leak', () => {
+  const throwError = new Error(
+    'second route failed select secret_should_not_leak Bearer token_should_not_leak provider_should_not_leak debug_should_not_leak internal_should_not_leak',
+  );
+  throwError.stack = 'second route stack should not leak\nat select secret_should_not_leak';
+  const router = {
+    routes: [],
+    get(path, ...handlers) {
+      this.routes.push({
+        method: 'GET',
+        path,
+        handlers,
+        rawRoute: 'raw_route_should_not_leak',
+      });
+
+      if (this.routes.length === 2) {
+        throw throwError;
+      }
+
+      return this;
+    },
+    rawRouter: 'raw_router_should_not_leak',
+  };
+
+  const summary = registerCustomerAccessRoutes(router, {
+    dbClient: createSyntheticDbClient([reportRow()]),
+    providerDebug: 'provider_should_not_leak',
+    internalDebug: 'internal_should_not_leak',
+  });
+
+  assert.deepEqual(summary, expectedRegistrationFailure('route_registration_failed'));
+  assert.equal(router.routes.length, 2);
+  assert.equal(typeof summary.routes, 'undefined');
+  assertNoRouteRegistrationSummaryLeak(summary);
+});
+
 test('registered handler can be invoked with synthetic req/res and returns generic safe-deny', () => {
   const router = createSyntheticRouter();
   registerCustomerAccessRoutes(router);
