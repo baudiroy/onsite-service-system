@@ -1,0 +1,156 @@
+{
+  "baseline_head": "788b0c817bfd7d2bd3d667df843a719fcaa6cee2",
+  "task_count": 25,
+  "tasks": [
+    {
+      "task": 2142,
+      "title": "Customer Access Production Mount Composition Adapter Skeleton / No Server No DB No Smoke",
+      "file": "task-2142-customer-access-production-mount-composition-adapter-skeleton-no-server-no-db-no-smoke.md",
+      "phase": "Phase A — Production mount composition"
+    },
+    {
+      "task": 2143,
+      "title": "Customer Access Production Mount Composition Adapter Regression Guard / No Server No DB No Smoke",
+      "file": "task-2143-customer-access-production-mount-composition-adapter-regression-guard-no-server-no-db-no-smoke.md",
+      "phase": "Phase A — Production mount composition"
+    },
+    {
+      "task": 2144,
+      "title": "Customer Access Production Mount Composition Adapter Branch Checkpoint / No Runtime Change",
+      "file": "task-2144-customer-access-production-mount-composition-adapter-branch-checkpoint-no-runtime-change.md",
+      "phase": "Phase A — Production mount composition"
+    },
+    {
+      "task": 2145,
+      "title": "Customer Access Production Mount Implementation Authorization Packet / No Production Mount No Server No DB",
+      "file": "task-2145-customer-access-production-mount-implementation-authorization-packet-no-production-mount-no-server-no-db.md",
+      "phase": "Phase A — Production mount authorization"
+    },
+    {
+      "task": 2146,
+      "title": "Customer Access Production Mount Implementation / Explicit App Composition Only / No DB No Smoke",
+      "file": "task-2146-customer-access-production-mount-implementation-explicit-app-composition-only-no-db-no-smoke.md",
+      "phase": "Phase A — Conditional production mount"
+    },
+    {
+      "task": 2147,
+      "title": "Customer Access Production Mount HTTP Behavior Surrogate / No Server No DB No Smoke",
+      "file": "task-2147-customer-access-production-mount-http-behavior-surrogate-no-server-no-db-no-smoke.md",
+      "phase": "Phase A — Production mount behavior"
+    },
+    {
+      "task": 2148,
+      "title": "Customer Access Production Mount Static Boundary Guard / No Server No DB No Smoke",
+      "file": "task-2148-customer-access-production-mount-static-boundary-guard-no-server-no-db-no-smoke.md",
+      "phase": "Phase A — Production mount static guard"
+    },
+    {
+      "task": 2149,
+      "title": "Customer Access Production Mount Branch Checkpoint / No Runtime Change",
+      "file": "task-2149-customer-access-production-mount-branch-checkpoint-no-runtime-change.md",
+      "phase": "Phase A — Production mount checkpoint"
+    },
+    {
+      "task": 2150,
+      "title": "Customer Access Audit Migration Disposable DB Dry-Run Reauthorization Packet / No DB Execution",
+      "file": "task-2150-customer-access-audit-migration-disposable-db-dry-run-reauthorization-packet-no-db-execution.md",
+      "phase": "Phase B — Audit migration dry-run gate"
+    },
+    {
+      "task": 2152,
+      "title": "Customer Access Audit Migration Dry-Run Result Checkpoint / No Runtime Change",
+      "file": "task-2152-customer-access-audit-migration-dry-run-result-checkpoint-no-runtime-change.md",
+      "phase": "Phase B — Audit migration dry-run gate"
+    },
+    {
+      "task": 2151,
+      "title": "Customer Access Audit Migration 027 Disposable Local Test DB Dry-Run / Explicit Authorization Required",
+      "file": "task-2151-customer-access-audit-migration-027-disposable-local-test-db-dry-run-explicit-authorization-required.md",
+      "phase": "Phase B — Conditional audit migration dry-run"
+    },
+    {
+      "task": 2153,
+      "title": "Customer Access Audit Repository SQL Statement Contract / No DB Execution",
+      "file": "task-2153-customer-access-audit-repository-sql-statement-contract-no-db-execution.md",
+      "phase": "Phase C — Audit repository / persistence"
+    },
+    {
+      "task": 2154,
+      "title": "Customer Access Audit Repository Adapter Skeleton / Injected dbClient Only / No Real DB",
+      "file": "task-2154-customer-access-audit-repository-adapter-skeleton-injected-dbclient-only-no-real-db.md",
+      "phase": "Phase C — Audit repository / persistence"
+    },
+    {
+      "task": 2155,
+      "title": "Customer Access Audit Repository Adapter Result and Error Hardening / No Real DB",
+      "file": "task-2155-customer-access-audit-repository-adapter-result-and-error-hardening-no-real-db.md",
+      "phase": "Phase C — Audit repository / persistence"
+    },
+    {
+      "task": 2156,
+      "title": "Customer Access Audit Repository Adapter Branch Checkpoint / No Runtime Change",
+      "file": "task-2156-customer-access-audit-repository-adapter-branch-checkpoint-no-runtime-change.md",
+      "phase": "Phase C — Audit repository / persistence"
+    },
+    {
+      "task": 2157,
+      "title": "Customer Access Audit Persistence Writer Composition with Repository Adapter / Synthetic DB Only",
+      "file": "task-2157-customer-access-audit-persistence-writer-composition-with-repository-adapter-synthetic-db-only.md",
+      "phase": "Phase C — Audit repository / persistence"
+    },
+    {
+      "task": 2158,
+      "title": "Customer Access Audit Persistence Runtime Composition Readiness Static Guard / No Runtime Integration",
+      "file": "task-2158-customer-access-audit-persistence-runtime-composition-readiness-static-guard-no-runtime-integration.md",
+      "phase": "Phase C — Audit repository / persistence"
+    },
+    {
+      "task": 2159,
+      "title": "Customer Access Audit Persistence Repository Composition Branch Checkpoint / No Runtime Change",
+      "file": "task-2159-customer-access-audit-persistence-repository-composition-branch-checkpoint-no-runtime-change.md",
+      "phase": "Phase C — Audit repository / persistence"
+    },
+    {
+      "task": 2160,
+      "title": "Customer Access Production Readiness Final Review Packet / No Runtime Change",
+      "file": "task-2160-customer-access-production-readiness-final-review-packet-no-runtime-change.md",
+      "phase": "Phase D — Production readiness / smoke gate"
+    },
+    {
+      "task": 2161,
+      "title": "Customer Access Production Smoke Authorization Packet / No Smoke No Server",
+      "file": "task-2161-customer-access-production-smoke-authorization-packet-no-smoke-no-server.md",
+      "phase": "Phase D — Production readiness / smoke gate"
+    },
+    {
+      "task": 2162,
+      "title": "Customer Access Authorized Smoke Execution / Explicit Authorization Required",
+      "file": "task-2162-customer-access-authorized-smoke-execution-explicit-authorization-required.md",
+      "phase": "Phase D — Conditional smoke"
+    },
+    {
+      "task": 2163,
+      "title": "Customer Access Production Smoke Result Checkpoint / No Runtime Change",
+      "file": "task-2163-customer-access-production-smoke-result-checkpoint-no-runtime-change.md",
+      "phase": "Phase D — Production readiness / smoke gate"
+    },
+    {
+      "task": 2164,
+      "title": "Engineer Mobile Next Runtime Hardening Branch Planning / No Runtime Change",
+      "file": "task-2164-engineer-mobile-next-runtime-hardening-branch-planning-no-runtime-change.md",
+      "phase": "Phase E — Engineer Mobile next branch candidate"
+    },
+    {
+      "task": 2165,
+      "title": "Engineer Mobile Production Mount Composition Adapter Skeleton / No Server No DB No Smoke",
+      "file": "task-2165-engineer-mobile-production-mount-composition-adapter-skeleton-no-server-no-db-no-smoke.md",
+      "phase": "Phase E — Engineer Mobile next branch candidate"
+    },
+    {
+      "task": 2166,
+      "title": "Engineer Mobile Audit Side-Channel Planning / No Runtime Change",
+      "file": "task-2166-engineer-mobile-audit-side-channel-planning-no-runtime-change.md",
+      "phase": "Phase E — Engineer Mobile next branch candidate"
+    }
+  ]
+}
