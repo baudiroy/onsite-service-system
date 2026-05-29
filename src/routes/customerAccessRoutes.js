@@ -10,11 +10,18 @@ const {
   handleCustomerServiceReportProjectionRequest,
 } = require('../customerAccess/customerServiceReportProjectionHandler');
 const {
+  buildCustomerAccessAuditEvent,
+} = require('../customerAccess/customerAccessAuditEventBuilder');
+const {
+  writeCustomerAccessAuditEvent,
+} = require('../customerAccess/customerAccessAuditWriterAdapter');
+const {
   recordCustomerServiceReportAuditEvent,
 } = require('../customerAccess/customerServiceReportAuditBoundary');
 
 const CUSTOMER_ACCESS_ROUTE_PATH = '/customer-access/:caseId';
 const CUSTOMER_ACCESS_REPORT_ROUTE_PATH = '/customer-access/:caseId/service-report/:reportId';
+const CUSTOMER_ACCESS_ROUTE_REGISTRATION_AUDIT_SOURCE = 'customer_access_route_registration';
 const SAFE_DENY_ENVELOPE = Object.freeze({
   status: 'deny',
   messageKey: 'customerAccess.unavailable',
@@ -163,6 +170,98 @@ function safeRegistrationSucceeded() {
   };
 }
 
+function isAcceptedCustomerAccessRoutePath(path) {
+  return path === CUSTOMER_ACCESS_ROUTE_PATH || path === CUSTOMER_ACCESS_REPORT_ROUTE_PATH;
+}
+
+function routeRegistrationAuditInput({
+  eventType,
+  route,
+  reasonCode,
+  dependencyValid,
+  registrationResult,
+}) {
+  return {
+    eventType,
+    route,
+    method: 'GET',
+    source: CUSTOMER_ACCESS_ROUTE_REGISTRATION_AUDIT_SOURCE,
+    reasonCode,
+    metadata: {
+      dependencyValid,
+      registrationResult,
+    },
+  };
+}
+
+function writeRouteRegistrationAudit({ auditWriter, auditInput }) {
+  if (typeof auditWriter !== 'function') {
+    return;
+  }
+
+  const auditEventResult = buildCustomerAccessAuditEvent(auditInput);
+
+  if (!auditEventResult || auditEventResult.ok !== true || !auditEventResult.auditEvent) {
+    return;
+  }
+
+  try {
+    writeCustomerAccessAuditEvent({
+      auditEvent: auditEventResult.auditEvent,
+      writer: auditWriter,
+    }).catch(() => undefined);
+  } catch (error) {
+    // Registration audit must never alter the registration summary.
+  }
+}
+
+function recordRouteRegistrationSuccessAudit(options, summary) {
+  const auditWriter = auditWriterFromRouteOptions(options);
+
+  if (!auditWriter || !isObject(summary) || !Array.isArray(summary.routes)) {
+    return;
+  }
+
+  for (const route of summary.routes) {
+    if (!isObject(route) || route.method !== 'GET' || !isAcceptedCustomerAccessRoutePath(route.path)) {
+      continue;
+    }
+
+    writeRouteRegistrationAudit({
+      auditWriter,
+      auditInput: routeRegistrationAuditInput({
+        eventType: 'customer_access.route_registration.success',
+        route: route.path,
+        dependencyValid: true,
+        registrationResult: 'success',
+      }),
+    });
+  }
+}
+
+function recordRouteRegistrationFailureAudit(options, reasonCode, failedRoutePath) {
+  const auditWriter = auditWriterFromRouteOptions(options);
+
+  if (
+    !auditWriter
+    || reasonCode !== 'route_registration_failed'
+    || !isAcceptedCustomerAccessRoutePath(failedRoutePath)
+  ) {
+    return;
+  }
+
+  writeRouteRegistrationAudit({
+    auditWriter,
+    auditInput: routeRegistrationAuditInput({
+      eventType: 'customer_access.route_registration.failure',
+      route: failedRoutePath,
+      reasonCode,
+      dependencyValid: true,
+      registrationResult: 'failure',
+    }),
+  });
+}
+
 function hasValidExplicitDbClient(options) {
   if (!hasOwn(options, 'dbClient')) {
     return true;
@@ -245,15 +344,20 @@ function registerCustomerAccessRoutes(router, options) {
     return safeRegistrationFailed('db_client_invalid');
   }
 
+  let routeOptions = options;
+  let attemptedRoutePath;
+
   try {
-    const routeOptions = middlewareOptionsFromRouteOptions(options);
+    routeOptions = middlewareOptionsFromRouteOptions(options);
     const customerAccessContextMiddleware = buildCustomerAccessContextMiddleware(routeOptions);
     const customerAccessServiceReportContextMiddleware = serviceReportContextMiddleware(
       customerAccessContextMiddleware,
     );
     const reportRouteHandler = createCustomerAccessReportRouteHandler(routeOptions);
 
+    attemptedRoutePath = CUSTOMER_ACCESS_ROUTE_PATH;
     registerGet.call(router, CUSTOMER_ACCESS_ROUTE_PATH, customerAccessContextMiddleware, handleCustomerAccessRequest);
+    attemptedRoutePath = CUSTOMER_ACCESS_REPORT_ROUTE_PATH;
     registerGet.call(
       router,
       CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
@@ -261,9 +365,17 @@ function registerCustomerAccessRoutes(router, options) {
       reportRouteHandler,
     );
 
-    return safeRegistrationSucceeded();
+    const summary = safeRegistrationSucceeded();
+
+    recordRouteRegistrationSuccessAudit(routeOptions, summary);
+
+    return summary;
   } catch (error) {
-    return safeRegistrationFailed('route_registration_failed');
+    const summary = safeRegistrationFailed('route_registration_failed');
+
+    recordRouteRegistrationFailureAudit(routeOptions, summary.reasonCode, attemptedRoutePath);
+
+    return summary;
   }
 }
 

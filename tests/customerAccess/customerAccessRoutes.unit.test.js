@@ -407,6 +407,42 @@ function assertNoTask2116AuditOutput(response) {
   }
 }
 
+function assertNoAuditSummaryOutput(summary) {
+  const serialized = JSON.stringify(summary);
+
+  for (const forbidden of [
+    'auditEvent',
+    'auditWritten',
+    'persisted',
+    'writer',
+    'customer_access.route_registration.success',
+    'customer_access.route_registration.failure',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `registration summary leaked audit value: ${forbidden}`);
+  }
+}
+
+function assertRouteRegistrationAuditEvent(event, expected) {
+  const expectedEvent = {
+    eventType: expected.eventType,
+    decision: expected.decision,
+    route: expected.route,
+    method: 'GET',
+    source: 'customer_access_route_registration',
+    metadata: {
+      dependencyValid: expected.dependencyValid,
+      registrationResult: expected.registrationResult,
+    },
+  };
+
+  if (expected.reasonCode) {
+    expectedEvent.reasonCode = expected.reasonCode;
+  }
+
+  assert.deepEqual(event, expectedEvent);
+  assertAuditSafe(event);
+}
+
 function expectedRegistrationSummary() {
   return {
     registered: true,
@@ -862,15 +898,11 @@ test('synthetic mounted router dispatches both accepted customer access routes w
   assertSafeResponse(dbClient.calls[0]);
 });
 
-test('route registration and mounted dispatch do not import Task2109 writer adapter by default', async () => {
-  const routeSource = fs.readFileSync(
-    path.join(repoRoot, 'src/routes/customerAccessRoutes.js'),
-    'utf8',
-  );
+test('route registration and mounted dispatch do not expose audit output by default', async () => {
   const router = createSyntheticRouter();
   const dbClient = createSyntheticDbClient([reportRow()]);
 
-  registerCustomerAccessRoutes(router, {
+  const summary = registerCustomerAccessRoutes(router, {
     dbClient,
     repository: allowRepository(),
   });
@@ -886,11 +918,213 @@ test('route registration and mounted dispatch do not import Task2109 writer adap
     },
   );
 
-  assert.doesNotMatch(routeSource, /customerAccessAuditWriterAdapter|writeCustomerAccessAuditEvent/);
-  assert.doesNotMatch(routeSource, /buildCustomerAccessAuditEvent|customer_access\.service_report\.(allow|deny)/);
+  assert.deepEqual(summary, expectedRegistrationSummary());
+  assertNoAuditSummaryOutput(summary);
   assert.equal(serviceReportResult.body.status, 'allow');
   assertNoTask2116AuditOutput(serviceReportResult.body);
   assertSafeResponse(serviceReportResult.body);
+});
+
+test('successful route registration writes one sanitized audit event per accepted public route', () => {
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([reportRow()]);
+  const auditEvents = [];
+  const summary = registerCustomerAccessRoutes(router, {
+    dbClient,
+    repository: allowRepository(),
+    auditWriter(auditEvent) {
+      auditEvents.push(auditEvent);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+    rawOptions: 'raw_options_should_not_leak',
+    providerDebug: 'provider_should_not_leak',
+    zeaburEnv: 'zeabur_should_not_leak',
+  });
+
+  assert.deepEqual(summary, expectedRegistrationSummary());
+  assertNoAuditSummaryOutput(summary);
+  assert.equal(auditEvents.length, 2);
+  assertRouteRegistrationAuditEvent(auditEvents[0], {
+    eventType: 'customer_access.route_registration.success',
+    decision: 'success',
+    route: CUSTOMER_ACCESS_ROUTE_PATH,
+    dependencyValid: true,
+    registrationResult: 'success',
+  });
+  assertRouteRegistrationAuditEvent(auditEvents[1], {
+    eventType: 'customer_access.route_registration.success',
+    decision: 'success',
+    route: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+    dependencyValid: true,
+    registrationResult: 'success',
+  });
+});
+
+test('route registration failure audit is skipped for early dependency failures and safe for route failures', () => {
+  const earlyFailureAuditEvents = [];
+  const invalidTargetSummary = registerCustomerAccessRoutes(
+    { rawTarget: 'raw_target_should_not_leak' },
+    {
+      auditWriter(auditEvent) {
+        earlyFailureAuditEvents.push(auditEvent);
+      },
+    },
+  );
+  const invalidDbSummary = registerCustomerAccessRoutes(createSyntheticRouter(), {
+    dbClient: {
+      query: 'not function',
+      rawDbClient: 'db_client_should_not_leak',
+      sql: 'select secret_should_not_leak',
+    },
+    auditWriter(auditEvent) {
+      earlyFailureAuditEvents.push(auditEvent);
+    },
+  });
+  const firstRouteThrow = {
+    routes: [],
+    get(path, ...handlers) {
+      this.routes.push({
+        method: 'GET',
+        path,
+        handlers,
+        rawRoute: 'raw_route_should_not_leak',
+      });
+      throw new Error('first route select secret_should_not_leak Bearer token_should_not_leak');
+    },
+  };
+  const secondRouteThrow = {
+    routes: [],
+    get(path, ...handlers) {
+      this.routes.push({
+        method: 'GET',
+        path,
+        handlers,
+        rawRoute: 'raw_route_should_not_leak',
+      });
+
+      if (this.routes.length === 2) {
+        throw new Error('second route debug_should_not_leak internal_should_not_leak');
+      }
+
+      return this;
+    },
+  };
+  const routeFailureAuditEvents = [];
+  const routeFailureSummary = registerCustomerAccessRoutes(firstRouteThrow, {
+    dbClient: createSyntheticDbClient([reportRow()]),
+    projectionService: 'projection_service_should_not_leak',
+    auditWriter(auditEvent) {
+      routeFailureAuditEvents.push(auditEvent);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+  const secondRouteFailureAuditEvents = [];
+  const secondRouteFailureSummary = registerCustomerAccessRoutes(secondRouteThrow, {
+    dbClient: createSyntheticDbClient([reportRow()]),
+    providerDebug: 'provider_should_not_leak',
+    auditWriter(auditEvent) {
+      secondRouteFailureAuditEvents.push(auditEvent);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+
+  assert.deepEqual(invalidTargetSummary, expectedRegistrationFailure('mount_target_invalid'));
+  assert.deepEqual(invalidDbSummary, expectedRegistrationFailure('db_client_invalid'));
+  assert.equal(earlyFailureAuditEvents.length, 0);
+  assertNoAuditSummaryOutput(invalidTargetSummary);
+  assertNoAuditSummaryOutput(invalidDbSummary);
+  assert.deepEqual(routeFailureSummary, expectedRegistrationFailure('route_registration_failed'));
+  assertNoAuditSummaryOutput(routeFailureSummary);
+  assert.equal(routeFailureAuditEvents.length, 1);
+  assertRouteRegistrationAuditEvent(routeFailureAuditEvents[0], {
+    eventType: 'customer_access.route_registration.failure',
+    decision: 'failure',
+    route: CUSTOMER_ACCESS_ROUTE_PATH,
+    reasonCode: 'route_registration_failed',
+    dependencyValid: true,
+    registrationResult: 'failure',
+  });
+  assert.deepEqual(secondRouteFailureSummary, expectedRegistrationFailure('route_registration_failed'));
+  assertNoAuditSummaryOutput(secondRouteFailureSummary);
+  assert.equal(secondRouteFailureAuditEvents.length, 1);
+  assertRouteRegistrationAuditEvent(secondRouteFailureAuditEvents[0], {
+    eventType: 'customer_access.route_registration.failure',
+    decision: 'failure',
+    route: CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+    reasonCode: 'route_registration_failed',
+    dependencyValid: true,
+    registrationResult: 'failure',
+  });
+});
+
+test('route registration audit writer failure never changes registration summary', async () => {
+  const cases = [
+    {
+      name: 'throw',
+      writer(auditEvent) {
+        this.auditEvents.push(auditEvent);
+        throw new Error('writer stack token_should_not_leak');
+      },
+    },
+    {
+      name: 'reject',
+      writer(auditEvent) {
+        this.auditEvents.push(auditEvent);
+
+        return Promise.reject(new Error('writer sql_should_not_leak'));
+      },
+    },
+    {
+      name: 'malformed',
+      writer(auditEvent) {
+        this.auditEvents.push(auditEvent);
+
+        return {
+          raw: 'raw_writer_result_should_not_leak',
+        };
+      },
+    },
+  ];
+
+  for (const candidate of cases) {
+    candidate.auditEvents = [];
+
+    const summary = registerCustomerAccessRoutes(createSyntheticRouter(), {
+      dbClient: createSyntheticDbClient([reportRow()]),
+      repository: allowRepository(),
+      auditWriter: candidate.writer.bind(candidate),
+    });
+
+    await new Promise((resolve) => {
+      setImmediate(resolve);
+    });
+
+    assert.deepEqual(summary, expectedRegistrationSummary(), candidate.name);
+    assertNoAuditSummaryOutput(summary);
+    assertNoRouteRegistrationSummaryLeak(summary);
+    assert.equal(candidate.auditEvents.length, 2, candidate.name);
+    for (const event of candidate.auditEvents) {
+      assertAuditSafe(event);
+    }
+  }
 });
 
 test('synthetic public route dispatch is strict for method path and internal route isolation', async () => {
@@ -1701,6 +1935,7 @@ test('service report route writes sanitized allow audit event with injected writ
       auditEvents.push(event);
     },
   });
+  auditEvents.length = 0;
 
   const { body } = await invokeRouteAsync(
     router.routes[1],
@@ -1749,6 +1984,7 @@ test('service report route writes sanitized deny audit event before projection q
       auditEvents.push(event);
     },
   });
+  auditEvents.length = 0;
 
   const { body, res } = await invokeRouteAsync(
     router.routes[1],
@@ -1797,6 +2033,7 @@ test('service report route audit writer failure remains sanitized and customer-i
       throw new Error('token_should_not_leak');
     },
   });
+  auditEvents.length = 0;
 
   const { body, res } = await invokeRouteAsync(
     router.routes[1],
@@ -1827,6 +2064,7 @@ test('service report route missing projection dbClient stays 404 safe-deny and a
       auditEvents.push(event);
     },
   });
+  auditEvents.length = 0;
 
   const { body, nextCallCount, res } = await invokeRouteAsync(
     router.routes[1],
@@ -1879,6 +2117,7 @@ test('service report route projection query failure remains sanitized and custom
       auditEvents.push(event);
     },
   });
+  auditEvents.length = 0;
 
   const { body, res } = await invokeRouteAsync(
     router.routes[1],

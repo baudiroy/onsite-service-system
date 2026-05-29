@@ -337,7 +337,7 @@ test('customer access context middleware rebuilds downstream context from explic
   assert.doesNotMatch(middleware, /req\.headers|req\.body|req\.query|req\.cookies|req\.session|req\.user|req\.socket|req\.connection/);
 });
 
-test('Task2116 audit side-channel remains bounded to case-overview controller and service-report HTTP handler', () => {
+test('Task2120 audit side-channel remains bounded to accepted customer access HTTP boundaries', () => {
   const route = read(FILES.route);
   const controller = read(FILES.customerAccessController);
   const middleware = read(FILES.customerAccessContextMiddleware);
@@ -354,9 +354,16 @@ test('Task2116 audit side-channel remains bounded to case-overview controller an
   assert.match(projectionHandler, /customer_access\.service_report\.allow/);
   assert.match(projectionHandler, /customer_access\.service_report\.deny/);
   assert.match(projectionAppAdapter, /auditWriter: options\.auditWriter/);
+  assert.match(route, /customerAccessAuditEventBuilder/);
+  assert.match(route, /customerAccessAuditWriterAdapter/);
+  assert.match(route, /writeCustomerAccessAuditEvent/);
+  assert.match(route, /CUSTOMER_ACCESS_ROUTE_REGISTRATION_AUDIT_SOURCE = 'customer_access_route_registration'/);
+  assert.match(route, /customer_access\.route_registration\.success/);
+  assert.match(route, /customer_access\.route_registration\.failure/);
+  assert.match(route, /function recordRouteRegistrationSuccessAudit\(options, summary\)/);
+  assert.match(route, /function recordRouteRegistrationFailureAudit\(options, reasonCode, failedRoutePath\)/);
 
   for (const [name, source] of [
-    ['customerAccessRoutes.js', route],
     ['customerAccessContextMiddleware.js', middleware],
     ['customerServiceReportAuditBoundary.js', auditBoundary],
   ]) {
@@ -365,7 +372,8 @@ test('Task2116 audit side-channel remains bounded to case-overview controller an
     assert.doesNotMatch(source, /customer_access\.service_report\.(allow|deny)/, name);
   }
 
-  assert.doesNotMatch(route, /buildCustomerAccessAuditEvent|customer_access\.service_report|customer_access\.route_registration/);
+  assert.doesNotMatch(route, /customer_access\.case_overview\.(allow|deny)/);
+  assert.doesNotMatch(route, /customer_access\.service_report\.(allow|deny)/);
   assert.doesNotMatch(middleware, /buildCustomerAccessAuditEvent|auditWriter|customer_access\./);
   assert.doesNotMatch(projectionAppAdapter, /customerAccessAuditWriterAdapter|writeCustomerAccessAuditEvent|buildCustomerAccessAuditEvent|customer_access\.service_report/);
 });
@@ -397,13 +405,17 @@ test('customer access public report route remains param based without new global
   assert.match(route, /registered: true,\s*routes: \[/);
   assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_ROUTE_PATH/);
   assert.match(route, /method: 'GET',\s*path: CUSTOMER_ACCESS_REPORT_ROUTE_PATH/);
-  assert.match(route, /try \{\s*const routeOptions = middlewareOptionsFromRouteOptions\(options\)/);
+  assert.match(route, /let routeOptions = options;\s*let attemptedRoutePath;/);
+  assert.match(route, /try \{\s*routeOptions = middlewareOptionsFromRouteOptions\(options\)/);
+  assert.match(route, /attemptedRoutePath = CUSTOMER_ACCESS_ROUTE_PATH;\s*registerGet\.call\(router,\s*CUSTOMER_ACCESS_ROUTE_PATH/);
+  assert.match(route, /attemptedRoutePath = CUSTOMER_ACCESS_REPORT_ROUTE_PATH;\s*registerGet\.call\(/);
   assert.match(route, /registerGet\.call\(router,\s*CUSTOMER_ACCESS_ROUTE_PATH,\s*customerAccessContextMiddleware,\s*handleCustomerAccessRequest\)/);
   assert.match(route, /CUSTOMER_ACCESS_REPORT_ROUTE_PATH,\s*customerAccessServiceReportContextMiddleware,\s*reportRouteHandler/);
-  assert.match(route, /catch \(error\) \{\s*return safeRegistrationFailed\('route_registration_failed'\)/);
+  assert.match(route, /const summary = safeRegistrationSucceeded\(\);\s*recordRouteRegistrationSuccessAudit\(routeOptions, summary\);\s*return summary;/);
+  assert.match(route, /catch \(error\) \{\s*const summary = safeRegistrationFailed\('route_registration_failed'\)/);
+  assert.match(route, /recordRouteRegistrationFailureAudit\(routeOptions, summary\.reasonCode, attemptedRoutePath\);\s*return summary;/);
   assert.match(route, /return safeRegistrationFailed\('mount_target_invalid'\)/);
   assert.match(route, /return safeRegistrationFailed\('db_client_invalid'\)/);
-  assert.match(route, /return safeRegistrationFailed\('route_registration_failed'\)/);
   const safeRegistrationFailedSource = route.match(
     /function safeRegistrationFailed\(reasonCode = 'mount_target_invalid'\) \{[\s\S]*?\n\}/,
   )[0];
