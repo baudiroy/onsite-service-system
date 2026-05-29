@@ -236,3 +236,30 @@ test('planning service failure is sanitized', async () => {
   assert.equal(result.body.caseId, null);
   assertNoUnsafeText(result);
 });
+
+test('audit metadata from planning result is never exposed in public route envelope', async () => {
+  const boundary = createRepairIntakeDraftToCaseSafeRouteBoundary({
+    planningService: async () => planResult({
+      auditEvent: {
+        eventType: 'repair_intake_draft_to_case_planning_decision',
+        visibility: 'internal_only',
+        phone: 'phone',
+        address: 'address',
+        token: 'token',
+        sql: 'select *',
+      },
+      auditRecord: {
+        rawRows: [{ phone: 'phone' }],
+      },
+    }),
+  });
+
+  const result = await boundary.handlePlanRoute(request());
+
+  assert.equal(result.statusCode, 200);
+  assert.equal(result.body.ok, true);
+  assert.equal(result.body.caseId, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(result.body, 'auditEvent'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(result.body, 'auditRecord'), false);
+  assertNoUnsafeText(result);
+});

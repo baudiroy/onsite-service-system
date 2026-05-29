@@ -6,6 +6,9 @@ const {
 const {
   buildRepairIntakeDraftCaseCandidate,
 } = require('./repairIntakeDraftCaseCandidateBuilder');
+const {
+  createRepairIntakeDraftToCasePlanningAuditBoundary,
+} = require('./repairIntakeDraftToCasePlanningAuditBoundary');
 
 const ACTION = 'repair_intake_draft_to_case_plan';
 
@@ -134,6 +137,27 @@ function resolveReaderFunction(draftReader) {
   throw new TypeError('draftReader_required');
 }
 
+function resolvePlanningAuditRecorder(options) {
+  if (isObject(options.planningAuditBoundary)
+    && typeof options.planningAuditBoundary.recordPlanningDecision === 'function') {
+    return options.planningAuditBoundary.recordPlanningDecision.bind(options.planningAuditBoundary);
+  }
+
+  if (isObject(options.auditBoundary)
+    && typeof options.auditBoundary.recordPlanningDecision === 'function') {
+    return options.auditBoundary.recordPlanningDecision.bind(options.auditBoundary);
+  }
+
+  if (options.auditWriter !== undefined) {
+    return createRepairIntakeDraftToCasePlanningAuditBoundary({
+      auditWriter: options.auditWriter,
+      clock: options.clock,
+    }).recordPlanningDecision;
+  }
+
+  return null;
+}
+
 function sanitizedLookup(input) {
   return {
     draftId: stringValue(input.draftId),
@@ -181,6 +205,21 @@ function blocked({ draftId = null, organizationId = null, reasonCode, requiredAc
   });
 }
 
+function auditPlanResult(result) {
+  return sanitizeValue({
+    ok: result.ok === true,
+    action: stringValue(result.action),
+    draftId: stringValue(result.draftId),
+    organizationId: stringValue(result.organizationId),
+    eligible: result.eligible === true,
+    status: stringValue(result.status),
+    reasonCode: stringValue(result.reasonCode),
+    requiredActions: safeArray(result.requiredActions),
+    caseCreationAllowed: result.caseCreationAllowed === true,
+    candidateReady: result.candidateReady === true,
+  });
+}
+
 function preflightFromEligibility({ draftId, organizationId, eligibility }) {
   const eligible = eligibility && eligibility.eligible === true;
 
@@ -215,31 +254,54 @@ function createRepairIntakeDraftCasePlanningService(options = {}) {
     throw new TypeError('draftReader_required');
   }
 
-  const readDraft = resolveReaderFunction(options.draftReader);
-  const eligibilityEvaluator = typeof options.eligibilityEvaluator === 'function'
-    ? options.eligibilityEvaluator
+  const safeOptions = options;
+  const readDraft = resolveReaderFunction(safeOptions.draftReader);
+  const eligibilityEvaluator = typeof safeOptions.eligibilityEvaluator === 'function'
+    ? safeOptions.eligibilityEvaluator
     : evaluateRepairIntakeDraftCaseEligibility;
-  const candidateBuilder = typeof options.candidateBuilder === 'function'
-    ? options.candidateBuilder
+  const candidateBuilder = typeof safeOptions.candidateBuilder === 'function'
+    ? safeOptions.candidateBuilder
     : buildRepairIntakeDraftCaseCandidate;
+  const recordPlanningAudit = resolvePlanningAuditRecorder(safeOptions);
+
+  async function returnWithAudit(result, lookup) {
+    if (typeof recordPlanningAudit !== 'function') {
+      return result;
+    }
+
+    try {
+      await recordPlanningAudit({
+        draftId: result.draftId || lookup.draftId,
+        organizationId: result.organizationId || lookup.organizationId,
+        actorId: lookup.actorId,
+        requestId: lookup.requestId,
+        sourceBoundary: 'repair_intake_draft_case_planning_service',
+        planResult: auditPlanResult(result),
+      });
+    } catch (error) {
+      // Audit is internal-only and must not change the planning response.
+    }
+
+    return result;
+  }
 
   async function planDraftToCase(input = {}) {
     const safeInput = isObject(input) ? input : {};
     const lookup = sanitizedLookup(safeInput);
 
     if (!lookup.draftId) {
-      return blocked({
+      return returnWithAudit(blocked({
         reasonCode: 'missing_draft_id',
         requiredActions: ['provide_draft_id'],
-      });
+      }), lookup);
     }
 
     if (!lookup.organizationId) {
-      return blocked({
+      return returnWithAudit(blocked({
         draftId: lookup.draftId,
         reasonCode: 'missing_organization_scope',
         requiredActions: ['provide_organization_scope'],
-      });
+      }), lookup);
     }
 
     let draft;
@@ -247,31 +309,31 @@ function createRepairIntakeDraftCasePlanningService(options = {}) {
     try {
       draft = await readDraft(lookup);
     } catch (error) {
-      return blocked({
+      return returnWithAudit(blocked({
         draftId: lookup.draftId,
         organizationId: lookup.organizationId,
         reasonCode: 'draft_reader_failed',
         requiredActions: ['retry_or_manual_review'],
-      });
+      }), lookup);
     }
 
     if (!isObject(draft)) {
-      return blocked({
+      return returnWithAudit(blocked({
         draftId: lookup.draftId,
         organizationId: lookup.organizationId,
         reasonCode: 'draft_not_found',
         requiredActions: ['manual_review'],
-      });
+      }), lookup);
     }
 
     if (!draftMatchesLookupOrganization(draft, lookup)) {
-      return envelope({
+      return returnWithAudit(envelope({
         draftId: lookup.draftId,
         organizationId: lookup.organizationId,
         status: 'blocked',
         reasonCode: 'organization_scope_mismatch',
         requiredActions: ['retry_with_matching_organization_scope'],
-      });
+      }), lookup);
     }
 
     const eligibility = eligibilityEvaluator({ draft });
@@ -282,14 +344,14 @@ function createRepairIntakeDraftCasePlanningService(options = {}) {
     });
 
     if (preflightResult.caseCreationAllowed !== true) {
-      return envelope({
+      return returnWithAudit(envelope({
         draftId: lookup.draftId,
         organizationId: lookup.organizationId,
         eligible: false,
         status: preflightResult.status,
         reasonCode: preflightResult.reasonCode,
         requiredActions: preflightResult.requiredActions,
-      });
+      }), lookup);
     }
 
     const candidateResult = candidateBuilder({
@@ -301,7 +363,7 @@ function createRepairIntakeDraftCasePlanningService(options = {}) {
     });
 
     if (!isObject(candidateResult) || candidateResult.candidateReady !== true) {
-      return envelope({
+      return returnWithAudit(envelope({
         draftId: lookup.draftId,
         organizationId: lookup.organizationId,
         eligible: true,
@@ -309,10 +371,10 @@ function createRepairIntakeDraftCasePlanningService(options = {}) {
         reasonCode: stringValue(candidateResult && candidateResult.reasonCode) || 'candidate_not_ready',
         requiredActions: safeArray(candidateResult && candidateResult.requiredActions, ['manual_review']),
         caseCreationAllowed: true,
-      });
+      }), lookup);
     }
 
-    return envelope({
+    return returnWithAudit(envelope({
       ok: true,
       draftId: lookup.draftId,
       organizationId: lookup.organizationId,
@@ -323,7 +385,7 @@ function createRepairIntakeDraftCasePlanningService(options = {}) {
       caseCreationAllowed: true,
       candidateReady: true,
       caseCandidate: candidateResult.caseCandidate,
-    });
+    }), lookup);
   }
 
   return {

@@ -484,3 +484,78 @@ test('custom injected candidate builder output is sanitized before returning int
   });
   assertNoForbiddenFields(result);
 });
+
+test('planning service records internal audit through optional injected boundary without changing response', async () => {
+  const auditCalls = [];
+  const service = createRepairIntakeDraftCasePlanningService({
+    draftReader: async () => sanitizedDraft(),
+    planningAuditBoundary: {
+      async recordPlanningDecision(input) {
+        auditCalls.push(input);
+
+        return { ok: true, recorded: true };
+      },
+    },
+  });
+
+  const result = await service.planDraftToCase(lookupInput());
+
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].draftId, 'draft_task937_001');
+  assert.equal(auditCalls[0].organizationId, 'org_task937');
+  assert.equal(auditCalls[0].actorId, 'actor_task937');
+  assert.equal(auditCalls[0].requestId, 'request_task937');
+  assert.equal(auditCalls[0].sourceBoundary, 'repair_intake_draft_case_planning_service');
+  assert.equal(auditCalls[0].planResult.status, 'eligible');
+  assert.equal(auditCalls[0].planResult.reasonCode, 'candidate_ready');
+  assert.equal(Object.prototype.hasOwnProperty.call(auditCalls[0].planResult, 'caseCandidate'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'auditEvent'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'auditRecord'), false);
+  assertNoForbiddenFields(auditCalls);
+  assertNoForbiddenFields(result);
+});
+
+test('planning service records review-required decision metadata without returning audit data', async () => {
+  const auditCalls = [];
+  const service = createRepairIntakeDraftCasePlanningService({
+    draftReader: async () => sanitizedDraft({ duplicateStatus: 'possible_duplicate' }),
+    planningAuditBoundary: {
+      async recordPlanningDecision(input) {
+        auditCalls.push(input);
+
+        return { ok: true, recorded: true };
+      },
+    },
+  });
+
+  const result = await service.planDraftToCase(lookupInput());
+
+  assert.equal(result.status, 'needs_review');
+  assert.equal(result.reasonCode, 'duplicate_unresolved');
+  assert.equal(auditCalls.length, 1);
+  assert.equal(auditCalls[0].planResult.status, 'needs_review');
+  assert.equal(auditCalls[0].planResult.reasonCode, 'duplicate_unresolved');
+  assert.equal(Object.prototype.hasOwnProperty.call(auditCalls[0].planResult, 'caseCandidate'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'auditEvent'), false);
+  assertNoForbiddenFields(auditCalls);
+  assertNoForbiddenFields(result);
+});
+
+test('planning audit writer failure stays internal and preserves safe planning response', async () => {
+  const service = createRepairIntakeDraftCasePlanningService({
+    draftReader: async () => sanitizedDraft(),
+    planningAuditBoundary: {
+      async recordPlanningDecision() {
+        throw new Error('select * stack trace phone address providerPayload token secret');
+      },
+    },
+  });
+
+  const result = await service.planDraftToCase(lookupInput());
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, 'eligible');
+  assert.equal(result.reasonCode, 'candidate_ready');
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'auditEvent'), false);
+  assertNoForbiddenFields(result);
+});
