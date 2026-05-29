@@ -1,6 +1,8 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 
 const {
@@ -8,6 +10,8 @@ const {
   CUSTOMER_ACCESS_ROUTE_PATH,
   registerCustomerAccessRoutes,
 } = require('../../src/routes/customerAccessRoutes');
+
+const repoRoot = path.resolve(__dirname, '../..');
 
 function createSyntheticRouter() {
   return {
@@ -383,6 +387,23 @@ function assertAuditSafe(event) {
     '2026-05-23 10:00-12:00',
   ]) {
     assert.equal(serialized.includes(value), false, `audit event leaked forbidden value: ${value}`);
+  }
+}
+
+function assertNoTask2116AuditOutput(response) {
+  const serialized = JSON.stringify(response);
+
+  for (const forbidden of [
+    'customer_access.service_report.allow',
+    'customer_access.service_report.deny',
+    'customer_access.case_overview.allow',
+    'customer_access.case_overview.deny',
+    'auditEvent',
+    'auditWritten',
+    'persisted',
+    'writer',
+  ]) {
+    assert.equal(serialized.includes(forbidden), false, `mounted route response leaked audit value: ${forbidden}`);
   }
 }
 
@@ -836,7 +857,40 @@ test('synthetic mounted router dispatches both accepted customer access routes w
   ]);
   assertSafeResponse(baseRouteResult.body);
   assertSafeResponse(reportRouteResult.body);
+  assertNoTask2116AuditOutput(baseRouteResult.body);
+  assertNoTask2116AuditOutput(reportRouteResult.body);
   assertSafeResponse(dbClient.calls[0]);
+});
+
+test('route registration and mounted dispatch do not import Task2109 writer adapter by default', async () => {
+  const routeSource = fs.readFileSync(
+    path.join(repoRoot, 'src/routes/customerAccessRoutes.js'),
+    'utf8',
+  );
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([reportRow()]);
+
+  registerCustomerAccessRoutes(router, {
+    dbClient,
+    repository: allowRepository(),
+  });
+
+  const serviceReportResult = await invokeRouteAsync(
+    router.routes[1],
+    {
+      params: {
+        caseId: 'case_route_001',
+        reportId: 'report_public_route_001',
+      },
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  );
+
+  assert.doesNotMatch(routeSource, /customerAccessAuditWriterAdapter|writeCustomerAccessAuditEvent/);
+  assert.doesNotMatch(routeSource, /buildCustomerAccessAuditEvent|customer_access\.service_report\.(allow|deny)/);
+  assert.equal(serviceReportResult.body.status, 'allow');
+  assertNoTask2116AuditOutput(serviceReportResult.body);
+  assertSafeResponse(serviceReportResult.body);
 });
 
 test('synthetic public route dispatch is strict for method path and internal route isolation', async () => {
