@@ -27,8 +27,8 @@ function applyCustomerAccessContextToRequest(req, context) {
   const safeContext = isObject(context) ? context : buildCustomerAccessContext();
 
   req.params = {
-    ...objectOrEmpty(req.params),
     ...objectOrEmpty(safeContext.params),
+    ...objectOrEmpty(req.params),
   };
   req.auth = {
     ...objectOrEmpty(req.auth),

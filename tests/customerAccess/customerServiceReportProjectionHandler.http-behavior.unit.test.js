@@ -213,6 +213,29 @@ test('missing or invalid customerAccessContext returns generic safe-deny before 
   assert.equal(dbClient.calls.length, 0);
 });
 
+test('missing empty or suspicious request params return generic safe-deny before query', async () => {
+  const dbClient = dbClientWithRows([reportRow()]);
+
+  for (const params of [
+    { reportId: 'report_public_handler_001' },
+    { caseId: '', reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001', reportId: '' },
+    { caseId: "case_handler_001' or '1'='1", reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001/../internal', reportId: 'report_public_handler_001' },
+    { caseId: 'case_handler_001', reportId: 'report_public_handler_001;select secret' },
+    { caseId: 'case_handler_001', reportId: '../report_public_handler_001' },
+  ]) {
+    const response = await handleCustomerServiceReportProjectionRequest({
+      request: request({ params }),
+      dbClient,
+    });
+
+    assertGenericSafeDeny(response);
+  }
+
+  assert.equal(dbClient.calls.length, 0);
+});
+
 test('unauthorized org mismatch and not found return generic safe-deny without existence leak', async () => {
   const mismatchDbClient = dbClientWithRows([
     reportRow({

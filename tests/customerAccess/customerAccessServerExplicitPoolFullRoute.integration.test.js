@@ -438,6 +438,32 @@ test('server explicit pool malformed service report path stays not-found without
   assertNoLeak(response.body);
 });
 
+test('server explicit pool suspicious service report params safe-deny before projection query', async () => {
+  for (const pathname of [
+    '/customer-access/case_full_route_001%27or%271%27%3D%271/service-report/report_public_full_route_001',
+    '/customer-access/case_full_route_001/service-report/report_public_full_route_001%3Bselect%20secret',
+  ]) {
+    const queryCalls = [];
+    const bootstrap = createServerBootstrap(enabledOptions({
+      customerAccessPool: createAsyncSyntheticPool(queryCalls),
+    }));
+
+    const response = await requestApp(bootstrap.app, pathname);
+
+    assert.equal(response.statusCode, 404);
+    assert.equal(response.body.status, 'deny');
+    assert.equal(
+      queryCalls.some((call) => (
+        String(call.sql).includes('public_report_id = $4') &&
+        Array.isArray(call.params) &&
+        call.params.length === 4
+      )),
+      false,
+    );
+    assertNoLeak(response.body);
+  }
+});
+
 test('allow response strips internal report and sensitive fields', async () => {
   const bootstrap = createServerBootstrap(enabledOptions({
     customerAccessPool: createSyntheticPool([]),

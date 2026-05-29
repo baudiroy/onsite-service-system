@@ -175,6 +175,73 @@ test('missing or invalid customerAccessContext fails closed before query', async
   assert.equal(dbClient.calls.length, 0);
 });
 
+test('missing empty or suspicious route identifiers fail closed before query', async () => {
+  const dbClient = createDbClient([reportRow()]);
+
+  for (const candidate of [
+    { caseId: undefined, reportId: 'report_public_projection_001' },
+    { caseId: '', reportId: 'report_public_projection_001' },
+    { caseId: '   ', reportId: 'report_public_projection_001' },
+    { caseId: 'case_projection_001', reportId: undefined },
+    { caseId: 'case_projection_001', reportId: '' },
+    { caseId: 'case_projection_001', reportId: '   ' },
+    { caseId: "case_projection_001' or '1'='1", reportId: 'report_public_projection_001' },
+    { caseId: 'case_projection_001/../internal', reportId: 'report_public_projection_001' },
+    { caseId: 'case_projection_001', reportId: 'report_public_projection_001;select secret' },
+    { caseId: 'case_projection_001', reportId: '../report_public_projection_001' },
+  ]) {
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext: authorizedContext(),
+      caseId: candidate.caseId,
+      reportId: candidate.reportId,
+    });
+
+    assertSafeDeny(output);
+    assertNoSensitiveLeak(output);
+  }
+
+  assert.equal(dbClient.calls.length, 0);
+});
+
+test('suspicious customer access context identifiers fail closed before query', async () => {
+  const dbClient = createDbClient([reportRow()]);
+
+  for (const customerAccessContext of [
+    authorizedContext({
+      auth: {
+        organizationId: "org_projection_001'--",
+        customerId: 'customer_projection_001',
+        customerIdentityVerified: true,
+      },
+    }),
+    authorizedContext({
+      auth: {
+        organizationId: 'org_projection_001',
+        customerId: '../customer_projection_001',
+        customerIdentityVerified: true,
+      },
+    }),
+    authorizedContext({
+      params: {
+        caseId: 'case_projection_001;select secret',
+      },
+    }),
+  ]) {
+    const output = await getCustomerServiceReportProjection({
+      dbClient,
+      customerAccessContext,
+      caseId: 'case_projection_001',
+      reportId: 'report_public_projection_001',
+    });
+
+    assertSafeDeny(output);
+    assertNoSensitiveLeak(output);
+  }
+
+  assert.equal(dbClient.calls.length, 0);
+});
+
 test('organization mismatch fails closed with generic deny and no existence leak', async () => {
   const dbClient = createDbClient([
     reportRow({

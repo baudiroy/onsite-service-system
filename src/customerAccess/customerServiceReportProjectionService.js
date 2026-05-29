@@ -70,6 +70,22 @@ function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function identifierValue(value) {
+  const candidate = stringValue(value);
+
+  return candidate && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(candidate)
+    ? candidate
+    : undefined;
+}
+
+function hasMalformedIdentifierValue(...values) {
+  return values.some((value) => {
+    const candidate = stringValue(value);
+
+    return Boolean(candidate && !identifierValue(candidate));
+  });
+}
+
 function booleanTrue(value) {
   return value === true;
 }
@@ -295,28 +311,54 @@ function buildAllowEnvelope(serviceReport) {
 }
 
 function contextOrganizationId(context) {
-  return stringValue(context.organizationId)
-    || stringValue(context.auth && context.auth.organizationId)
-    || stringValue(context.organization && context.organization.organizationId)
-    || stringValue(context.organization && context.organization.id);
+  return identifierValue(context.organizationId)
+    || identifierValue(context.auth && context.auth.organizationId)
+    || identifierValue(context.organization && context.organization.organizationId)
+    || identifierValue(context.organization && context.organization.id);
 }
 
 function contextCustomerId(context) {
-  return stringValue(context.customerId)
-    || stringValue(context.auth && context.auth.customerId)
-    || stringValue(context.customerIdentity && context.customerIdentity.customerId)
-    || stringValue(context.customer && context.customer.id);
+  return identifierValue(context.customerId)
+    || identifierValue(context.auth && context.auth.customerId)
+    || identifierValue(context.customerIdentity && context.customerIdentity.customerId)
+    || identifierValue(context.customer && context.customer.id);
 }
 
 function contextCaseId(context) {
-  return stringValue(context.caseId)
-    || stringValue(context.params && context.params.caseId)
-    || stringValue(context.case && context.case.caseId)
-    || stringValue(context.case && context.case.id);
+  return identifierValue(context.caseId)
+    || identifierValue(context.params && context.params.caseId)
+    || identifierValue(context.case && context.case.caseId)
+    || identifierValue(context.case && context.case.id);
+}
+
+function hasMalformedCustomerAccessIdentifier(context) {
+  return hasMalformedIdentifierValue(
+    context.organizationId,
+    context.auth && context.auth.organizationId,
+    context.organization && context.organization.organizationId,
+    context.organization && context.organization.id,
+    context.customerId,
+    context.auth && context.auth.customerId,
+    context.customerIdentity && context.customerIdentity.customerId,
+    context.customer && context.customer.id,
+    context.caseId,
+    context.params && context.params.caseId,
+    context.case && context.case.caseId,
+    context.case && context.case.id,
+    context.reportId,
+    context.params && context.params.reportId,
+    context.report && context.report.reportId,
+    context.report && context.report.id,
+    context.serviceReport && context.serviceReport.reportId,
+  );
 }
 
 function isAuthorizedContext(context) {
   if (!isObject(context)) {
+    return false;
+  }
+
+  if (hasMalformedCustomerAccessIdentifier(context)) {
     return false;
   }
 
@@ -534,8 +576,8 @@ async function getCustomerServiceReportProjection(options = {}) {
   }
 
   const { dbClient, customerAccessContext } = options;
-  const caseId = stringValue(options.caseId);
-  const reportId = stringValue(options.reportId);
+  const caseId = identifierValue(options.caseId);
+  const reportId = identifierValue(options.reportId);
 
   if (!isObject(dbClient) || typeof dbClient.query !== 'function') {
     return buildSafeDenyEnvelope();
