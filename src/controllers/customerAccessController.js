@@ -1,6 +1,8 @@
 'use strict';
 
 const { buildCustomerAccessHttpResponse } = require('../customerAccess/customerAccessHttpFacade');
+const { buildCustomerAccessAuditEvent } = require('../customerAccess/customerAccessAuditEventBuilder');
+const { writeCustomerAccessAuditEvent } = require('../customerAccess/customerAccessAuditWriterAdapter');
 
 const SAFE_DENY_ENVELOPE = Object.freeze({
   status: 'deny',
@@ -22,6 +24,8 @@ const SERVICE_REPORT_BASE_RESPONSE_KEYS = Object.freeze([
 ]);
 const CUSTOMER_VISIBLE_STATUS_SOURCE_KEY = 'status';
 const CUSTOMER_VISIBLE_SUMMARY_SOURCE_KEY = 'summary';
+const CUSTOMER_ACCESS_OVERVIEW_ROUTE = '/customer-access/:caseId';
+const CUSTOMER_ACCESS_OVERVIEW_AUDIT_SOURCE = 'customer_access_controller';
 const SERVICE_REPORT_RESPONSE_KEYS = Object.freeze([
   ...SERVICE_REPORT_BASE_RESPONSE_KEYS,
   CUSTOMER_VISIBLE_STATUS_SOURCE_KEY,
@@ -281,9 +285,15 @@ function buildCustomerAccessControllerResponseWithOptions(req, options) {
   const facade = isPlainObject(options) && typeof safeProperty(options, 'buildCustomerAccessHttpResponse') === 'function'
     ? safeProperty(options, 'buildCustomerAccessHttpResponse')
     : buildCustomerAccessHttpResponse;
+  const auditWriter = isPlainObject(options) && typeof safeProperty(options, 'auditWriter') === 'function'
+    ? safeProperty(options, 'auditWriter')
+    : undefined;
+
+  let overviewInput;
+  let envelope;
 
   try {
-    const overviewInput = buildCustomerAccessOverviewInput(req);
+    overviewInput = buildCustomerAccessOverviewInput(req);
 
     if (!overviewInput) {
       return safeDenyEnvelope();
@@ -291,18 +301,90 @@ function buildCustomerAccessControllerResponseWithOptions(req, options) {
 
     const facadeResult = facade(overviewInput);
 
-    return safeEnvelopeFromFacadeResult(facadeResult);
+    envelope = safeEnvelopeFromFacadeResult(facadeResult);
   } catch (error) {
-    return safeDenyEnvelope();
+    envelope = safeDenyEnvelope();
   }
+
+  recordCaseOverviewAudit({
+    auditWriter,
+    envelope,
+    overviewInput,
+  });
+
+  return envelope;
+}
+
+function safeAuditIdentifierFromAuth(auth, key) {
+  return safeIdentifierValue(safeProperty(plainEnvelopeObjectOrEmpty(auth), key));
+}
+
+function caseOverviewAuditEventType(envelope) {
+  return envelope && envelope.status === 'allow'
+    ? 'customer_access.case_overview.allow'
+    : 'customer_access.case_overview.deny';
+}
+
+function caseOverviewAuditInput({ envelope, overviewInput }) {
+  const eventType = caseOverviewAuditEventType(envelope);
+  const auth = safeProperty(safeProperty(overviewInput, 'customerAccessContext'), 'auth');
+  const auditInput = {
+    eventType,
+    caseId: safeIdentifierValue(safeProperty(overviewInput, 'caseId')),
+    decision: envelope && envelope.status === 'allow' ? 'allow' : 'deny',
+    route: CUSTOMER_ACCESS_OVERVIEW_ROUTE,
+    method: 'GET',
+    source: CUSTOMER_ACCESS_OVERVIEW_AUDIT_SOURCE,
+    metadata: {
+      routeMatched: true,
+      contextPresent: true,
+      identifierValid: true,
+    },
+  };
+  const organizationId = safeAuditIdentifierFromAuth(auth, 'organizationId');
+  const customerId = safeAuditIdentifierFromAuth(auth, 'customerId');
+
+  if (organizationId) {
+    auditInput.organizationId = organizationId;
+  }
+
+  if (customerId) {
+    auditInput.customerId = customerId;
+  }
+
+  if (eventType === 'customer_access.case_overview.deny') {
+    auditInput.reasonCode = SAFE_DENY_ENVELOPE.messageKey;
+  }
+
+  return auditInput;
+}
+
+function recordCaseOverviewAudit({ auditWriter, envelope, overviewInput }) {
+  if (typeof auditWriter !== 'function' || !overviewInput) {
+    return;
+  }
+
+  const auditEventResult = buildCustomerAccessAuditEvent(caseOverviewAuditInput({
+    envelope,
+    overviewInput,
+  }));
+
+  if (!auditEventResult.ok) {
+    return;
+  }
+
+  writeCustomerAccessAuditEvent({
+    auditEvent: auditEventResult.auditEvent,
+    writer: auditWriter,
+  }).catch(() => undefined);
 }
 
 function statusCodeForEnvelope(envelope) {
   return envelope && envelope.status === 'allow' ? 200 : 404;
 }
 
-function handleCustomerAccessRequest(req, res) {
-  const envelope = buildCustomerAccessControllerResponse(req);
+function handleCustomerAccessRequest(req, res, options) {
+  const envelope = buildCustomerAccessControllerResponse(req, options);
   const statusCode = statusCodeForEnvelope(envelope);
 
   return res.status(statusCode).json(envelope);

@@ -7,6 +7,10 @@ const {
   buildCustomerAccessControllerResponse,
   handleCustomerAccessRequest,
 } = require('../../src/controllers/customerAccessController');
+const {
+  CUSTOMER_ACCESS_AUDIT_EVENT_KEYS,
+  CUSTOMER_ACCESS_AUDIT_METADATA_KEYS,
+} = require('../../src/customerAccess/customerAccessAuditEventBuilder');
 
 function validReq() {
   return {
@@ -140,6 +144,30 @@ function assertSafeResponse(response) {
 
   for (const value of forbiddenValues) {
     assert.equal(serialized.includes(value), false, `controller response leaked forbidden value: ${value}`);
+  }
+}
+
+function assertSafeAuditEvent(auditEvent) {
+  const serialized = JSON.stringify(auditEvent);
+
+  assert.deepEqual(
+    Object.keys(auditEvent).sort(),
+    Object.keys(auditEvent)
+      .filter((key) => CUSTOMER_ACCESS_AUDIT_EVENT_KEYS.includes(key))
+      .sort(),
+  );
+
+  if (auditEvent.metadata) {
+    assert.deepEqual(
+      Object.keys(auditEvent.metadata).sort(),
+      Object.keys(auditEvent.metadata)
+        .filter((key) => CUSTOMER_ACCESS_AUDIT_METADATA_KEYS.includes(key))
+        .sort(),
+    );
+  }
+
+  for (const value of forbiddenValues) {
+    assert.equal(serialized.includes(value), false, `audit event leaked forbidden value: ${value}`);
   }
 }
 
@@ -858,4 +886,257 @@ test('input req object is not mutated and finalAppointmentId is not modified', (
   assert.equal(req.customerAccessContext.customerVisibleData.serviceReport.finalAppointmentId, 'appointment-final-001');
   assert.equal(response.data.serviceReport.finalAppointmentId, 'appointment-final-001');
   assertSafeResponse(response);
+});
+
+test('case overview allow response writes one injected audit event without changing response', () => {
+  const auditEvents = [];
+  const response = buildCustomerAccessControllerResponse(
+    validReq(),
+    {
+      buildCustomerAccessHttpResponse: () => validFacadeAllowResult(),
+      auditWriter: (auditEvent) => {
+        auditEvents.push(auditEvent);
+
+        return {
+          ok: true,
+          status: 'recorded',
+          auditWritten: true,
+          persisted: true,
+          rawResult: 'audit log should never leak',
+        };
+      },
+    },
+  );
+
+  assert.deepEqual(response, {
+    status: 'allow',
+    messageKey: 'customerAccess.available',
+    customerVisible: true,
+    data: {
+      serviceReport: {
+        caseNo: 'CASE-001',
+        finalAppointmentId: 'appointment-final-001',
+        status: 'completed',
+        summary: 'Service completed.',
+      },
+    },
+  });
+  assert.equal(auditEvents.length, 1);
+  assert.deepEqual(auditEvents[0], {
+    eventType: 'customer_access.case_overview.allow',
+    organizationId: 'org-synthetic',
+    customerId: 'customer-synthetic',
+    caseId: 'case-synthetic',
+    decision: 'allow',
+    route: '/customer-access/:caseId',
+    method: 'GET',
+    source: 'customer_access_controller',
+    metadata: {
+      routeMatched: true,
+      contextPresent: true,
+      identifierValid: true,
+    },
+  });
+  assertSafeAuditEvent(auditEvents[0]);
+  assertSafeResponse(response);
+});
+
+test('case overview safe-deny response writes one injected deny audit event without changing response', () => {
+  const auditEvents = [];
+  const response = buildCustomerAccessControllerResponse(
+    validReq(),
+    {
+      buildCustomerAccessHttpResponse: () => ({
+        status: 'deny',
+        reason: 'MISSING_ORGANIZATION_SCOPE',
+        raw: 'raw_case_payload_should_not_leak',
+      }),
+      auditWriter: (auditEvent) => {
+        auditEvents.push(auditEvent);
+
+        return {
+          ok: true,
+          status: 'recorded',
+          auditWritten: true,
+          persisted: true,
+        };
+      },
+    },
+  );
+
+  assertGenericDeny(response);
+  assert.equal(auditEvents.length, 1);
+  assert.deepEqual(auditEvents[0], {
+    eventType: 'customer_access.case_overview.deny',
+    organizationId: 'org-synthetic',
+    customerId: 'customer-synthetic',
+    caseId: 'case-synthetic',
+    decision: 'deny',
+    reasonCode: 'customerAccess.unavailable',
+    route: '/customer-access/:caseId',
+    method: 'GET',
+    source: 'customer_access_controller',
+    metadata: {
+      routeMatched: true,
+      contextPresent: true,
+      identifierValid: true,
+    },
+  });
+  assertSafeAuditEvent(auditEvents[0]);
+});
+
+test('case overview without auditWriter preserves allow and deny responses with no audit attempt', () => {
+  const allowResponse = buildCustomerAccessControllerResponse(
+    validReq(),
+    injectedFacade(() => validFacadeAllowResult()),
+  );
+  const denyResponse = buildCustomerAccessControllerResponse(
+    validReq(),
+    injectedFacade(() => ({
+      status: 'deny',
+      raw: 'raw_case_payload_should_not_leak',
+    })),
+  );
+
+  assert.equal(allowResponse.status, 'allow');
+  assertGenericDeny(denyResponse);
+  assert.equal(JSON.stringify(allowResponse).includes('auditWritten'), false);
+  assert.equal(JSON.stringify(denyResponse).includes('auditWritten'), false);
+});
+
+test('audit writer throw reject or malformed result never changes customer response', async () => {
+  const expectedAllow = buildCustomerAccessControllerResponse(
+    validReq(),
+    injectedFacade(() => validFacadeAllowResult()),
+  );
+  const expectedDeny = buildCustomerAccessControllerResponse(
+    validReq(),
+    injectedFacade(() => ({ status: 'deny' })),
+  );
+
+  for (const auditWriter of [
+    () => {
+      throw new Error('stack_should_not_leak');
+    },
+    async () => {
+      throw new Error('stack_should_not_leak');
+    },
+    () => ({
+      ok: true,
+      status: 'recorded',
+      auditWritten: false,
+      persisted: true,
+      raw: 'audit log should never leak',
+    }),
+  ]) {
+    const allowResponse = buildCustomerAccessControllerResponse(
+      validReq(),
+      {
+        buildCustomerAccessHttpResponse: () => validFacadeAllowResult(),
+        auditWriter,
+      },
+    );
+    const denyResponse = buildCustomerAccessControllerResponse(
+      validReq(),
+      {
+        buildCustomerAccessHttpResponse: () => ({ status: 'deny' }),
+        auditWriter,
+      },
+    );
+
+    await Promise.resolve();
+
+    assert.deepEqual(allowResponse, expectedAllow);
+    assert.deepEqual(denyResponse, expectedDeny);
+    assertSafeResponse(allowResponse);
+    assertSafeResponse(denyResponse);
+    assert.equal(JSON.stringify(allowResponse).includes('auditWritten'), false);
+    assert.equal(JSON.stringify(denyResponse).includes('auditWritten'), false);
+  }
+});
+
+test('case overview audit event does not include raw request context facade or private fields', () => {
+  const req = validReq();
+  const auditEvents = [];
+  req.headers = { authorization: 'Bearer token_should_not_leak' };
+  req.rawHeaders = ['authorization', 'Bearer token_should_not_leak'];
+  req.body = { sql: 'select secret_should_not_leak' };
+  req.query = { debug: 'debug_should_not_leak' };
+  req.cookies = { session: 'auth_session_user_should_not_leak' };
+  req.user = { private: 'private_admin_only_should_not_leak' };
+  req.session = { token: 'Bearer token_should_not_leak' };
+  req.customerAccessContext.raw = 'raw_case_payload_should_not_leak';
+  req.customerAccessContext.auth.session = 'auth_session_user_should_not_leak';
+  req.customerAccessContext.auth.authorization = 'Bearer token_should_not_leak';
+  req.customerAccessContext.auth.customerPhone = 'customer_phone_raw_should_not_leak';
+  req.customerAccessContext.auth.customerAddress = 'customer_address_raw_should_not_leak';
+  req.customerAccessContext.channel.rawLineUserId = 'line_user_id_should_not_leak';
+  req.customerAccessContext.customerVisibleData.serviceReport.provider_payload = 'provider_payload_should_not_leak';
+  req.customerAccessContext.customerVisibleData.serviceReport.sql = 'select secret_should_not_leak';
+  req.customerAccessContext.customerVisibleData.serviceReport.debug = 'debug_should_not_leak';
+  req.customerAccessContext.customerVisibleData.serviceReport.private = 'private_admin_only_should_not_leak';
+
+  const response = buildCustomerAccessControllerResponse(
+    req,
+    {
+      buildCustomerAccessHttpResponse: () => validFacadeAllowResult({
+        envelope: {
+          raw: 'raw_case_payload_should_not_leak',
+          debug: 'debug_should_not_leak',
+        },
+        data: {
+          dbRow: 'db_row_should_not_leak',
+        },
+        serviceReport: {
+          provider_payload: 'provider_payload_should_not_leak',
+          sql: 'select secret_should_not_leak',
+          debug: 'debug_should_not_leak',
+          private: 'private_admin_only_should_not_leak',
+        },
+      }),
+      auditWriter: (auditEvent) => {
+        auditEvents.push(auditEvent);
+
+        return {
+          ok: true,
+          status: 'recorded',
+          auditWritten: true,
+          persisted: true,
+        };
+      },
+    },
+  );
+
+  assert.equal(response.status, 'allow');
+  assert.equal(auditEvents.length, 1);
+  assertSafeAuditEvent(auditEvents[0]);
+  assertSafeResponse(response);
+  assert.equal(JSON.stringify(response).includes('auditWritten'), false);
+});
+
+test('invalid overview input skips audit writer and keeps safe-deny response unchanged', () => {
+  let auditCallCount = 0;
+  const req = validReq();
+  req.params.caseId = 'Bearer token_should_not_leak';
+  req.customerAccessContext.params.caseId = 'Bearer token_should_not_leak';
+
+  const response = buildCustomerAccessControllerResponse(
+    req,
+    {
+      buildCustomerAccessHttpResponse: () => validFacadeAllowResult(),
+      auditWriter: () => {
+        auditCallCount += 1;
+
+        return {
+          ok: true,
+          status: 'recorded',
+          auditWritten: true,
+          persisted: true,
+        };
+      },
+    },
+  );
+
+  assertGenericDeny(response);
+  assert.equal(auditCallCount, 0);
 });
