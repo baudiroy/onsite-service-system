@@ -94,6 +94,16 @@ const forbiddenValues = [
   'customer_address_raw_should_not_leak',
   'line_user_id_should_not_leak',
   'private_admin_only_should_not_leak',
+  'report_container_should_not_leak',
+  'appointment_container_should_not_leak',
+  'case_container_should_not_leak',
+  'internal_appointment_id_should_not_leak',
+  'engineer_id_should_not_leak',
+  'private_report_body_should_not_leak',
+  'diagnosis_notes_should_not_leak',
+  'completion_notes_should_not_leak',
+  'auth_session_user_should_not_leak',
+  'at stackFrame (internal.js:1)',
 ];
 
 function assertSafeResponse(response) {
@@ -502,6 +512,9 @@ test('facade allow result is allowlisted and unknown raw containers are not emit
         rawRow: 'raw_row_should_not_leak',
         payload: 'provider_payload_should_not_leak',
         result: 'raw_case_payload_should_not_leak',
+        report: 'report_container_should_not_leak',
+        appointment: 'appointment_container_should_not_leak',
+        case: 'case_container_should_not_leak',
         debug: 'debug_should_not_leak',
         stack: 'stack_should_not_leak',
         sql: 'select secret_should_not_leak',
@@ -517,6 +530,15 @@ test('facade allow result is allowlisted and unknown raw containers are not emit
         raw_payload: 'raw_case_payload_should_not_leak',
         private: 'private_admin_only_should_not_leak',
         adminOnly: 'private_admin_only_should_not_leak',
+        appointmentId: 'appointment_container_should_not_leak',
+        internalAppointmentId: 'internal_appointment_id_should_not_leak',
+        engineerId: 'engineer_id_should_not_leak',
+        private_report_body: 'private_report_body_should_not_leak',
+        diagnosis_notes: 'diagnosis_notes_should_not_leak',
+        completion_notes: 'completion_notes_should_not_leak',
+        auth: 'auth_session_user_should_not_leak',
+        session: 'auth_session_user_should_not_leak',
+        user: 'auth_session_user_should_not_leak',
       },
     })),
   );
@@ -535,6 +557,57 @@ test('facade allow result is allowlisted and unknown raw containers are not emit
     },
   });
   assertSafeResponse(response);
+});
+
+test('facade allow result omits malformed allowed serviceReport values without raw leak', () => {
+  class UnsafeDisplayValue {
+    constructor() {
+      this.value = 'private_admin_only_should_not_leak';
+    }
+  }
+
+  const unsafeCandidates = [
+    {},
+    [],
+    new Error('stack_should_not_leak'),
+    new Date('2026-05-30T00:00:00.000Z'),
+    Buffer.from('raw_case_payload_should_not_leak'),
+    { then() {} },
+    () => 'private_admin_only_should_not_leak',
+    new UnsafeDisplayValue(),
+    'select secret_should_not_leak',
+    'Bearer token_should_not_leak',
+    'authorization header should not leak',
+    'at stackFrame (internal.js:1)',
+  ];
+
+  for (const candidate of unsafeCandidates) {
+    const response = buildCustomerAccessControllerResponse(
+      validReq(),
+      injectedFacade(() => validFacadeAllowResult({
+        serviceReport: {
+          caseNo: 'CASE-001',
+          finalAppointmentId: candidate,
+          publicReportId: candidate,
+          status: 'completed',
+          summary: candidate,
+        },
+      })),
+    );
+
+    assert.deepEqual(response, {
+      status: 'allow',
+      messageKey: 'customerAccess.available',
+      customerVisible: true,
+      data: {
+        serviceReport: {
+          caseNo: 'CASE-001',
+          status: 'completed',
+        },
+      },
+    });
+    assertSafeResponse(response);
+  }
 });
 
 test('handler writes res.status(...).json(...) once for allow', () => {

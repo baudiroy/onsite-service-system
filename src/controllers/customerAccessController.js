@@ -90,8 +90,17 @@ function safeDenyEnvelope() {
   };
 }
 
+function isUnsafeDisplayString(value) {
+  return /(?:['"`;=]|--|\/\*|\*\/|\bselect\b|\binsert\b|\bupdate\b|\bdelete\b|\bdrop\b|\bunion\b|\bbearer\b|\bauthorization\b|\bcookie\b|\bset-cookie\b|\btoken\b|\bjwt\b|\bapi[-_ ]?key\b|\bheader\b|\bstack\b|\bat\s+\w+\s*\()/i
+    .test(value);
+}
+
 function isSafeDisplayValue(value) {
-  return value === null || ['string', 'number', 'boolean'].includes(typeof value);
+  if (value === null || ['number', 'boolean'].includes(typeof value)) {
+    return true;
+  }
+
+  return typeof value === 'string' && !isUnsafeDisplayString(value);
 }
 
 function allowlistedServiceReport(candidate) {

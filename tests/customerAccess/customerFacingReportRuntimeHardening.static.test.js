@@ -203,6 +203,9 @@ test('case overview HTTP boundary uses params-only caseId and customerAccessCont
   assert.match(controller, /return \{\s*caseId,\s*customerAccessContext,\s*\};/);
   assert.match(controller, /function safeEnvelopeFromFacadeResult\(facadeResult\)/);
   assert.match(controller, /function safeAllowEnvelopeFromFacadeResult\(facadeResult\)/);
+  assert.match(controller, /function isUnsafeDisplayString\(value\)/);
+  assert.match(controller, /function isSafeDisplayValue\(value\)/);
+  assert.match(controller, /isUnsafeDisplayString\(value\)/);
   assert.match(controller, /const SERVICE_REPORT_RESPONSE_KEYS = Object\.freeze/);
   assert.match(controller, /const overviewInput = buildCustomerAccessOverviewInput\(req\)/);
   assert.match(controller, /if \(!overviewInput\) \{\s*return safeDenyEnvelope\(\);\s*\}/);
