@@ -51,10 +51,16 @@ function createResponse() {
   res.removeHeader = (name) => {
     delete headers[name.toLowerCase()];
   };
-  res.writeHead = (statusCode, headerValues) => {
+  res.writeHead = (statusCode, headerValues, fallbackHeaders) => {
     res.statusCode = statusCode;
-    if (headerValues && typeof headerValues === 'object') {
-      for (const [name, value] of Object.entries(headerValues)) {
+    const safeHeaders = typeof headerValues === 'string' ? fallbackHeaders : headerValues;
+
+    if (typeof headerValues === 'string') {
+      res.statusMessage = headerValues;
+    }
+
+    if (safeHeaders && typeof safeHeaders === 'object') {
+      for (const [name, value] of Object.entries(safeHeaders)) {
         res.setHeader(name, value);
       }
     }
@@ -67,6 +73,7 @@ function createResponse() {
     Writable.prototype.end.call(res, callback);
     return res;
   };
+  res.headers = () => ({ ...headers });
   res.bodyText = () => Buffer.concat(chunks).toString('utf8');
   res.bodyJson = () => JSON.parse(res.bodyText());
 
@@ -83,7 +90,9 @@ function requestApp(app, pathname, options = {}) {
         resolve({
           body: res.bodyJson(),
           bodyText: res.bodyText(),
+          headers: res.headers(),
           statusCode: res.statusCode,
+          statusMessage: res.statusMessage,
         });
       } catch (error) {
         reject(error);
@@ -319,6 +328,33 @@ function assertNoLeak(value) {
   }
 }
 
+function assertJsonContentType(response) {
+  assert.match(String(response.headers['content-type'] || ''), /^application\/json\b/i);
+}
+
+function assertNoDebugOrSecretHeaders(response) {
+  for (const [name, value] of Object.entries(response.headers || {})) {
+    assert.doesNotMatch(name, /x-powered-by|debug|internal|stack|sql|database|token|secret/i);
+    assert.doesNotMatch(
+      String(value),
+      /debug|internal|stack|select secret|database|postgres:\/\/|token_should_not_leak|secret_should_not_leak/i,
+    );
+  }
+}
+
+function assertNoStatusTextLeak(response) {
+  assert.doesNotMatch(
+    String(response.statusMessage || ''),
+    /debug|internal|stack|select secret|database|postgres:\/\/|token_should_not_leak|secret_should_not_leak/i,
+  );
+}
+
+function assertSafeHttpResponseMetadata(response) {
+  assertJsonContentType(response);
+  assertNoDebugOrSecretHeaders(response);
+  assertNoStatusTextLeak(response);
+}
+
 test('server explicit pool all-allow rows return HTTP 200 allow envelope', async () => {
   const queryCalls = [];
   const bootstrap = createServerBootstrap(enabledOptions({
@@ -331,6 +367,7 @@ test('server explicit pool all-allow rows return HTTP 200 allow envelope', async
 
   assert.equal(queryCalls.length > 0, true);
   assert.equal(response.statusCode, 200);
+  assertSafeHttpResponseMetadata(response);
   assert.equal(response.body.status, 'allow');
   assert.deepEqual(response.body.data, {
     serviceReport: {
@@ -353,6 +390,7 @@ test('server explicit async pool all-allow rows return HTTP 200 allow envelope',
 
   assert.equal(queryCalls.length > 0, true);
   assert.equal(response.statusCode, 200);
+  assertSafeHttpResponseMetadata(response);
   assert.equal(response.body.status, 'allow');
   assert.deepEqual(response.body.data, {
     serviceReport: {
@@ -376,6 +414,7 @@ test('server explicit async pool service report full route passes allow context 
 
   assert.equal(queryCalls.length > 0, true);
   assert.equal(response.statusCode, 200);
+  assertSafeHttpResponseMetadata(response);
   assert.equal(response.body.status, 'allow');
   assert.equal(response.body.messageKey, 'customerAccess.serviceReport.available');
   assert.equal(response.body.customerVisible, true);
@@ -415,6 +454,7 @@ test('server explicit pool service report route rejects unsupported method witho
 
   assert.deepEqual(queryCalls, []);
   assert.equal(response.statusCode, 404);
+  assertSafeHttpResponseMetadata(response);
   assert.equal(response.body.error.code, 'NOT_FOUND');
   assert.match(response.body.error.message, /Route not found: POST/);
   assertNoLeak(response.body);
@@ -433,6 +473,7 @@ test('server explicit pool malformed service report path stays not-found without
 
   assert.deepEqual(queryCalls, []);
   assert.equal(response.statusCode, 404);
+  assertSafeHttpResponseMetadata(response);
   assert.equal(response.body.error.code, 'NOT_FOUND');
   assert.match(response.body.error.message, /Route not found: GET/);
   assertNoLeak(response.body);
@@ -451,6 +492,7 @@ test('server explicit pool suspicious service report params safe-deny before pro
     const response = await requestApp(bootstrap.app, pathname);
 
     assert.equal(response.statusCode, 404);
+    assertSafeHttpResponseMetadata(response);
     assert.equal(response.body.status, 'deny');
     assert.equal(
       queryCalls.some((call) => (
@@ -481,6 +523,7 @@ test('server explicit pool query params cannot override service report route par
   ));
 
   assert.equal(response.statusCode, 200);
+  assertSafeHttpResponseMetadata(response);
   assert.equal(response.body.status, 'allow');
   assert.deepEqual(projectionCall.params, [
     'org_full_route_001',
@@ -498,6 +541,7 @@ test('allow response strips internal report and sensitive fields', async () => {
   const response = await requestApp(bootstrap.app, '/customer-access/case_full_route_001');
 
   assert.equal(response.statusCode, 200);
+  assertSafeHttpResponseMetadata(response);
   assertNoLeak(response.body);
 });
 
@@ -514,6 +558,7 @@ test('readOnly false returns generic safe-deny 404 and pool is not queried', asy
 
   assert.deepEqual(queryCalls, []);
   assert.equal(response.statusCode, 404);
+  assertSafeHttpResponseMetadata(response);
   assert.equal(response.body.status, 'deny');
   assertNoLeak(response.body);
 });
@@ -529,6 +574,7 @@ test('pool query throw returns generic safe-deny 404 without raw error leak', as
   const response = await requestApp(bootstrap.app, '/customer-access/case_full_route_001');
 
   assert.equal(response.statusCode, 404);
+  assertSafeHttpResponseMetadata(response);
   assert.equal(response.body.status, 'deny');
   assertNoLeak(response.body);
 });
@@ -542,6 +588,7 @@ test('malformed pool result returns generic safe-deny 404', async () => {
 
   assert.equal(queryCalls.length > 0, true);
   assert.equal(response.statusCode, 404);
+  assertSafeHttpResponseMetadata(response);
   assert.equal(response.body.status, 'deny');
   assertNoLeak(response.body);
 });
@@ -559,6 +606,7 @@ test('env disabled with pool returns default safe-deny and pool is not queried',
 
   assert.deepEqual(queryCalls, []);
   assert.equal(response.statusCode, 404);
+  assertSafeHttpResponseMetadata(response);
   assert.equal(response.body.status, 'deny');
   assertNoLeak(response.body);
 });
