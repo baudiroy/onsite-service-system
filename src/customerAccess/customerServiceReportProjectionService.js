@@ -630,7 +630,7 @@ function mapProjection(row) {
   }
 
   const serviceReport = {};
-  const customerReportReference = rowValue(row, 'customerReportReference', 'public_report_id', 'publicReportId');
+  const customerReportReference = identifierValue(rowValue(row, 'customerReportReference', 'public_report_id', 'publicReportId'));
   const caseReference = customerDisplayValue(rowValue(row, 'caseReference', 'case_display_id', 'caseDisplayId', 'customer_case_reference'));
   const serviceStatus = customerDisplayValue(rowValue(row, 'serviceStatus', 'service_status_display', 'serviceStatusDisplay', 'statusDisplay'));
   const appointmentWindow = customerDisplayValue(rowValue(row, 'appointmentWindow', 'appointment_window', 'appointmentDisplayTimeWindow'));
