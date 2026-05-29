@@ -12,10 +12,13 @@ const SAFE_DENY_ENVELOPE = Object.freeze({
   }),
 });
 const SAFE_ALLOW_MESSAGE_KEY = 'customerAccess.available';
+const CUSTOMER_VISIBLE_CASE_NO_SOURCE_KEY = 'caseNo';
+const CUSTOMER_VISIBLE_FINAL_APPOINTMENT_ID_SOURCE_KEY = 'finalAppointmentId';
+const CUSTOMER_VISIBLE_PUBLIC_REPORT_ID_SOURCE_KEY = 'publicReportId';
 const SERVICE_REPORT_BASE_RESPONSE_KEYS = Object.freeze([
-  'caseNo',
-  'finalAppointmentId',
-  'publicReportId',
+  CUSTOMER_VISIBLE_CASE_NO_SOURCE_KEY,
+  CUSTOMER_VISIBLE_FINAL_APPOINTMENT_ID_SOURCE_KEY,
+  CUSTOMER_VISIBLE_PUBLIC_REPORT_ID_SOURCE_KEY,
 ]);
 const CUSTOMER_VISIBLE_STATUS_SOURCE_KEY = 'status';
 const CUSTOMER_VISIBLE_SUMMARY_SOURCE_KEY = 'summary';
@@ -114,6 +117,18 @@ function assignSafeDisplayValue(target, key, value) {
   }
 }
 
+function customerVisibleCaseNoValue(candidate) {
+  return safeProperty(candidate, CUSTOMER_VISIBLE_CASE_NO_SOURCE_KEY);
+}
+
+function customerVisibleFinalAppointmentIdValue(candidate) {
+  return safeProperty(candidate, CUSTOMER_VISIBLE_FINAL_APPOINTMENT_ID_SOURCE_KEY);
+}
+
+function customerVisiblePublicReportIdValue(candidate) {
+  return safeProperty(candidate, CUSTOMER_VISIBLE_PUBLIC_REPORT_ID_SOURCE_KEY);
+}
+
 function customerVisibleStatusValue(candidate) {
   return safeProperty(candidate, CUSTOMER_VISIBLE_STATUS_SOURCE_KEY);
 }
@@ -129,9 +144,21 @@ function allowlistedServiceReport(candidate) {
 
   const serviceReport = {};
 
-  for (const key of SERVICE_REPORT_BASE_RESPONSE_KEYS) {
-    assignSafeDisplayValue(serviceReport, key, safeProperty(candidate, key));
-  }
+  assignSafeDisplayValue(
+    serviceReport,
+    CUSTOMER_VISIBLE_CASE_NO_SOURCE_KEY,
+    customerVisibleCaseNoValue(candidate),
+  );
+  assignSafeDisplayValue(
+    serviceReport,
+    CUSTOMER_VISIBLE_FINAL_APPOINTMENT_ID_SOURCE_KEY,
+    customerVisibleFinalAppointmentIdValue(candidate),
+  );
+  assignSafeDisplayValue(
+    serviceReport,
+    CUSTOMER_VISIBLE_PUBLIC_REPORT_ID_SOURCE_KEY,
+    customerVisiblePublicReportIdValue(candidate),
+  );
 
   assignSafeDisplayValue(
     serviceReport,

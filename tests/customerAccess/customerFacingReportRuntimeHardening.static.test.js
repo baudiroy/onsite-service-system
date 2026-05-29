@@ -206,14 +206,26 @@ test('case overview HTTP boundary uses params-only caseId and customerAccessCont
   assert.match(controller, /function isUnsafeDisplayString\(value\)/);
   assert.match(controller, /function isSafeDisplayValue\(value\)/);
   assert.match(controller, /isUnsafeDisplayString\(value\)/);
+  assert.match(controller, /const CUSTOMER_VISIBLE_CASE_NO_SOURCE_KEY = 'caseNo'/);
+  assert.match(controller, /const CUSTOMER_VISIBLE_FINAL_APPOINTMENT_ID_SOURCE_KEY = 'finalAppointmentId'/);
+  assert.match(controller, /const CUSTOMER_VISIBLE_PUBLIC_REPORT_ID_SOURCE_KEY = 'publicReportId'/);
   assert.match(controller, /const SERVICE_REPORT_BASE_RESPONSE_KEYS = Object\.freeze/);
   assert.match(controller, /const CUSTOMER_VISIBLE_STATUS_SOURCE_KEY = 'status'/);
   assert.match(controller, /const CUSTOMER_VISIBLE_SUMMARY_SOURCE_KEY = 'summary'/);
   assert.match(controller, /const SERVICE_REPORT_RESPONSE_KEYS = Object\.freeze/);
+  assert.match(controller, /function customerVisibleCaseNoValue\(candidate\)/);
+  assert.match(controller, /safeProperty\(candidate,\s*CUSTOMER_VISIBLE_CASE_NO_SOURCE_KEY\)/);
+  assert.match(controller, /function customerVisibleFinalAppointmentIdValue\(candidate\)/);
+  assert.match(controller, /safeProperty\(candidate,\s*CUSTOMER_VISIBLE_FINAL_APPOINTMENT_ID_SOURCE_KEY\)/);
+  assert.match(controller, /function customerVisiblePublicReportIdValue\(candidate\)/);
+  assert.match(controller, /safeProperty\(candidate,\s*CUSTOMER_VISIBLE_PUBLIC_REPORT_ID_SOURCE_KEY\)/);
   assert.match(controller, /function customerVisibleStatusValue\(candidate\)/);
   assert.match(controller, /safeProperty\(candidate,\s*CUSTOMER_VISIBLE_STATUS_SOURCE_KEY\)/);
   assert.match(controller, /function customerVisibleSummaryValue\(candidate\)/);
   assert.match(controller, /safeProperty\(candidate,\s*CUSTOMER_VISIBLE_SUMMARY_SOURCE_KEY\)/);
+  assert.match(controller, /assignSafeDisplayValue\(\s*serviceReport,\s*CUSTOMER_VISIBLE_CASE_NO_SOURCE_KEY,\s*customerVisibleCaseNoValue\(candidate\),\s*\)/);
+  assert.match(controller, /assignSafeDisplayValue\(\s*serviceReport,\s*CUSTOMER_VISIBLE_FINAL_APPOINTMENT_ID_SOURCE_KEY,\s*customerVisibleFinalAppointmentIdValue\(candidate\),\s*\)/);
+  assert.match(controller, /assignSafeDisplayValue\(\s*serviceReport,\s*CUSTOMER_VISIBLE_PUBLIC_REPORT_ID_SOURCE_KEY,\s*customerVisiblePublicReportIdValue\(candidate\),\s*\)/);
   assert.match(controller, /assignSafeDisplayValue\(\s*serviceReport,\s*CUSTOMER_VISIBLE_STATUS_SOURCE_KEY,\s*customerVisibleStatusValue\(candidate\),\s*\)/);
   assert.match(controller, /assignSafeDisplayValue\(\s*serviceReport,\s*CUSTOMER_VISIBLE_SUMMARY_SOURCE_KEY,\s*customerVisibleSummaryValue\(candidate\),\s*\)/);
   assert.match(controller, /const overviewInput = buildCustomerAccessOverviewInput\(req\)/);
@@ -232,7 +244,7 @@ test('case overview HTTP boundary uses params-only caseId and customerAccessCont
   assert.match(httpContextAdapter, /isSuspicious|select|bearer|authorization|token/);
   assert.doesNotMatch(controller, /return buildCustomerAccessHttpResponse\(buildCustomerAccessOverviewInput\(req\)\)/);
   assert.doesNotMatch(controller, /return facadeResult|return result|json\(facadeResult\)|\.\.\.\s*facadeResult/);
-  assert.doesNotMatch(controller, /rawStatus|internalStatus|workflowStatus|appointmentStatus|caseStatus|completionStatus|repairStatus|rawSummary|serviceSummary|service_summary|approved_service_summary|ai_draft_summary|ai_generated_summary/);
+  assert.doesNotMatch(controller, /rawStatus|internalStatus|workflowStatus|appointmentStatus|caseStatus|completionStatus|repairStatus|rawSummary|serviceSummary|service_summary|approved_service_summary|ai_draft_summary|ai_generated_summary|case_id|rawCaseNo|internalCaseNo|caseReference|customerCaseId|appointmentId|appointment_id|internalAppointmentId|final_appointment_id|visitId|engineerVisitId|appointmentReference|reportId|report_id|public_report_id|customerReportReference|internalReportId|privateReportId/);
   assert.doesNotMatch(httpContextAdapter, /return input;/);
   assert.doesNotMatch(
     controller,

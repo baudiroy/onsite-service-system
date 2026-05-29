@@ -116,6 +116,23 @@ const forbiddenValues = [
   'approved_service_summary_should_not_leak',
   'ai_draft_summary_should_not_leak',
   'ai_generated_summary_should_not_leak',
+  'case_id_should_not_leak',
+  'raw_case_no_should_not_leak',
+  'internal_case_no_should_not_leak',
+  'case_reference_should_not_leak',
+  'customer_case_id_should_not_leak',
+  'appointment_id_should_not_leak',
+  'appointment_reference_should_not_leak',
+  'final_appointment_id_should_not_leak',
+  'visit_id_should_not_leak',
+  'engineer_visit_id_should_not_leak',
+  'report_id_should_not_leak',
+  'public_report_id_should_not_leak',
+  'customer_report_reference_should_not_leak',
+  'internal_report_id_should_not_leak',
+  'private_report_id_should_not_leak',
+  'customer_id_should_not_leak',
+  'organization_id_should_not_leak',
 ];
 
 function assertSafeResponse(response) {
@@ -564,6 +581,26 @@ test('facade allow result is allowlisted and unknown raw containers are not emit
         approved_service_summary: 'approved_service_summary_should_not_leak',
         ai_draft_summary: 'ai_draft_summary_should_not_leak',
         ai_generated_summary: 'ai_generated_summary_should_not_leak',
+        caseId: 'case_id_should_not_leak',
+        case_id: 'case_id_should_not_leak',
+        id: 'case_id_should_not_leak',
+        rawCaseNo: 'raw_case_no_should_not_leak',
+        internalCaseNo: 'internal_case_no_should_not_leak',
+        caseReference: 'case_reference_should_not_leak',
+        customerCaseId: 'customer_case_id_should_not_leak',
+        appointment_id: 'appointment_id_should_not_leak',
+        final_appointment_id: 'final_appointment_id_should_not_leak',
+        visitId: 'visit_id_should_not_leak',
+        engineerVisitId: 'engineer_visit_id_should_not_leak',
+        appointmentReference: 'appointment_reference_should_not_leak',
+        reportId: 'report_id_should_not_leak',
+        report_id: 'report_id_should_not_leak',
+        public_report_id: 'public_report_id_should_not_leak',
+        customerReportReference: 'customer_report_reference_should_not_leak',
+        internalReportId: 'internal_report_id_should_not_leak',
+        privateReportId: 'private_report_id_should_not_leak',
+        customerId: 'customer_id_should_not_leak',
+        organizationId: 'organization_id_should_not_leak',
       },
     })),
   );
@@ -624,6 +661,57 @@ test('facade allow result uses only approved customer-visible status and summary
       serviceReport: {
         caseNo: 'CASE-001',
         finalAppointmentId: 'appointment-final-001',
+      },
+    },
+  });
+  assertSafeResponse(response);
+});
+
+test('facade allow result uses only approved customer-visible identifier source fields', () => {
+  const response = buildCustomerAccessControllerResponse(
+    validReq(),
+    injectedFacade(() => validFacadeAllowResult({
+      serviceReport: {
+        caseNo: undefined,
+        finalAppointmentId: undefined,
+        publicReportId: undefined,
+        caseId: 'case_id_should_not_leak',
+        case_id: 'case_id_should_not_leak',
+        id: 'case_id_should_not_leak',
+        rawCaseNo: 'raw_case_no_should_not_leak',
+        internalCaseNo: 'internal_case_no_should_not_leak',
+        caseReference: 'case_reference_should_not_leak',
+        customerCaseId: 'customer_case_id_should_not_leak',
+        appointmentId: 'appointment_id_should_not_leak',
+        appointment_id: 'appointment_id_should_not_leak',
+        internalAppointmentId: 'internal_appointment_id_should_not_leak',
+        final_appointment_id: 'final_appointment_id_should_not_leak',
+        visitId: 'visit_id_should_not_leak',
+        engineerVisitId: 'engineer_visit_id_should_not_leak',
+        appointmentReference: 'appointment_reference_should_not_leak',
+        reportId: 'report_id_should_not_leak',
+        report_id: 'report_id_should_not_leak',
+        public_report_id: 'public_report_id_should_not_leak',
+        customerReportReference: 'customer_report_reference_should_not_leak',
+        internalReportId: 'internal_report_id_should_not_leak',
+        privateReportId: 'private_report_id_should_not_leak',
+        customerId: 'customer_id_should_not_leak',
+        organizationId: 'organization_id_should_not_leak',
+        line_user_id: 'line_user_id_should_not_leak',
+        customer_phone_raw: 'customer_phone_raw_should_not_leak',
+        customer_address_raw: 'customer_address_raw_should_not_leak',
+      },
+    })),
+  );
+
+  assert.deepEqual(response, {
+    status: 'allow',
+    messageKey: 'customerAccess.available',
+    customerVisible: true,
+    data: {
+      serviceReport: {
+        status: 'completed',
+        summary: 'Service completed.',
       },
     },
   });
@@ -706,6 +794,32 @@ test('facade allow result omits malformed allowed serviceReport values without r
       },
     });
     assertSafeResponse(unsafeStatusResponse);
+
+    const unsafeIdentifierResponse = buildCustomerAccessControllerResponse(
+      validReq(),
+      injectedFacade(() => validFacadeAllowResult({
+        serviceReport: {
+          caseNo: candidate,
+          finalAppointmentId: candidate,
+          publicReportId: candidate,
+          status: 'completed',
+          summary: 'Service completed.',
+        },
+      })),
+    );
+
+    assert.deepEqual(unsafeIdentifierResponse, {
+      status: 'allow',
+      messageKey: 'customerAccess.available',
+      customerVisible: true,
+      data: {
+        serviceReport: {
+          status: 'completed',
+          summary: 'Service completed.',
+        },
+      },
+    });
+    assertSafeResponse(unsafeIdentifierResponse);
   }
 });
 
