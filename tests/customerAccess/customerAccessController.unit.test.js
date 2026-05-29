@@ -104,6 +104,18 @@ const forbiddenValues = [
   'completion_notes_should_not_leak',
   'auth_session_user_should_not_leak',
   'at stackFrame (internal.js:1)',
+  'raw_status_should_not_leak',
+  'internal_status_should_not_leak',
+  'workflow_status_should_not_leak',
+  'appointment_status_should_not_leak',
+  'case_status_should_not_leak',
+  'completion_status_should_not_leak',
+  'repair_status_should_not_leak',
+  'raw_summary_should_not_leak',
+  'service_summary_should_not_leak',
+  'approved_service_summary_should_not_leak',
+  'ai_draft_summary_should_not_leak',
+  'ai_generated_summary_should_not_leak',
 ];
 
 function assertSafeResponse(response) {
@@ -539,6 +551,19 @@ test('facade allow result is allowlisted and unknown raw containers are not emit
         auth: 'auth_session_user_should_not_leak',
         session: 'auth_session_user_should_not_leak',
         user: 'auth_session_user_should_not_leak',
+        rawStatus: 'raw_status_should_not_leak',
+        internalStatus: 'internal_status_should_not_leak',
+        workflowStatus: 'workflow_status_should_not_leak',
+        appointmentStatus: 'appointment_status_should_not_leak',
+        caseStatus: 'case_status_should_not_leak',
+        completionStatus: 'completion_status_should_not_leak',
+        repairStatus: 'repair_status_should_not_leak',
+        rawSummary: 'raw_summary_should_not_leak',
+        serviceSummary: 'service_summary_should_not_leak',
+        service_summary: 'service_summary_should_not_leak',
+        approved_service_summary: 'approved_service_summary_should_not_leak',
+        ai_draft_summary: 'ai_draft_summary_should_not_leak',
+        ai_generated_summary: 'ai_generated_summary_should_not_leak',
       },
     })),
   );
@@ -553,6 +578,52 @@ test('facade allow result is allowlisted and unknown raw containers are not emit
         finalAppointmentId: 'appointment-final-001',
         status: 'completed',
         summary: 'Service completed.',
+      },
+    },
+  });
+  assertSafeResponse(response);
+});
+
+test('facade allow result uses only approved customer-visible status and summary source fields', () => {
+  const response = buildCustomerAccessControllerResponse(
+    validReq(),
+    injectedFacade(() => validFacadeAllowResult({
+      serviceReport: {
+        status: undefined,
+        summary: undefined,
+        rawStatus: 'raw_status_should_not_leak',
+        internalStatus: 'internal_status_should_not_leak',
+        workflowStatus: 'workflow_status_should_not_leak',
+        appointmentStatus: 'appointment_status_should_not_leak',
+        caseStatus: 'case_status_should_not_leak',
+        completionStatus: 'completion_status_should_not_leak',
+        repairStatus: 'repair_status_should_not_leak',
+        rawSummary: 'raw_summary_should_not_leak',
+        serviceSummary: 'service_summary_should_not_leak',
+        service_summary: 'service_summary_should_not_leak',
+        approved_service_summary: 'approved_service_summary_should_not_leak',
+        internal_notes: 'private_admin_only_should_not_leak',
+        engineer_notes: 'private_admin_only_should_not_leak',
+        diagnosis_notes: 'diagnosis_notes_should_not_leak',
+        completion_notes: 'completion_notes_should_not_leak',
+        private_report_body: 'private_report_body_should_not_leak',
+        ai_draft_summary: 'ai_draft_summary_should_not_leak',
+        ai_generated_summary: 'ai_generated_summary_should_not_leak',
+        provider_payload: 'provider_payload_should_not_leak',
+        raw_payload: 'raw_case_payload_should_not_leak',
+        debug: 'debug_should_not_leak',
+      },
+    })),
+  );
+
+  assert.deepEqual(response, {
+    status: 'allow',
+    messageKey: 'customerAccess.available',
+    customerVisible: true,
+    data: {
+      serviceReport: {
+        caseNo: 'CASE-001',
+        finalAppointmentId: 'appointment-final-001',
       },
     },
   });
@@ -582,7 +653,7 @@ test('facade allow result omits malformed allowed serviceReport values without r
   ];
 
   for (const candidate of unsafeCandidates) {
-    const response = buildCustomerAccessControllerResponse(
+    const unsafeSummaryResponse = buildCustomerAccessControllerResponse(
       validReq(),
       injectedFacade(() => validFacadeAllowResult({
         serviceReport: {
@@ -595,7 +666,7 @@ test('facade allow result omits malformed allowed serviceReport values without r
       })),
     );
 
-    assert.deepEqual(response, {
+    assert.deepEqual(unsafeSummaryResponse, {
       status: 'allow',
       messageKey: 'customerAccess.available',
       customerVisible: true,
@@ -606,7 +677,35 @@ test('facade allow result omits malformed allowed serviceReport values without r
         },
       },
     });
-    assertSafeResponse(response);
+    assertSafeResponse(unsafeSummaryResponse);
+
+    const unsafeStatusResponse = buildCustomerAccessControllerResponse(
+      validReq(),
+      injectedFacade(() => validFacadeAllowResult({
+        serviceReport: {
+          caseNo: 'CASE-001',
+          finalAppointmentId: 'appointment-final-001',
+          publicReportId: 'report-public-001',
+          status: candidate,
+          summary: 'Service completed.',
+        },
+      })),
+    );
+
+    assert.deepEqual(unsafeStatusResponse, {
+      status: 'allow',
+      messageKey: 'customerAccess.available',
+      customerVisible: true,
+      data: {
+        serviceReport: {
+          caseNo: 'CASE-001',
+          finalAppointmentId: 'appointment-final-001',
+          publicReportId: 'report-public-001',
+          summary: 'Service completed.',
+        },
+      },
+    });
+    assertSafeResponse(unsafeStatusResponse);
   }
 });
 

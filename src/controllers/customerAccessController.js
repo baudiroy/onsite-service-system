@@ -12,12 +12,17 @@ const SAFE_DENY_ENVELOPE = Object.freeze({
   }),
 });
 const SAFE_ALLOW_MESSAGE_KEY = 'customerAccess.available';
-const SERVICE_REPORT_RESPONSE_KEYS = Object.freeze([
+const SERVICE_REPORT_BASE_RESPONSE_KEYS = Object.freeze([
   'caseNo',
   'finalAppointmentId',
   'publicReportId',
-  'status',
-  'summary',
+]);
+const CUSTOMER_VISIBLE_STATUS_SOURCE_KEY = 'status';
+const CUSTOMER_VISIBLE_SUMMARY_SOURCE_KEY = 'summary';
+const SERVICE_REPORT_RESPONSE_KEYS = Object.freeze([
+  ...SERVICE_REPORT_BASE_RESPONSE_KEYS,
+  CUSTOMER_VISIBLE_STATUS_SOURCE_KEY,
+  CUSTOMER_VISIBLE_SUMMARY_SOURCE_KEY,
 ]);
 
 function isPlainObject(value) {
@@ -103,6 +108,20 @@ function isSafeDisplayValue(value) {
   return typeof value === 'string' && !isUnsafeDisplayString(value);
 }
 
+function assignSafeDisplayValue(target, key, value) {
+  if (isSafeDisplayValue(value)) {
+    target[key] = value;
+  }
+}
+
+function customerVisibleStatusValue(candidate) {
+  return safeProperty(candidate, CUSTOMER_VISIBLE_STATUS_SOURCE_KEY);
+}
+
+function customerVisibleSummaryValue(candidate) {
+  return safeProperty(candidate, CUSTOMER_VISIBLE_SUMMARY_SOURCE_KEY);
+}
+
 function allowlistedServiceReport(candidate) {
   if (!isPlainEnvelopeObject(candidate)) {
     return undefined;
@@ -110,13 +129,20 @@ function allowlistedServiceReport(candidate) {
 
   const serviceReport = {};
 
-  for (const key of SERVICE_REPORT_RESPONSE_KEYS) {
-    const value = safeProperty(candidate, key);
-
-    if (isSafeDisplayValue(value)) {
-      serviceReport[key] = value;
-    }
+  for (const key of SERVICE_REPORT_BASE_RESPONSE_KEYS) {
+    assignSafeDisplayValue(serviceReport, key, safeProperty(candidate, key));
   }
+
+  assignSafeDisplayValue(
+    serviceReport,
+    CUSTOMER_VISIBLE_STATUS_SOURCE_KEY,
+    customerVisibleStatusValue(candidate),
+  );
+  assignSafeDisplayValue(
+    serviceReport,
+    CUSTOMER_VISIBLE_SUMMARY_SOURCE_KEY,
+    customerVisibleSummaryValue(candidate),
+  );
 
   return serviceReport;
 }
