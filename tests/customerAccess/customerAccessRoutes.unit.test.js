@@ -60,6 +60,94 @@ async function invokeRouteAsync(route, req) {
   };
 }
 
+function routePatternParams(routePath, requestPath) {
+  if (typeof routePath !== 'string' || typeof requestPath !== 'string') {
+    return undefined;
+  }
+
+  if (requestPath !== '/' && requestPath.endsWith('/')) {
+    return undefined;
+  }
+
+  const routeSegments = routePath.split('/').filter(Boolean);
+  const requestSegments = requestPath.split('/').filter(Boolean);
+
+  if (routeSegments.length !== requestSegments.length) {
+    return undefined;
+  }
+
+  const params = {};
+
+  for (let index = 0; index < routeSegments.length; index += 1) {
+    const routeSegment = routeSegments[index];
+    const requestSegment = requestSegments[index];
+
+    if (routeSegment.startsWith(':')) {
+      params[routeSegment.slice(1)] = requestSegment;
+      continue;
+    }
+
+    if (routeSegment !== requestSegment) {
+      return undefined;
+    }
+  }
+
+  return params;
+}
+
+function expectedUnavailableEnvelope() {
+  return {
+    status: 'deny',
+    messageKey: 'customerAccess.unavailable',
+    customerVisible: false,
+    data: null,
+    error: {
+      messageKey: 'customerAccess.unavailable',
+    },
+  };
+}
+
+async function dispatchSyntheticRoute(router, options) {
+  const method = String(options.method || '').toUpperCase();
+  const requestPath = options.path;
+
+  for (const route of router.routes) {
+    const params = route.method === method
+      ? routePatternParams(route.path, requestPath)
+      : undefined;
+
+    if (!params) {
+      continue;
+    }
+
+    const req = {
+      ...(options.req || {}),
+      params,
+    };
+    const result = await invokeRouteAsync(route, req);
+
+    return {
+      ...result,
+      handlerInvoked: true,
+      matched: true,
+      params,
+    };
+  }
+
+  return {
+    body: expectedUnavailableEnvelope(),
+    handlerInvoked: false,
+    matched: false,
+    params: {},
+    res: {
+      calls: {
+        status: [404],
+        json: [expectedUnavailableEnvelope()],
+      },
+    },
+  };
+}
+
 function createSyntheticRes() {
   const calls = {
     status: [],
@@ -267,6 +355,13 @@ const forbiddenValues = [
   'raw_access_should_not_leak',
   'provider_payload_should_not_leak',
   'debug_sql_should_not_leak',
+  'raw_path_param_should_not_leak',
+  'raw_query_value_should_not_leak',
+  'raw_body_value_should_not_leak',
+  'raw_header_value_should_not_leak',
+  'raw_cookie_value_should_not_leak',
+  'raw_session_value_should_not_leak',
+  'raw_stack_should_not_leak',
 ];
 
 function assertSafeResponse(response) {
@@ -641,6 +736,133 @@ test('synthetic mounted router dispatches both accepted customer access routes w
   assertSafeResponse(baseRouteResult.body);
   assertSafeResponse(reportRouteResult.body);
   assertSafeResponse(dbClient.calls[0]);
+});
+
+test('synthetic public route dispatch is strict for method path and internal route isolation', async () => {
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient([reportRow()]);
+
+  registerCustomerAccessRoutes(router, {
+    dbClient,
+    repository: allowRepository(),
+  });
+
+  const acceptedCase = await dispatchSyntheticRoute(router, {
+    method: 'GET',
+    path: '/customer-access/case_route_001',
+    req: {
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  });
+  const acceptedReport = await dispatchSyntheticRoute(router, {
+    method: 'GET',
+    path: '/customer-access/case_route_001/service-report/report_public_route_001',
+    req: {
+      customerAccessContextInput: authorizedContextInput(),
+    },
+  });
+
+  assert.equal(acceptedCase.matched, true);
+  assert.equal(acceptedCase.handlerInvoked, true);
+  assert.deepEqual(acceptedCase.res.calls.status, [200]);
+  assert.equal(acceptedCase.body.status, 'allow');
+  assert.deepEqual(acceptedCase.params, { caseId: 'case_route_001' });
+  assert.equal(acceptedReport.matched, true);
+  assert.equal(acceptedReport.handlerInvoked, true);
+  assert.deepEqual(acceptedReport.res.calls.status, [200]);
+  assert.equal(acceptedReport.body.status, 'allow');
+  assert.deepEqual(acceptedReport.params, {
+    caseId: 'case_route_001',
+    reportId: 'report_public_route_001',
+  });
+  assert.equal(dbClient.calls.length, 1);
+
+  for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']) {
+    for (const path of [
+      '/customer-access/case_route_001',
+      '/customer-access/case_route_001/service-report/report_public_route_001',
+    ]) {
+      const blocked = await dispatchSyntheticRoute(router, {
+        method,
+        path,
+        req: {
+          body: {
+            raw: 'raw_body_value_should_not_leak',
+          },
+          headers: {
+            authorization: 'raw_header_value_should_not_leak',
+          },
+          query: {
+            caseId: 'raw_query_value_should_not_leak',
+          },
+          cookies: {
+            session: 'raw_cookie_value_should_not_leak',
+          },
+          session: {
+            token: 'raw_session_value_should_not_leak',
+          },
+        },
+      });
+
+      assert.equal(blocked.matched, false);
+      assert.equal(blocked.handlerInvoked, false);
+      assert.deepEqual(blocked.res.calls.status, [404]);
+      assert.deepEqual(blocked.body, expectedUnavailableEnvelope());
+      assertSafeResponse(blocked.body);
+    }
+  }
+
+  const dbCallsAfterMethodChecks = dbClient.calls.length;
+
+  for (const path of [
+    '/customer-access',
+    '/customer-access/case_route_001/',
+    '/customer-access/case_route_001/extra',
+    '/customer-access/case_route_001/service-report',
+    '/customer-access/case_route_001/service-report/',
+    '/customer-access/case_route_001/service-report/report_public_route_001/',
+    '/customer-access/case_route_001/service-report/report_public_route_001/extra',
+    '/customer-access/case_route_001/service_reports/report_public_route_001',
+    '/customer-access/case_route_001/reports/report_public_route_001',
+    '/customer-access/case_route_001/service-report/report_public_route_001/download',
+    '/customer-access/raw_path_param_should_not_leak/service-report',
+    '/__internal/customer-access/service-reports/case_route_001/report_public_route_001',
+  ]) {
+    const blocked = await dispatchSyntheticRoute(router, {
+      method: 'GET',
+      path,
+      req: {
+        query: {
+          caseId: 'raw_query_value_should_not_leak',
+          reportId: 'raw_query_value_should_not_leak',
+        },
+        body: {
+          caseId: 'raw_body_value_should_not_leak',
+          reportId: 'raw_body_value_should_not_leak',
+        },
+        headers: {
+          'x-case-id': 'raw_header_value_should_not_leak',
+          'x-report-id': 'raw_header_value_should_not_leak',
+        },
+        cookies: {
+          caseId: 'raw_cookie_value_should_not_leak',
+          reportId: 'raw_cookie_value_should_not_leak',
+        },
+        debug: {
+          stack: 'raw_stack_should_not_leak',
+        },
+      },
+    });
+
+    assert.equal(blocked.matched, false);
+    assert.equal(blocked.handlerInvoked, false);
+    assert.deepEqual(blocked.res.calls.status, [404]);
+    assert.deepEqual(blocked.body, expectedUnavailableEnvelope());
+    assertSafeResponse(blocked.body);
+  }
+
+  assert.equal(dbClient.calls.length, dbCallsAfterMethodChecks);
+  assertSummaryMatchesRegisteredRoutes(expectedRegistrationSummary(), router);
 });
 
 test('invalid or missing router returns sanitized failure without external side effect', () => {
