@@ -236,6 +236,60 @@ test('missing empty or suspicious request params return generic safe-deny before
   assert.equal(dbClient.calls.length, 0);
 });
 
+test('query body and headers cannot supply or override route report identifiers', async () => {
+  const dbClient = dbClientWithRows([reportRow()]);
+  const missingRouteReportResponse = await handleCustomerServiceReportProjectionRequest({
+    request: request({
+      params: {
+        caseId: 'case_handler_001',
+      },
+      query: {
+        reportId: 'report_public_handler_001',
+      },
+      body: {
+        caseId: 'case_body_override_should_not_win',
+        reportId: 'report_body_override_should_not_win',
+      },
+      headers: {
+        'x-case-id': 'case_header_override_should_not_win',
+        'x-report-id': 'report_header_override_should_not_win',
+      },
+    }),
+    dbClient,
+  });
+
+  assertGenericSafeDeny(missingRouteReportResponse);
+  assert.equal(dbClient.calls.length, 0);
+
+  const allowResponse = await handleCustomerServiceReportProjectionRequest({
+    request: request({
+      query: {
+        caseId: 'case_query_override_should_not_win',
+        reportId: 'report_query_override_should_not_win',
+      },
+      body: {
+        caseId: 'case_body_override_should_not_win',
+        reportId: 'report_body_override_should_not_win',
+      },
+      headers: {
+        'x-case-id': 'case_header_override_should_not_win',
+        'x-report-id': 'report_header_override_should_not_win',
+      },
+    }),
+    dbClient,
+  });
+
+  assert.equal(allowResponse.statusCode, 200);
+  assert.equal(allowResponse.body.status, 'allow');
+  assert.deepEqual(dbClient.calls[0].values, [
+    'org_handler_001',
+    'customer_handler_001',
+    'case_handler_001',
+    'report_public_handler_001',
+  ]);
+  assertNoSensitiveLeak(allowResponse);
+});
+
 test('unauthorized org mismatch and not found return generic safe-deny without existence leak', async () => {
   const mismatchDbClient = dbClientWithRows([
     reportRow({

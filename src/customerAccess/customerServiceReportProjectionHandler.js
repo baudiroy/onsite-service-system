@@ -34,10 +34,6 @@ function requestParams(request) {
   return isObject(request.params) ? request.params : {};
 }
 
-function requestQuery(request) {
-  return isObject(request.query) ? request.query : {};
-}
-
 function customerAccessContextFromRequest(request) {
   return isObject(request.customerAccessContext) ? request.customerAccessContext : undefined;
 }
@@ -52,12 +48,11 @@ async function handleCustomerServiceReportProjectionRequest(options = {}) {
 
   const request = isObject(options.request) ? options.request : {};
   const params = requestParams(request);
-  const query = requestQuery(request);
   const envelope = await getCustomerServiceReportProjection({
     dbClient: options.dbClient,
     customerAccessContext: customerAccessContextFromRequest(request),
     caseId: stringValue(params.caseId),
-    reportId: stringValue(params.reportId) || stringValue(query.reportId),
+    reportId: stringValue(params.reportId),
   });
 
   return {

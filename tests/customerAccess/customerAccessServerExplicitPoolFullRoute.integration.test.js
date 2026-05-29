@@ -464,6 +464,33 @@ test('server explicit pool suspicious service report params safe-deny before pro
   }
 });
 
+test('server explicit pool query params cannot override service report route params', async () => {
+  const queryCalls = [];
+  const bootstrap = createServerBootstrap(enabledOptions({
+    customerAccessPool: createAsyncSyntheticPool(queryCalls),
+  }));
+
+  const response = await requestApp(
+    bootstrap.app,
+    '/customer-access/case_full_route_001/service-report/report_public_full_route_001?caseId=case_query_override&reportId=report_query_override',
+  );
+  const projectionCall = queryCalls.find((call) => (
+    String(call.sql).includes('public_report_id = $4') &&
+    Array.isArray(call.params) &&
+    call.params.length === 4
+  ));
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.status, 'allow');
+  assert.deepEqual(projectionCall.params, [
+    'org_full_route_001',
+    'customer_full_route_001',
+    'case_full_route_001',
+    'report_public_full_route_001',
+  ]);
+  assertNoLeak(response.body);
+});
+
 test('allow response strips internal report and sensitive fields', async () => {
   const bootstrap = createServerBootstrap(enabledOptions({
     customerAccessPool: createSyntheticPool([]),

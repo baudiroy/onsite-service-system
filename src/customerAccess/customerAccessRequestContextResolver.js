@@ -19,6 +19,14 @@ function safeIdentifier(value) {
   return candidate && SAFE_ID_PATTERN.test(candidate) ? candidate : undefined;
 }
 
+function hasMalformedIdentifierValue(...values) {
+  return values.some((value) => {
+    const candidate = stringValue(value);
+
+    return Boolean(candidate && !safeIdentifier(candidate));
+  });
+}
+
 function booleanTrue(value) {
   return value === true;
 }
@@ -75,20 +83,25 @@ function contextReportId(context) {
     || safeIdentifier(context.serviceReport && context.serviceReport.reportId);
 }
 
-function hasMalformedScopedIdentifier(context) {
-  const scopedCaseCandidate = stringValue(context.caseId)
-    || stringValue(context.params && context.params.caseId)
-    || stringValue(context.case && context.case.caseId)
-    || stringValue(context.case && context.case.id);
-  const scopedReportCandidate = stringValue(context.reportId)
-    || stringValue(context.params && context.params.reportId)
-    || stringValue(context.report && context.report.reportId)
-    || stringValue(context.report && context.report.id)
-    || stringValue(context.serviceReport && context.serviceReport.reportId);
-
-  return Boolean(
-    (scopedCaseCandidate && !safeIdentifier(scopedCaseCandidate)) ||
-    (scopedReportCandidate && !safeIdentifier(scopedReportCandidate)),
+function hasMalformedContextIdentifier(context) {
+  return hasMalformedIdentifierValue(
+    context.organizationId,
+    context.auth && context.auth.organizationId,
+    context.organization && context.organization.organizationId,
+    context.organization && context.organization.id,
+    context.customerId,
+    context.auth && context.auth.customerId,
+    context.customerIdentity && context.customerIdentity.customerId,
+    context.customer && context.customer.id,
+    context.caseId,
+    context.params && context.params.caseId,
+    context.case && context.case.caseId,
+    context.case && context.case.id,
+    context.reportId,
+    context.params && context.params.reportId,
+    context.report && context.report.reportId,
+    context.report && context.report.id,
+    context.serviceReport && context.serviceReport.reportId,
   );
 }
 
@@ -179,7 +192,7 @@ function resolveCustomerAccessContextFromRequest(request) {
 
   const [context] = sources;
 
-  if (hasMalformedScopedIdentifier(context) || !isAuthorizedSyntheticContext(context)) {
+  if (hasMalformedContextIdentifier(context) || !isAuthorizedSyntheticContext(context)) {
     return deniedResolution();
   }
 

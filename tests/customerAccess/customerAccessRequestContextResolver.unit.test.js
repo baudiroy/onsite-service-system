@@ -151,6 +151,73 @@ test('malformed scoped case or report identifiers fail closed', () => {
   }))));
 });
 
+test('malformed fallback context identifiers fail closed instead of using alternate sources', () => {
+  for (const context of [
+    validContext({
+      organizationId: '../org_request_context_001',
+    }),
+    validContext({
+      customer: {
+        id: '../customer_request_context_001',
+      },
+    }),
+    validContext({
+      caseId: 'case_request_context_001',
+      case: {
+        id: 'case/../../secret',
+      },
+    }),
+    validContext({
+      reportId: 'report_public_context_001',
+      report: {
+        id: 'report/../../secret',
+      },
+    }),
+  ]) {
+    assertDenied(resolveCustomerAccessContextFromRequest(requestWithContext(context)));
+  }
+});
+
+test('request params query body and headers cannot override normalized context identifiers', () => {
+  const output = resolveCustomerAccessContextFromRequest({
+    customerAccessContext: validContext(),
+    params: {
+      caseId: 'case_route_override_should_not_win',
+      reportId: 'report_route_override_should_not_win',
+    },
+    query: {
+      caseId: 'case_query_override_should_not_win',
+      reportId: 'report_query_override_should_not_win',
+      organizationId: 'org_query_override_should_not_win',
+      customerId: 'customer_query_override_should_not_win',
+    },
+    body: {
+      caseId: 'case_body_override_should_not_win',
+      reportId: 'report_body_override_should_not_win',
+      organizationId: 'org_body_override_should_not_win',
+      customerId: 'customer_body_override_should_not_win',
+      token: 'token_should_not_leak',
+    },
+    headers: {
+      authorization: 'Bearer token_should_not_be_trusted',
+      cookie: 'session=secret_should_not_leak',
+      'x-case-id': 'case_header_override_should_not_win',
+      'x-report-id': 'report_header_override_should_not_win',
+      'x-organization-id': 'org_header_override_should_not_win',
+      'x-customer-id': 'customer_header_override_should_not_win',
+    },
+  });
+
+  assert.equal(output.resolved, true);
+  assert.deepEqual(output.customerAccessContext.params, {
+    caseId: 'case_request_context_001',
+    reportId: 'report_public_context_001',
+  });
+  assert.equal(output.customerAccessContext.organizationId, 'org_request_context_001');
+  assert.equal(output.customerAccessContext.customerId, 'customer_request_context_001');
+  assertNoSensitiveLeak(output);
+});
+
 test('ambiguous identity sources fail closed', () => {
   const output = resolveCustomerAccessContextFromRequest({
     customerAccessContext: validContext(),
