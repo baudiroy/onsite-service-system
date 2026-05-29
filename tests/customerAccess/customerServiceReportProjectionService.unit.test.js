@@ -2301,20 +2301,200 @@ test('invalid preconditions fail before reading dbClient query', async () => {
   assert.equal(queryGetterReadCount, 0);
 });
 
-test('input context and row objects are not mutated', async () => {
+test('caller service input context and row objects are not mutated', async () => {
   const row = reportRow();
   const context = authorizedContext();
+  const serviceInput = {
+    customerAccessContext: context,
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+    request: { headers: { authorization: 'Bearer caller_input_header_should_not_leak' } },
+    raw_payload: { token: 'caller_input_raw_payload_should_not_leak' },
+    debug: { marker: 'caller_input_debug_should_not_leak' },
+  };
   const rowBefore = JSON.stringify(row);
   const contextBefore = JSON.stringify(context);
+  const serviceInputBefore = JSON.stringify(serviceInput);
   const dbClient = createDbClient([row]);
 
-  await getCustomerServiceReportProjection({
+  const output = await getCustomerServiceReportProjection({
     dbClient,
-    customerAccessContext: context,
+    ...serviceInput,
+  });
+
+  assert.equal(output.status, 'allow');
+  assert.equal(JSON.stringify(row), rowBefore);
+  assert.equal(JSON.stringify(context), contextBefore);
+  assert.equal(JSON.stringify(serviceInput), serviceInputBefore);
+  assert.equal(dbClient.callArgs.length, 1);
+  assertNoForbiddenFragments(output, [
+    'caller_input_header_should_not_leak',
+    'caller_input_raw_payload_should_not_leak',
+    'caller_input_debug_should_not_leak',
+  ]);
+});
+
+test('raw context sentinel fields are untouched but fail closed before query', async () => {
+  const customerAccessContext = authorizedContext({
+    headers: { authorization: 'Bearer raw_context_header_should_not_leak' },
+    rawPayload: { token: 'raw_context_payload_should_not_leak' },
+    debug: { marker: 'raw_context_debug_should_not_leak' },
+  });
+  const contextBefore = JSON.stringify(customerAccessContext);
+  const dbClient = createDbClient([reportRow()]);
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext,
     caseId: 'case_projection_001',
     reportId: 'report_public_projection_001',
   });
 
-  assert.equal(JSON.stringify(row), rowBefore);
-  assert.equal(JSON.stringify(context), contextBefore);
+  assertSafeDeny(output);
+  assert.equal(JSON.stringify(customerAccessContext), contextBefore);
+  assert.equal(dbClient.callArgs.length, 0);
+  assertNoForbiddenFragments(output, [
+    'raw_context_header_should_not_leak',
+    'raw_context_payload_should_not_leak',
+    'raw_context_debug_should_not_leak',
+  ]);
+});
+
+test('dbClient query cannot mutate frozen query config or leak mutation sentinels', async () => {
+  const mutationSentinels = [
+    'mutated_query_name_should_not_leak',
+    'mutated_query_text_should_not_leak',
+    'mutated_query_value_should_not_leak',
+    'mutated_query_values_array_should_not_leak',
+    'mutated_query_debug_should_not_leak',
+    'mutated_query_token_should_not_leak',
+  ];
+  let capturedQueryConfig;
+  const dbClient = {
+    callArgs: [],
+    mutationCalls: [],
+    query(queryConfig) {
+      capturedQueryConfig = queryConfig;
+      this.callArgs.push([queryConfig]);
+
+      assert.equal(Object.isFrozen(queryConfig), true);
+      assert.equal(Object.isFrozen(queryConfig.values), true);
+
+      for (const mutate of [
+        () => { queryConfig.name = mutationSentinels[0]; },
+        () => { queryConfig.readOnly = false; },
+        () => { queryConfig.text = mutationSentinels[1]; },
+        () => { queryConfig.values[0] = mutationSentinels[2]; },
+        () => { queryConfig.values = [mutationSentinels[3]]; },
+        () => { queryConfig.debug = mutationSentinels[4]; },
+        () => { queryConfig.headers = { authorization: mutationSentinels[5] }; },
+      ]) {
+        try {
+          mutate();
+        } catch (error) {
+          assert.match(error.name, /TypeError/);
+        }
+      }
+
+      return { rows: [reportRow()] };
+    },
+  };
+  const output = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+
+  assert.equal(output.status, 'allow');
+  assert.equal(dbClient.callArgs.length, 1);
+  assert.equal(capturedQueryConfig.name, 'customerServiceReportProjection');
+  assert.equal(capturedQueryConfig.readOnly, true);
+  assert.match(capturedQueryConfig.text, /^select /i);
+  assertQueryValuesAreExpectedPrimitives(capturedQueryConfig);
+  assert.equal(Object.prototype.hasOwnProperty.call(capturedQueryConfig, 'debug'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(capturedQueryConfig, 'headers'), false);
+  assertNoForbiddenFragments(output, mutationSentinels);
+  assertNoForbiddenFragments(output, [
+    'customerServiceReportProjection',
+    'org_projection_001',
+    'customer_projection_001',
+    'case_projection_001',
+  ]);
+});
+
+test('sequential valid calls receive distinct frozen query config and values objects', async () => {
+  const callQueryConfigs = [];
+  const dbClient = {
+    query(queryConfig) {
+      callQueryConfigs.push(queryConfig);
+      const callNumber = callQueryConfigs.length;
+
+      if (callNumber === 1) {
+        try {
+          queryConfig.values[2] = 'first_call_mutation_should_not_leak';
+        } catch (error) {
+          assert.match(error.name, /TypeError/);
+        }
+      }
+
+      const [organizationId, customerId, caseId, reportId] = queryConfig.values;
+
+      return {
+        rows: [
+          reportRow({
+            organization_id: organizationId,
+            customer_id: customerId,
+            case_id: caseId,
+            public_report_id: reportId,
+            case_display_id: caseId,
+            approved_service_summary: callNumber === 1
+              ? 'First completed summary'
+              : 'Second completed summary',
+          }),
+        ],
+      };
+    },
+  };
+  const firstOutput = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext(),
+    caseId: 'case_projection_001',
+    reportId: 'report_public_projection_001',
+  });
+  const secondOutput = await getCustomerServiceReportProjection({
+    dbClient,
+    customerAccessContext: authorizedContext({
+      organizationId: 'org_projection_002',
+      customerId: 'customer_projection_002',
+      caseId: 'case_projection_002',
+    }),
+    caseId: 'case_projection_002',
+    reportId: 'report_public_projection_002',
+  });
+
+  assert.equal(firstOutput.status, 'allow');
+  assert.equal(secondOutput.status, 'allow');
+  assert.equal(callQueryConfigs.length, 2);
+  assert.notEqual(callQueryConfigs[0], callQueryConfigs[1]);
+  assert.notEqual(callQueryConfigs[0].values, callQueryConfigs[1].values);
+  assert.equal(Object.isFrozen(callQueryConfigs[0]), true);
+  assert.equal(Object.isFrozen(callQueryConfigs[0].values), true);
+  assert.equal(Object.isFrozen(callQueryConfigs[1]), true);
+  assert.equal(Object.isFrozen(callQueryConfigs[1].values), true);
+  assert.deepEqual(callQueryConfigs[0].values, [
+    'org_projection_001',
+    'customer_projection_001',
+    'case_projection_001',
+    'report_public_projection_001',
+  ]);
+  assert.deepEqual(callQueryConfigs[1].values, [
+    'org_projection_002',
+    'customer_projection_002',
+    'case_projection_002',
+    'report_public_projection_002',
+  ]);
+  assert.equal(firstOutput.data.serviceReport.serviceSummary, 'First completed summary');
+  assert.equal(secondOutput.data.serviceReport.serviceSummary, 'Second completed summary');
+  assertNoForbiddenFragments(firstOutput, ['first_call_mutation_should_not_leak']);
+  assertNoForbiddenFragments(secondOutput, ['first_call_mutation_should_not_leak']);
 });
