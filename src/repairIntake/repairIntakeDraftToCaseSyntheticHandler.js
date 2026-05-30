@@ -160,6 +160,8 @@ function normalizeResolverInvalidResult(resolverResult) {
 
 function createAdapterInput(resolverResult) {
   const safeResult = safeObject(resolverResult);
+  const draftInput = sanitizeRepairIntakePublicOpenRequestDto(safeResult.draftInput || {});
+  delete draftInput.source;
 
   return sanitizeNestedValue({
     organizationId: safeString(safeResult.organizationId),
@@ -167,7 +169,7 @@ function createAdapterInput(resolverResult) {
     repairIntakeDraftId: safeString(safeResult.repairIntakeDraftId),
     source: safeString(safeResult.source),
     actorRole: safeString(safeResult.actorRole),
-    draftInput: sanitizeRepairIntakePublicOpenRequestDto(safeResult.draftInput || {}),
+    draftInput,
   });
 }
 

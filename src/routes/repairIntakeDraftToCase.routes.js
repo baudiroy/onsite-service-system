@@ -50,7 +50,6 @@ function organizationId(req, body, user) {
   return firstString(
     user.organizationId,
     req.context && req.context.organizationId,
-    body.organizationId,
   );
 }
 
@@ -73,14 +72,27 @@ function requestId(req, body) {
 function draftId(params, body) {
   return firstString(
     params.draftId,
-    body.draftId,
-    body.repairIntakeDraftId,
   );
+}
+
+function bodyWithoutServerOwnedContext(body) {
+  const {
+    actorId,
+    actorRole,
+    draftId: bodyDraftId,
+    organizationId: bodyOrganizationId,
+    repairIntakeDraftId,
+    source,
+    ...safeBody
+  } = body;
+
+  return safeBody;
 }
 
 function buildAdminRequestLike(req = {}) {
   const user = isObject(req.user) ? req.user : {};
   const body = isObject(req.body) ? req.body : {};
+  const requestBody = bodyWithoutServerOwnedContext(body);
   const context = isObject(req.context) ? req.context : {};
   const params = isObject(req.params) ? req.params : {};
   const resolvedOrganizationId = organizationId(req, body, user);
@@ -90,18 +102,17 @@ function buildAdminRequestLike(req = {}) {
   const resolvedDraftId = draftId(params, body);
   const normalizedParams = {
     ...params,
-    ...(resolvedDraftId ? { draftId: resolvedDraftId } : {}),
+    ...(resolvedDraftId ? {
+      draftId: resolvedDraftId,
+      repairIntakeDraftId: resolvedDraftId,
+    } : {}),
   };
 
   return {
     params: normalizedParams,
     query: isObject(req.query) ? req.query : {},
     body: {
-      ...body,
-      ...(resolvedDraftId ? {
-        draftId: resolvedDraftId,
-        repairIntakeDraftId: resolvedDraftId,
-      } : {}),
+      ...requestBody,
       permissionContext: {
         ...(isObject(body.permissionContext) ? body.permissionContext : {}),
         canCreateCaseFromRepairIntakeDraft: true,

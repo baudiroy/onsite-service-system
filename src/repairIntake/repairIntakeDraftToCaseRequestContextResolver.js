@@ -47,8 +47,12 @@ const UNSAFE_FIELD_NAMES = new Set([
 
 const BODY_OVERRIDE_FIELD_NAMES = new Set([
   'actorid',
+  'actorrole',
+  'draftid',
   'organizationid',
   'orgid',
+  'repairintakedraftid',
+  'source',
   'userid',
 ]);
 
@@ -148,7 +152,7 @@ function resolveRepairIntakeDraftToCaseRequestContext(input = {}) {
 
   const organizationId = safeString(sessionContext.organizationId);
   const actorId = safeString(sessionContext.actorId);
-  const repairIntakeDraftId = safeString(requestBody.repairIntakeDraftId);
+  const repairIntakeDraftId = safeString(safeInput.repairIntakeDraftId);
   const context = {
     organizationId,
     actorId,
@@ -189,6 +193,7 @@ function resolveRepairIntakeDraftToCaseRequestContext(input = {}) {
   }
 
   const draftInput = sanitizeRepairIntakePublicOpenRequestDto(requestBody.draftInput || {});
+  delete draftInput.source;
 
   return sanitizeNestedValue({
     ok: true,

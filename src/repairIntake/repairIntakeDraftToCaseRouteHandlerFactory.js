@@ -52,8 +52,12 @@ const UNSAFE_FIELD_NAMES = new Set([
 
 const BODY_OVERRIDE_FIELD_NAMES = new Set([
   'actorid',
+  'actorrole',
+  'draftid',
   'idempotencykey',
   'organizationid',
+  'repairintakedraftid',
+  'source',
 ]);
 
 function isPlainObject(value) {
@@ -189,10 +193,8 @@ function routeLikeInputFromFutureRouterInput(input, repairIntakeDraftId) {
 
   return {
     sessionContext: sanitizeNestedValue(safeInput.sessionContext),
-    body: {
-      ...requestBody,
-      repairIntakeDraftId,
-    },
+    repairIntakeDraftId,
+    body: requestBody,
     headers: safeHeaders(safeInput.headers),
     requestId: safeScalar(safeInput.requestId),
     source: safeScalar(safeInput.source),

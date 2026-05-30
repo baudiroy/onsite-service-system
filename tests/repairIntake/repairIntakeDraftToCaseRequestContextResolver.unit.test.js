@@ -18,8 +18,9 @@ function validInput(overrides = {}) {
       permissionTrace: { raw: 'hidden-permission-trace' },
       phone: 'hidden-session-phone',
     },
+    repairIntakeDraftId: 'draft-1220',
     requestBody: {
-      repairIntakeDraftId: 'draft-1220',
+      repairIntakeDraftId: 'body-draft-override',
       organizationId: 'body-org-override',
       actorId: 'body-actor-override',
       draftInput: {
@@ -52,6 +53,7 @@ function assertNoUnsafeText(value) {
   for (const marker of [
     'body-org-override',
     'body-actor-override',
+    'body-draft-override',
     'draft-org-override',
     'draft-actor-override',
     'hidden-session-token',
@@ -145,9 +147,11 @@ test('missing sessionContext actorId returns invalid_context', () => {
   assertNoUnsafeText(result);
 });
 
-test('missing requestBody repairIntakeDraftId returns invalid_input', () => {
+test('missing trusted repairIntakeDraftId returns invalid_input', () => {
   const input = validInput({
+    repairIntakeDraftId: undefined,
     requestBody: {
+      repairIntakeDraftId: 'body-draft-override',
       draftInput: {
         issueSummary: 'safe summary',
       },
@@ -169,7 +173,6 @@ test('missing requestBody repairIntakeDraftId returns invalid_input', () => {
 test('body-provided organizationId is ignored and does not override session org', () => {
   const result = resolveRepairIntakeDraftToCaseRequestContext(validInput({
     requestBody: {
-      repairIntakeDraftId: 'draft-1220',
       organizationId: 'body-org-override',
       draftInput: {
         organizationId: 'draft-org-override',
@@ -187,7 +190,6 @@ test('body-provided organizationId is ignored and does not override session org'
 test('body-provided actorId is ignored and does not override session actor', () => {
   const result = resolveRepairIntakeDraftToCaseRequestContext(validInput({
     requestBody: {
-      repairIntakeDraftId: 'draft-1220',
       actorId: 'body-actor-override',
       draftInput: {
         actorId: 'draft-actor-override',
@@ -205,7 +207,6 @@ test('body-provided actorId is ignored and does not override session actor', () 
 test('draftInput must be object if provided', () => {
   const result = resolveRepairIntakeDraftToCaseRequestContext(validInput({
     requestBody: {
-      repairIntakeDraftId: 'draft-1220',
       draftInput: 'not an object',
     },
   }));

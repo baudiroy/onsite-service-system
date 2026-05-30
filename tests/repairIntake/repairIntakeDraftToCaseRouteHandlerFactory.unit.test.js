@@ -145,12 +145,12 @@ test('valid future-router-shaped input calls route adapter with path-derived dra
       actorId: 'actor-session-1263',
       actorRole: 'service_agent',
     },
+    repairIntakeDraftId: 'draft-path-1263',
     body: {
       issueSummary: 'dishwasher pump noise',
       nested: {
         safeField: 'safe nested value',
       },
-      repairIntakeDraftId: 'draft-path-1263',
     },
     headers: {
       'idempotency-key': 'idem-header-1263',
@@ -177,7 +177,8 @@ test('path draft id wins over conflicting body draft id', async () => {
     },
   }));
 
-  assert.equal(calls[0].body.repairIntakeDraftId, 'draft-path-wins-1263');
+  assert.equal(calls[0].repairIntakeDraftId, 'draft-path-wins-1263');
+  assert.equal(Object.hasOwn(calls[0].body, 'repairIntakeDraftId'), false);
   assert.equal(JSON.stringify(calls[0]).includes('draft-body-loses-1263'), false);
 });
 
@@ -253,7 +254,7 @@ test('adapter function form is accepted', async () => {
   const result = await handler.handle(futureRouterInput());
 
   assert.equal(result.statusCode, 201);
-  assert.equal(calls[0].body.repairIntakeDraftId, 'draft-path-1263');
+  assert.equal(calls[0].repairIntakeDraftId, 'draft-path-1263');
 });
 
 test('adapter throw returns generic safe failure', async () => {

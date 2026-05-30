@@ -130,6 +130,7 @@ function routeLikeInput(overrides = {}) {
       },
       rawBody: 'hidden-raw-body',
     },
+    repairIntakeDraftId: 'draft-1259',
     headers: {
       'idempotency-key': ' idem-header-1259 ',
       'x-request-source': ' header-source-1259 ',

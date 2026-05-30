@@ -25,7 +25,6 @@ const DRAFT_INPUT_KEYS = Object.freeze([
   'preferredTimeDescription',
   'problemDescription',
   'serviceCategory',
-  'source',
 ]);
 
 function maliciousResolverResult(draftInputRef) {
@@ -58,7 +57,7 @@ function unsafeDraftInput() {
     issueSummary: '  dryer makes a loud noise  ',
     preferredWindow: '  weekday evening  ',
     addressDescription: '  front desk  ',
-    source: 'customer_access',
+    source: 'draft-source-hidden',
     consentConfirmed: true,
     unknownField: 'unknown-hidden',
     organizationId: 'client-org-hidden',
@@ -104,6 +103,7 @@ function assertNoForbiddenCommandText(value) {
     'raw-request-token',
     'raw-body-hidden',
     'unknown-hidden',
+    'draft-source-hidden',
     'client-org-hidden',
     'client-actor-hidden',
     'client-draft-hidden',
@@ -180,7 +180,6 @@ test('Task2192 injected service command uses explicit top-level and draftInput a
       problemDescription: 'dryer makes a loud noise',
       preferredTimeDescription: 'weekday evening',
       addressDescription: 'front desk',
-      source: 'customer_access',
       consentConfirmed: true,
     },
   });

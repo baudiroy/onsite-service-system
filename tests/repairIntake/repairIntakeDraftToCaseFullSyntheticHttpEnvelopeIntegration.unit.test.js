@@ -117,6 +117,7 @@ function syntheticHandlerInput(overrides = {}) {
       token: 'hidden-session-token',
       permissionTrace: { raw: 'hidden-permission-trace' },
     },
+    repairIntakeDraftId: 'draft-1224',
     requestBody: {
       repairIntakeDraftId: 'draft-1224',
       organizationId: 'org-body-override-1224',

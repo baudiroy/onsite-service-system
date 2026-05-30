@@ -14,8 +14,9 @@ function validInput(draftInput) {
       actorId: 'actor-task2190',
       actorRole: 'service_agent',
     },
+    repairIntakeDraftId: 'draft-task2190',
     requestBody: {
-      repairIntakeDraftId: 'draft-task2190',
+      repairIntakeDraftId: 'body-draft-client-controlled',
       organizationId: 'body-org-client-controlled',
       actorId: 'body-actor-client-controlled',
       draftInput,
@@ -65,7 +66,6 @@ test('Task2190 resolver wires public/open sanitizer before downstream draftInput
     problemDescription: 'refrigerator is not cold',
     preferredTimeDescription: 'tomorrow morning',
     addressDescription: 'building lobby',
-    source: 'customer_access',
     consentConfirmed: true,
   });
 

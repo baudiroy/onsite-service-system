@@ -392,8 +392,10 @@ test('allowed success composes future-router-shaped input through full route-han
   assert.equal(result.output.idempotencyPolicy.repairIntakeDraftId, 'draft-path-1265');
   assert.deepEqual(result.output.auditIntents.map((item) => item.auditIntent.phase), ['attempt', 'submitted']);
   assert.equal(result.output.auditIntents[1].auditIntent.repairIntakeDraftId, 'draft-path-1265');
-  assert.equal(result.routeAdapterInputs[0].body.repairIntakeDraftId, 'draft-path-1265');
-  assert.equal(result.preRouteInputs[0].requestBody.repairIntakeDraftId, 'draft-path-1265');
+  assert.equal(result.routeAdapterInputs[0].repairIntakeDraftId, 'draft-path-1265');
+  assert.equal(result.preRouteInputs[0].repairIntakeDraftId, 'draft-path-1265');
+  assert.equal(Object.hasOwn(result.routeAdapterInputs[0].body, 'repairIntakeDraftId'), false);
+  assert.equal(Object.hasOwn(result.preRouteInputs[0].requestBody, 'repairIntakeDraftId'), false);
   assertNoUnsafeText(result.output);
   assertNoUnsafeText(result.routeAdapterInputs);
   assertNoUnsafeText(result.preRouteInputs);
@@ -418,7 +420,8 @@ test('path draft id wins over body draft id throughout downstream calls', async 
 
   const result = await flow.run(input);
 
-  assert.equal(result.routeAdapterInputs[0].body.repairIntakeDraftId, 'draft-path-wins-1265');
+  assert.equal(result.routeAdapterInputs[0].repairIntakeDraftId, 'draft-path-wins-1265');
+  assert.equal(Object.hasOwn(result.routeAdapterInputs[0].body, 'repairIntakeDraftId'), false);
   assert.equal(result.policyInputs[0].repairIntakeDraftId, 'draft-path-wins-1265');
   assert.equal(result.authCalls[0].repairIntakeDraftId, 'draft-path-wins-1265');
   assert.equal(result.repositoryCalls[0].draftId, 'draft-path-wins-1265');

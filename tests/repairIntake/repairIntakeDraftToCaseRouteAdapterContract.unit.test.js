@@ -19,6 +19,7 @@ function routeLikeInput(overrides = {}) {
       role: 'service_agent',
       token: 'hidden-session-token',
     },
+    repairIntakeDraftId: 'draft-1257',
     body: {
       repairIntakeDraftId: 'draft-1257',
       issueSummary: 'display has intermittent lines',
@@ -143,12 +144,12 @@ test('valid route-like input calls pre-route handler with sanitized fields', asy
       role: 'service_agent',
     },
     requestBody: {
-      repairIntakeDraftId: 'draft-1257',
       issueSummary: 'display has intermittent lines',
       nested: {
         safeCode: 'nested-safe-1257',
       },
     },
+    repairIntakeDraftId: 'draft-1257',
     requestSource: 'route-like-unit',
     requestId: 'request-1257',
     idempotencyKey: 'idem-header-1257',
@@ -161,6 +162,7 @@ test('body maps to sanitized requestBody', async () => {
   const { adapter, calls } = createAdapterWithSpy();
 
   await adapter.handleRouteLikeRequest(routeLikeInput({
+    repairIntakeDraftId: 'draft-trusted-map-1257',
     body: {
       repairIntakeDraftId: 'draft-body-map-1257',
       applianceType: 'washer',
@@ -170,10 +172,10 @@ test('body maps to sanitized requestBody', async () => {
   }));
 
   assert.deepEqual(calls[0].requestBody, {
-    repairIntakeDraftId: 'draft-body-map-1257',
     applianceType: 'washer',
     customerNote: 'unit test safe note',
   });
+  assert.equal(calls[0].repairIntakeDraftId, 'draft-trusted-map-1257');
 });
 
 test('safe idempotency key is extracted from headers before top-level fallback', async () => {
@@ -264,7 +266,8 @@ test('dependency function form is accepted', async () => {
 
   assert.equal(result.statusCode, 201);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].requestBody.repairIntakeDraftId, 'draft-1257');
+  assert.equal(calls[0].repairIntakeDraftId, 'draft-1257');
+  assert.equal(Object.hasOwn(calls[0].requestBody, 'repairIntakeDraftId'), false);
 });
 
 test('dependency throwing sensitive error returns generic safe failure', async () => {
@@ -333,7 +336,6 @@ test('unsafe route-like fields are stripped from pre-route input', async () => {
     safeFlag: true,
   });
   assert.deepEqual(calls[0].requestBody, {
-    repairIntakeDraftId: 'draft-1257',
     safeField: 'kept',
   });
 });

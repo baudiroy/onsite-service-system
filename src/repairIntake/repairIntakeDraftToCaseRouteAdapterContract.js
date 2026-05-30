@@ -35,8 +35,12 @@ const UNSAFE_FIELD_NAMES = new Set([
 
 const BODY_OVERRIDE_FIELD_NAMES = new Set([
   'actorid',
+  'actorrole',
+  'draftid',
   'idempotencykey',
   'organizationid',
+  'repairintakedraftid',
+  'source',
 ]);
 
 function isPlainObject(value) {
@@ -160,6 +164,7 @@ function routeLikeToPreRouteInput(routeLikeInput) {
 
   return {
     sessionContext: sanitizeNestedValue(safeInput.sessionContext),
+    repairIntakeDraftId: safeScalar(safeInput.repairIntakeDraftId),
     requestBody: sanitizeNestedValue(isPlainObject(safeInput.body) ? safeInput.body : {}, {
       overrideFields: BODY_OVERRIDE_FIELD_NAMES,
     }),

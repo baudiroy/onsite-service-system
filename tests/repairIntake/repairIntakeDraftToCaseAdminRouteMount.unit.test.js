@@ -397,18 +397,20 @@ test('admin request builder ignores body actor and grants permission from route 
   assert.equal(requestLike.repairIntakeDraftId, 'draft_admin_mount_runtime_001');
   assert.equal(requestLike.draftId, 'draft_admin_mount_runtime_001');
   assert.equal(requestLike.params.draftId, 'draft_admin_mount_runtime_001');
-  assert.equal(requestLike.body.draftId, 'draft_admin_mount_runtime_001');
-  assert.equal(requestLike.body.repairIntakeDraftId, 'draft_admin_mount_runtime_001');
+  assert.equal(requestLike.params.repairIntakeDraftId, 'draft_admin_mount_runtime_001');
+  assert.equal(Object.hasOwn(requestLike.body, 'draftId'), false);
+  assert.equal(Object.hasOwn(requestLike.body, 'repairIntakeDraftId'), false);
   assert.equal(requestLike.organizationId, 'org_admin_mount_runtime_001');
   assert.equal(requestLike.context.organizationId, 'org_admin_mount_runtime_001');
   assert.equal(requestLike.context.actorId, 'user_admin_mount_runtime_001');
   assert.equal(requestLike.actor.id, 'user_admin_mount_runtime_001');
-  assert.equal(requestLike.body.actorId, 'actor_body_should_not_win_001');
+  assert.equal(Object.hasOwn(requestLike.body, 'actorId'), false);
+  assert.equal(Object.hasOwn(requestLike.body, 'organizationId'), false);
   assert.equal(requestLike.body.permissionContext.canCreateCaseFromRepairIntakeDraft, true);
   assert.equal(requestLike.context.permissionContext.permission, REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION);
 });
 
-test('admin request builder mirrors body draft id into params for downstream adapters', () => {
+test('admin request builder does not trust body draft id as route context', () => {
   const baseRequest = request();
   const requestLike = buildAdminRequestLike(request({
     params: {},
@@ -418,9 +420,10 @@ test('admin request builder mirrors body draft id into params for downstream ada
     },
   }));
 
-  assert.equal(requestLike.repairIntakeDraftId, 'draft_admin_mount_body_fallback_001');
-  assert.equal(requestLike.draftId, 'draft_admin_mount_body_fallback_001');
-  assert.equal(requestLike.params.draftId, 'draft_admin_mount_body_fallback_001');
-  assert.equal(requestLike.body.draftId, 'draft_admin_mount_body_fallback_001');
-  assert.equal(requestLike.body.repairIntakeDraftId, 'draft_admin_mount_body_fallback_001');
+  assert.equal(requestLike.repairIntakeDraftId, undefined);
+  assert.equal(requestLike.draftId, undefined);
+  assert.equal(requestLike.params.draftId, undefined);
+  assert.equal(requestLike.params.repairIntakeDraftId, undefined);
+  assert.equal(Object.hasOwn(requestLike.body, 'draftId'), false);
+  assert.equal(Object.hasOwn(requestLike.body, 'repairIntakeDraftId'), false);
 });
