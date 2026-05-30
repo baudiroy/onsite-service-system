@@ -44,6 +44,9 @@ const UNSAFE_FIELD_NAMES = new Set([
   'token',
 ]);
 
+const IDEMPOTENCY_CONTEXT_MAX_LENGTH = 128;
+const IDEMPOTENCY_CONTEXT_PATTERN = /^[a-zA-Z0-9._:-]+$/;
+
 function isPlainObject(value) {
   return Boolean(value)
     && typeof value === 'object'
@@ -102,6 +105,16 @@ function safeString(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+function safeIdempotencyContextValue(value) {
+  const scalar = safeString(value);
+
+  if (!scalar || scalar.length > IDEMPOTENCY_CONTEXT_MAX_LENGTH) {
+    return null;
+  }
+
+  return IDEMPOTENCY_CONTEXT_PATTERN.test(scalar) ? scalar : null;
+}
+
 function unavailableEnvelope(reasonCode = UNAVAILABLE_BODY.reasonCode) {
   return {
     statusCode: 503,
@@ -144,14 +157,12 @@ function normalizeHttpEnvelope(value) {
 }
 
 function policyInputFromContext(context, input) {
-  const requestBody = isPlainObject(input.requestBody) ? input.requestBody : {};
-
   return {
     organizationId: safeString(context.organizationId),
     actorId: safeString(context.actorId),
     repairIntakeDraftId: safeString(context.repairIntakeDraftId),
-    requestId: safeString(input.requestId),
-    idempotencyKey: safeString(input.idempotencyKey) || safeString(requestBody.idempotencyKey),
+    requestId: safeIdempotencyContextValue(input.requestId),
+    idempotencyKey: safeIdempotencyContextValue(input.idempotencyKey),
     source: safeString(context.source),
   };
 }

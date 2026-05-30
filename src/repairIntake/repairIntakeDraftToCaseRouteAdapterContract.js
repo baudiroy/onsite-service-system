@@ -11,23 +11,38 @@ const UNAVAILABLE_BODY = {
 
 const UNSAFE_FIELD_NAMES = new Set([
   'address',
+  'ai',
+  'audit',
+  'auditactor',
   'authorization',
+  'billing',
   'cookie',
+  'customer',
+  'customerdata',
+  'customername',
   'customerphone',
   'databaseurl',
   'dbrow',
+  'debug',
   'd' + 'b',
   'email',
   'error',
   'headers',
+  'internal',
+  'invoice',
   'lineaccesstoken',
+  'password',
   'phone',
+  'provider',
+  'providerpayload',
   'query',
+  'rag',
   'rawbody',
   'rawerror',
   'rawinput',
   'rawrequest',
   'secret',
+  'settlement',
   's' + 'ql',
   'stack',
   'token',
@@ -36,12 +51,20 @@ const UNSAFE_FIELD_NAMES = new Set([
 const BODY_OVERRIDE_FIELD_NAMES = new Set([
   'actorid',
   'actorrole',
+  'caseid',
+  'dedupekey',
   'draftid',
+  'duplicate',
   'idempotencykey',
   'organizationid',
   'repairintakedraftid',
+  'replay',
+  'requestid',
   'source',
 ]);
+
+const IDEMPOTENCY_CONTEXT_MAX_LENGTH = 128;
+const IDEMPOTENCY_CONTEXT_PATTERN = /^[a-zA-Z0-9._:-]+$/;
 
 function isPlainObject(value) {
   return Boolean(value)
@@ -133,6 +156,16 @@ function safeHeaderValue(headers, headerName) {
   return null;
 }
 
+function safeIdempotencyContextValue(value) {
+  const scalar = safeScalar(value);
+
+  if (!scalar || scalar.length > IDEMPOTENCY_CONTEXT_MAX_LENGTH) {
+    return null;
+  }
+
+  return IDEMPOTENCY_CONTEXT_PATTERN.test(scalar) ? scalar : null;
+}
+
 function unavailableEnvelope(reasonCode = UNAVAILABLE_BODY.reasonCode) {
   return {
     statusCode: 503,
@@ -171,9 +204,10 @@ function routeLikeToPreRouteInput(routeLikeInput) {
     requestSource: safeScalar(safeInput.source)
       || safeHeaderValue(headers, 'x-request-source')
       || safeHeaderValue(headers, 'request-source'),
-    requestId: safeScalar(safeInput.requestId) || safeHeaderValue(headers, 'x-request-id'),
-    idempotencyKey: safeHeaderValue(headers, 'idempotency-key')
-      || safeScalar(safeInput.idempotencyKey),
+    requestId: safeIdempotencyContextValue(safeInput.requestId)
+      || safeIdempotencyContextValue(safeHeaderValue(headers, 'x-request-id')),
+    idempotencyKey: safeIdempotencyContextValue(safeHeaderValue(headers, 'idempotency-key'))
+      || safeIdempotencyContextValue(safeInput.idempotencyKey),
   };
 }
 
