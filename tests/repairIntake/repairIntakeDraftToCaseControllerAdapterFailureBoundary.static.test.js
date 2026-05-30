@@ -101,7 +101,8 @@ function functionBlock(source, functionName) {
 
   assert.notEqual(start, -1, `missing function ${functionName}`);
 
-  const firstBrace = source.indexOf('{', start);
+  const signatureEnd = source.indexOf(')', start);
+  const firstBrace = source.indexOf('{', signatureEnd + 1);
   let depth = 0;
 
   for (let index = firstBrace; index < source.length; index += 1) {
@@ -240,6 +241,7 @@ test('controller adapter denylist and string filtering cover raw private provide
 test('API module builds injected application service route handlers through controller adapter', () => {
   const source = read(API_MODULE_PATH);
   const buildController = functionBlock(source, 'buildController');
+  const callSafeController = functionBlock(source, 'callSafeController');
   const createSafeController = functionBlock(source, 'createSafeController');
 
   assertIncludesAll(source, [
@@ -251,12 +253,17 @@ test('API module builds injected application service route handlers through cont
     'createRepairIntakeDraftCaseControllerAdapter({',
     'applicationService: options.applicationService',
   ], 'API module controller build path');
-  assertIncludesAll(createSafeController, [
+  assertIncludesAll(callSafeController, [
     'sanitizeHandlerOutput(',
-    'controller.planDraftToCase.call(',
-    'controller.submitDraftToCase.call(',
+    'method.call(',
+    'controller',
     'sanitizeRequestInput(requestLike)',
-  ], 'API module safe route handler path');
+  ], 'API module safe route handler call path');
+  assertIncludesAll(createSafeController, [
+    'callSafeController(',
+    'controller.planDraftToCase',
+    'controller.submitDraftToCase',
+  ], 'API module safe controller delegated route handler path');
 });
 
 test('Task2228 unit coverage freezes failures unsafe leakage success path and immutability', () => {
