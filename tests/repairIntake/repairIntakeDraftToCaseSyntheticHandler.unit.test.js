@@ -55,6 +55,7 @@ function resolvedContext(overrides = {}) {
     draftInput: {
       issueSummary: 'dryer does not heat',
       preferredWindow: 'afternoon',
+      unknownField: 'hidden-unknown',
       providerPayload: { raw: 'hidden-provider-payload' },
       rawError: 'hidden-raw-error',
     },
@@ -159,8 +160,8 @@ test('handler passes only sanitized resolver fields into controller adapter', as
     source: 'synthetic_handler',
     actorRole: 'service_agent',
     draftInput: {
-      issueSummary: 'dryer does not heat',
-      preferredWindow: 'afternoon',
+      problemDescription: 'dryer does not heat',
+      preferredTimeDescription: 'afternoon',
     },
   });
   assertNoUnsafeText(adapterInput);
@@ -393,6 +394,8 @@ test('unsafe fields from session and body are not forwarded', async () => {
         draftInput: {
           issueSummary: 'dryer does not heat',
           phone: 'hidden-phone',
+          organizationId: 'hidden-draft-organization',
+          caseId: 'hidden-case-id',
           providerPayload: { raw: 'hidden-provider-payload' },
           rawError: 'hidden-raw-error',
         },
@@ -409,7 +412,7 @@ test('unsafe fields from session and body are not forwarded', async () => {
   await handler.handleDraftToCase(syntheticInput());
 
   assert.deepEqual(adapterInput.draftInput, {
-    issueSummary: 'dryer does not heat',
+    problemDescription: 'dryer does not heat',
   });
   assertNoUnsafeText(adapterInput);
 });

@@ -1,5 +1,9 @@
 'use strict';
 
+const {
+  sanitizeRepairIntakePublicOpenRequestDto,
+} = require('./repairIntakePublicOpenRequestDtoSanitizer');
+
 const UNAVAILABLE_MESSAGE_KEY = 'repair_intake_draft_to_case.synthetic_handler_unavailable';
 const INVALID_MESSAGE_KEY = 'repair_intake_draft_to_case.synthetic_handler_invalid';
 
@@ -163,7 +167,7 @@ function createAdapterInput(resolverResult) {
     repairIntakeDraftId: safeString(safeResult.repairIntakeDraftId),
     source: safeString(safeResult.source),
     actorRole: safeString(safeResult.actorRole),
-    draftInput: isPlainObject(safeResult.draftInput) ? safeResult.draftInput : {},
+    draftInput: sanitizeRepairIntakePublicOpenRequestDto(safeResult.draftInput || {}),
   });
 }
 
