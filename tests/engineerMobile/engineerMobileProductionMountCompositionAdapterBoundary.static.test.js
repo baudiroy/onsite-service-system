@@ -28,13 +28,15 @@ test('Task2165 Engineer Mobile production mount adapter source files exist', () 
   }
 });
 
-test('production mount adapter delegates only to existing Engineer Mobile route registration modules', () => {
+test('production mount adapter delegates to existing routes and audit side-channel modules only', () => {
   const adapter = read(FILES.adapter);
 
   assert.deepEqual(requireSpecifiers(adapter), [
     '../routes/engineerMobileRoutes',
     '../routes/engineerMobileTaskDetailRoutes',
     '../routes/engineerMobileVisitActionRoutes',
+    './engineerMobileAuditEventBuilder',
+    './engineerMobileAuditWriterAdapter',
   ]);
   assert.match(adapter, /registerEngineerMobileRoutes\(router,\s*options\)/);
   assert.match(adapter, /registerEngineerMobileTaskDetailRoutes\(router,\s*options\)/);

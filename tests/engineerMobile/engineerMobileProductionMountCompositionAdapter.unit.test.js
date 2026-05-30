@@ -16,6 +16,9 @@ const {
   ENGINEER_MOBILE_PRODUCTION_ROUTES,
   createEngineerMobileProductionMountComposition,
 } = require('../../src/engineerMobile/engineerMobileProductionMountCompositionAdapter');
+const {
+  ENGINEER_MOBILE_AUDIT_EVENT_KEYS,
+} = require('../../src/engineerMobile/engineerMobileAuditEventBuilder');
 
 const forbiddenValues = [
   'raw_router_should_not_leak',
@@ -157,6 +160,30 @@ function assertNoSummaryLeak(summary) {
   }
 }
 
+function assertNoAuditResultOutput(value) {
+  const serialized = JSON.stringify(value);
+
+  for (const auditField of [
+    'auditEvent',
+    'auditWritten',
+    'persisted',
+    'audit result',
+    'audit_persistence_failed',
+    'invalid_writer_result',
+  ]) {
+    assert.equal(serialized.includes(auditField), false, `summary leaked ${auditField}`);
+  }
+}
+
+function assertRegistrationAuditEventBase(event, eventType, decision) {
+  assert.equal(event.eventType, eventType);
+  assert.equal(event.source, 'engineer_mobile_route_registration');
+  assert.equal(event.decision, decision);
+  assert.deepEqual(Object.keys(event).sort(), Object.keys(event)
+    .filter((key) => ENGINEER_MOBILE_AUDIT_EVENT_KEYS.includes(key))
+    .sort());
+}
+
 function waitForAuditSideChannel() {
   return new Promise((resolve) => {
     setImmediate(resolve);
@@ -214,17 +241,26 @@ test('optional auditWriter is a side channel and does not change success summary
   await waitForAuditSideChannel();
 
   assert.deepEqual(summary, expectedSuccessSummary());
-  assert.deepEqual(auditEvents.map((event) => `${event.method} ${event.path}`), [
+  assert.deepEqual(auditEvents.map((event) => `${event.method} ${event.route}`), [
     `GET ${ENGINEER_MOBILE_TASKS_ROUTE_PATH}`,
     `GET ${ENGINEER_MOBILE_TASK_DETAIL_ROUTE_PATH}`,
     `POST ${ENGINEER_MOBILE_VISIT_ACTION_ROUTE_PATH}`,
   ]);
-  assert.equal(
-    auditEvents.every((event) => event.eventType === 'engineer_mobile.route_registration.success'),
-    true,
-  );
+  for (const event of auditEvents) {
+    assertRegistrationAuditEventBase(
+      event,
+      'engineer_mobile.route_registration.success',
+      'success',
+    );
+    assert.deepEqual(event.metadata, {
+      dependencyValid: true,
+      registrationResult: 'success',
+    });
+    assert.equal(Object.prototype.hasOwnProperty.call(event, 'reasonCode'), false);
+  }
   assert.equal(JSON.stringify(summary).includes('persisted'), false);
   assertNoSummaryLeak(summary);
+  assertNoAuditResultOutput(summary);
 });
 
 test('auditWriter failure does not alter registration summary or expose writer details', async () => {
@@ -234,6 +270,25 @@ test('auditWriter failure does not alter registration summary or expose writer d
     repository: createSyntheticRepository(),
     auditWriter() {
       throw new Error('raw_audit_writer_should_not_leak');
+    },
+  });
+
+  await waitForAuditSideChannel();
+
+  assert.deepEqual(summary, expectedSuccessSummary());
+  assertNoSummaryLeak(summary);
+  assertNoAuditResultOutput(summary);
+});
+
+test('object-shaped auditWriter is skipped and does not change success summary', async () => {
+  const summary = createEngineerMobileProductionMountComposition({
+    router: createSyntheticRouter(),
+    dbClient: createSyntheticDbClient(),
+    repository: createSyntheticRepository(),
+    auditWriter: {
+      record() {
+        throw new Error('object_writer_should_not_be_called');
+      },
     },
   });
 
@@ -267,7 +322,8 @@ test('missing or malformed mount target returns sanitized failure without regist
   }
 });
 
-test('throwing mount target method returns sanitized registration failure', () => {
+test('throwing mount target method returns sanitized registration failure and safe failure audit', async () => {
+  const auditEvents = [];
   const router = createSyntheticRouter({
     get() {
       throw new Error('raw_error_should_not_leak');
@@ -279,11 +335,86 @@ test('throwing mount target method returns sanitized registration failure', () =
     router,
     dbClient,
     repository: createSyntheticRepository(),
+    auditWriter(event) {
+      auditEvents.push(event);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
   });
+
+  await waitForAuditSideChannel();
 
   assert.deepEqual(summary, expectedFailureSummary('route_registration_failed'));
   assert.equal(dbClient.calls.length, 0);
+  assert.equal(auditEvents.length, 1);
+  assertRegistrationAuditEventBase(
+    auditEvents[0],
+    'engineer_mobile.route_registration.failure',
+    'failure',
+  );
+  assert.equal(auditEvents[0].route, ENGINEER_MOBILE_TASKS_ROUTE_PATH);
+  assert.equal(auditEvents[0].method, 'GET');
+  assert.equal(auditEvents[0].reasonCode, 'route_registration_failed');
+  assert.deepEqual(auditEvents[0].metadata, {
+    dependencyValid: false,
+    registrationResult: 'failure',
+  });
   assertNoSummaryLeak(summary);
+  assertNoAuditResultOutput(summary);
+});
+
+test('missing mount target failure skips audit when no safe route is known', async () => {
+  const auditEvents = [];
+  const summary = createEngineerMobileProductionMountComposition({
+    router: undefined,
+    auditWriter(event) {
+      auditEvents.push(event);
+    },
+  });
+
+  await waitForAuditSideChannel();
+
+  assert.deepEqual(summary, expectedFailureSummary('mount_target_invalid'));
+  assert.equal(auditEvents.length, 0);
+  assertNoSummaryLeak(summary);
+});
+
+test('invalid registration audit builder result skips writer and keeps summary unchanged', async () => {
+  const builderPath = require.resolve('../../src/engineerMobile/engineerMobileAuditEventBuilder');
+  const adapterPath = require.resolve('../../src/engineerMobile/engineerMobileProductionMountCompositionAdapter');
+  const builderModule = require(builderPath);
+  const originalBuilder = builderModule.buildEngineerMobileAuditEvent;
+
+  try {
+    builderModule.buildEngineerMobileAuditEvent = () => ({
+      ok: false,
+      reasonCode: 'invalid_route',
+    });
+    delete require.cache[adapterPath];
+    const freshAdapter = require('../../src/engineerMobile/engineerMobileProductionMountCompositionAdapter');
+    const auditEvents = [];
+    const summary = freshAdapter.createEngineerMobileProductionMountComposition({
+      router: createSyntheticRouter(),
+      auditWriter(event) {
+        auditEvents.push(event);
+      },
+    });
+
+    await waitForAuditSideChannel();
+
+    assert.deepEqual(summary, expectedSuccessSummary());
+    assert.equal(auditEvents.length, 0);
+    assertNoSummaryLeak(summary);
+  } finally {
+    builderModule.buildEngineerMobileAuditEvent = originalBuilder;
+    delete require.cache[adapterPath];
+    require('../../src/engineerMobile/engineerMobileProductionMountCompositionAdapter');
+  }
 });
 
 test('importing adapter has no registration side effects', () => {
