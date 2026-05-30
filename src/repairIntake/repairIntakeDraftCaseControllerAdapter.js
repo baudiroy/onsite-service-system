@@ -2,30 +2,94 @@
 
 const FORBIDDEN_RESPONSE_FIELDS = new Set([
   'address',
+  'auditInternal',
+  'audit_internal',
+  'authorization',
+  'billing',
   'caseId',
   'case_id',
+  'cookie',
+  'cookies',
+  'customer',
+  'customerAddress',
+  'customerData',
+  'customerName',
   'customerPayload',
+  'customerPhone',
+  'database_url',
+  'databaseUrl',
+  'db',
+  'debug',
   'error',
   'finalAppointmentId',
   'final_appointment_id',
   'fullAddress',
+  'headers',
+  'internal',
+  'invoice',
   'lineAccessToken',
+  'lineUserId',
   'phone',
   'phoneNumber',
   'providerPayload',
+  'rag',
+  'raw',
   'rawAddress',
+  'rawBody',
   'rawCustomerPayload',
+  'rawDraft',
+  'rawDraftInput',
+  'rawError',
+  'rawInput',
   'rawImportedRow',
   'rawImportedRowPayload',
   'rawPayload',
+  'rawPortOutput',
   'rows',
   'secret',
+  'settlement',
   'sql',
   'stack',
   'stackTrace',
   'token',
   'tokenSecret',
 ]);
+const UNSAFE_TEXT_MARKERS = [
+  'audit internal',
+  'audit_internal',
+  'auditinternal',
+  'billing',
+  'customer address',
+  'customer phone',
+  'customer private',
+  'customeraddress',
+  'customerphone',
+  'database_url',
+  'debug detail',
+  'invoice',
+  'line access token',
+  'lineaccesstoken',
+  'password',
+  'postgres://',
+  'postgresql://',
+  'process.env',
+  'provider payload',
+  'providerpayload',
+  'rag',
+  'raw body',
+  'raw draft',
+  'raw error',
+  'raw request',
+  'rawbody',
+  'rawdraft',
+  'rawerror',
+  'rawrequest',
+  'secret',
+  'select *',
+  'settlement',
+  'stack trace',
+  'token',
+];
 
 class RepairIntakeDraftCaseControllerAdapterError extends Error {
   constructor(reasonCode, requiredActions = ['configure_application_service']) {
@@ -41,13 +105,50 @@ function isObject(value) {
 }
 
 function stringValue(value) {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed || stringHasUnsafeText(trimmed)) {
+    return undefined;
+  }
+
+  return trimmed;
 }
 
 function safeArray(value) {
   return Array.isArray(value)
     ? value.map((item) => stringValue(item)).filter(Boolean)
     : [];
+}
+
+function fieldIsForbidden(key) {
+  return FORBIDDEN_RESPONSE_FIELDS.has(key)
+    || FORBIDDEN_RESPONSE_FIELDS.has(String(key).toLowerCase());
+}
+
+function stringHasUnsafeText(value) {
+  const normalized = value.toLowerCase();
+
+  return UNSAFE_TEXT_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+function sanitizeTopLevelEnvelopeSource(value) {
+  if (!isObject(value)) {
+    return {};
+  }
+
+  const result = {};
+
+  for (const [key, fieldValue] of Object.entries(value)) {
+    if (!fieldIsForbidden(key)) {
+      result[key] = fieldValue;
+    }
+  }
+
+  return result;
 }
 
 function sanitizeBoolean(value) {
@@ -192,13 +293,7 @@ function sanitizeAuditEvent(value) {
 }
 
 function sanitizeEnvelopeBody(value) {
-  const source = isObject(value) ? value : {};
-
-  for (const key of Object.keys(source)) {
-    if (FORBIDDEN_RESPONSE_FIELDS.has(key)) {
-      continue;
-    }
-  }
+  const source = sanitizeTopLevelEnvelopeSource(value);
 
   return {
     ok: source.ok === true,
@@ -271,7 +366,16 @@ async function callService(method, input) {
   }
 
   try {
-    const body = sanitizeEnvelopeBody(await method(input));
+    const output = await method(input);
+
+    if (!isObject(output)) {
+      return safeFailure(
+        'CONTROLLER_APPLICATION_SERVICE_RESULT_INVALID',
+        ['retry_or_manual_review'],
+      );
+    }
+
+    const body = sanitizeEnvelopeBody(output);
 
     return {
       ok: body.ok,
