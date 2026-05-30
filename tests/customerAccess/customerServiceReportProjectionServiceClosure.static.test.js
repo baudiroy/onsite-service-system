@@ -53,7 +53,8 @@ test('unit coverage locks safe deny allowlist and synthetic db boundaries', () =
   assert.match(source, /not found fails closed/);
   assert.match(source, /allowlisted customer-visible projection/);
   assert.match(source, /read-only through injected synthetic dbClient query only/);
-  assert.match(source, /dbClient query errors fail closed/);
+  assert.match(source, /dbClient query throws fail closed without raw error leak/);
+  assert.match(source, /dbClient query rejects fail closed without rejection reason leak/);
   assert.match(source, /input context and row objects are not mutated/);
 });
 

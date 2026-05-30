@@ -35,8 +35,14 @@ test('Task909 source test and doc files exist', () => {
 test('handler delegates to Task908 service and imports no forbidden runtime dependencies', () => {
   const source = read(HANDLER_FILE);
 
-  assert.deepEqual(requireSpecifiers(source), ['./customerServiceReportProjectionService']);
+  assert.deepEqual(requireSpecifiers(source), [
+    './customerServiceReportProjectionService',
+    './customerAccessAuditEventBuilder',
+    './customerAccessAuditWriterAdapter',
+  ]);
   assert.match(source, /getCustomerServiceReportProjection/);
+  assert.match(source, /buildCustomerAccessAuditEvent/);
+  assert.match(source, /writeCustomerAccessAuditEvent/);
   assert.doesNotMatch(source, /require\(['"][^'"]*(routes|controllers|app|server|Repository|transaction|provider|OpenAI|RAG|billing|settlement|migration|smoke|config|env|logger)/i);
   assert.doesNotMatch(source, /process\.env|console\.|fetch\(|axios|http\.request|https\.request|new Pool|createPool/i);
 });
