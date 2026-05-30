@@ -142,6 +142,19 @@ function failureEnvelope(reasonCode, context = {}) {
   });
 }
 
+function normalizeAdapterOutput(adapterOutput, context = {}) {
+  const safeOutput = sanitizeNestedValue(adapterOutput);
+
+  if (!isPlainObject(safeOutput) || (safeOutput.ok !== true && safeOutput.ok !== false)) {
+    return failureEnvelope(
+      'REPAIR_INTAKE_DRAFT_TO_CASE_SYNTHETIC_HANDLER_CONTROLLER_ADAPTER_OUTPUT_INVALID',
+      context,
+    );
+  }
+
+  return safeOutput;
+}
+
 function normalizeResolverInvalidResult(resolverResult) {
   const safeResult = safeObject(resolverResult);
   const status = safeString(safeResult.status) || 'invalid_context';
@@ -356,7 +369,9 @@ function createRepairIntakeDraftToCaseSyntheticHandler(options = {}) {
     const adapterInput = createAdapterInput(resolverResult);
 
     try {
-      return sanitizeNestedValue(await callControllerAdapter(adapterInput));
+      const adapterOutput = await callControllerAdapter(adapterInput);
+
+      return normalizeAdapterOutput(adapterOutput, adapterInput);
     } catch (error) {
       return failureEnvelope(
         'REPAIR_INTAKE_DRAFT_TO_CASE_SYNTHETIC_HANDLER_CONTROLLER_ADAPTER_FAILED',
