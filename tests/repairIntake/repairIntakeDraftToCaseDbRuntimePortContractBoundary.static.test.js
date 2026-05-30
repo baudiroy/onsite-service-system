@@ -143,9 +143,11 @@ function sourceWithoutDenyLists(source) {
     'UNSAFE_FIELD_NAMES',
     'UNSAFE_INPUT_FIELD_NAMES',
     'UNSAFE_OUTPUT_FIELD_NAMES',
+    'UNSAFE_REQUEST_FIELD_NAMES',
   ].reduce((result, constName) => stripConstSetBlock(result, constName), source);
 
   const withoutArrays = [
+    'UNSAFE_TEXT_MARKERS',
     'UNSAFE_TEXT_PATTERNS',
     'UNSAFE_PUBLIC_VALUE_MARKERS',
     'UNSAFE_VALUE_MARKERS',
