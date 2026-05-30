@@ -4,6 +4,16 @@ const {
   buildEngineerMobileTaskDetailAsync,
   buildEngineerMobileTaskDetail,
 } = require('../engineerMobile/engineerMobileTaskDetailService');
+const {
+  buildEngineerMobileAuditEvent,
+} = require('../engineerMobile/engineerMobileAuditEventBuilder');
+const {
+  writeEngineerMobileAuditEvent,
+} = require('../engineerMobile/engineerMobileAuditWriterAdapter');
+
+const ENGINEER_MOBILE_TASK_DETAIL_AUDIT_ROUTE = '/engineer-mobile/tasks/:appointmentId';
+const ENGINEER_MOBILE_TASK_DETAIL_AUDIT_METHOD = 'GET';
+const ENGINEER_MOBILE_TASK_DETAIL_AUDIT_SOURCE = 'engineer_mobile_task_detail_handler';
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -29,6 +39,85 @@ function buildUnavailableResponse() {
     },
     statusCode: 404,
   };
+}
+
+function hasTaskDetailAuditWriter(options) {
+  return isPlainObject(options) && typeof options.auditWriter === 'function';
+}
+
+function buildTaskDetailAuditMetadata(auth, params, allowed) {
+  return {
+    routeMatched: true,
+    contextPresent: isPlainObject(auth) && Object.keys(auth).length > 0,
+    identifierValid: Boolean(auth.organizationId && auth.engineerId && params.appointmentId),
+    permissionPassed: allowed === true,
+  };
+}
+
+function buildEngineerMobileTaskDetailAuditEvent(req, response) {
+  const request = isPlainObject(req) ? req : {};
+  const auth = isPlainObject(request.auth) ? request.auth : {};
+  const params = isPlainObject(request.params) ? request.params : {};
+  const allowed = isPlainObject(response)
+    && response.statusCode === 200
+    && isPlainObject(response.body)
+    && response.body.status === 'allow';
+  const input = {
+    eventType: allowed
+      ? 'engineer_mobile.task_detail.allow'
+      : 'engineer_mobile.task_detail.deny',
+    actorType: isPlainObject(auth) && Object.keys(auth).length > 0 ? 'engineer' : 'runtime',
+    decision: allowed ? 'allow' : 'deny',
+    route: ENGINEER_MOBILE_TASK_DETAIL_AUDIT_ROUTE,
+    method: ENGINEER_MOBILE_TASK_DETAIL_AUDIT_METHOD,
+    source: ENGINEER_MOBILE_TASK_DETAIL_AUDIT_SOURCE,
+    metadata: buildTaskDetailAuditMetadata(auth, params, allowed),
+  };
+
+  if (!allowed) {
+    input.reasonCode = 'engineerMobile.unavailable';
+  }
+
+  if (auth.organizationId) {
+    input.organizationId = auth.organizationId;
+  }
+
+  if (auth.engineerId) {
+    input.engineerId = auth.engineerId;
+  }
+
+  if (params.appointmentId) {
+    input.appointmentId = params.appointmentId;
+  }
+
+  const result = buildEngineerMobileAuditEvent(input);
+
+  return isPlainObject(result) && result.ok === true && isPlainObject(result.auditEvent)
+    ? result.auditEvent
+    : undefined;
+}
+
+function writeEngineerMobileTaskDetailAuditSideChannel(req, response, options = {}) {
+  if (!hasTaskDetailAuditWriter(options)) {
+    return undefined;
+  }
+
+  const auditEvent = buildEngineerMobileTaskDetailAuditEvent(req, response);
+
+  if (!auditEvent) {
+    return undefined;
+  }
+
+  const writeResult = writeEngineerMobileAuditEvent({
+    auditEvent,
+    auditWriter: options.auditWriter,
+  });
+
+  if (writeResult && typeof writeResult.catch === 'function') {
+    writeResult.catch(() => undefined);
+  }
+
+  return undefined;
 }
 
 function buildEngineerMobileTaskDetailResponse(req, options = {}) {
@@ -92,11 +181,15 @@ async function buildEngineerMobileTaskDetailResponseAsync(req, options = {}) {
 function handleEngineerMobileTaskDetailRequest(req, res, options = {}) {
   const response = buildEngineerMobileTaskDetailResponse(req, options);
 
+  writeEngineerMobileTaskDetailAuditSideChannel(req, response, options);
+
   return res.status(response.statusCode).json(response.body);
 }
 
 async function handleEngineerMobileTaskDetailRequestAsync(req, res, options = {}) {
   const response = await buildEngineerMobileTaskDetailResponseAsync(req, options);
+
+  writeEngineerMobileTaskDetailAuditSideChannel(req, response, options);
 
   return res.status(response.statusCode).json(response.body);
 }
@@ -144,9 +237,11 @@ function createEngineerMobileTaskDetailHandler(options = {}) {
 }
 
 module.exports = {
+  buildEngineerMobileTaskDetailAuditEvent,
   buildEngineerMobileTaskDetailResponseAsync,
   buildEngineerMobileTaskDetailResponse,
   createEngineerMobileTaskDetailHandler,
   handleEngineerMobileTaskDetailRequestAsync,
   handleEngineerMobileTaskDetailRequest,
+  writeEngineerMobileTaskDetailAuditSideChannel,
 };

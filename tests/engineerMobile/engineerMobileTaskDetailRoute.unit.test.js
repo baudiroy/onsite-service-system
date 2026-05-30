@@ -9,6 +9,9 @@ const {
   ENGINEER_MOBILE_TASK_DETAIL_ROUTE_PATH,
   registerEngineerMobileTaskDetailRoutes,
 } = require('../../src/routes/engineerMobileTaskDetailRoutes');
+const {
+  ENGINEER_MOBILE_AUDIT_EVENT_KEYS,
+} = require('../../src/engineerMobile/engineerMobileAuditEventBuilder');
 
 const repoRoot = path.resolve(__dirname, '../..');
 const routeFile = path.join(repoRoot, 'src/routes/engineerMobileTaskDetailRoutes.js');
@@ -194,6 +197,32 @@ function assertNoForbiddenOutput(value) {
   }
 }
 
+function assertNoAuditResultOutput(value) {
+  const serialized = JSON.stringify(value);
+
+  for (const auditField of [
+    'auditEvent',
+    'auditWritten',
+    'persisted',
+    'audit result',
+    'audit_persistence_failed',
+    'invalid_writer_result',
+  ]) {
+    assert.equal(serialized.includes(auditField), false, `leaked ${auditField}`);
+  }
+}
+
+function assertTaskDetailAuditEventBase(event, eventType, decision) {
+  assert.equal(event.eventType, eventType);
+  assert.equal(event.route, '/engineer-mobile/tasks/:appointmentId');
+  assert.equal(event.method, 'GET');
+  assert.equal(event.source, 'engineer_mobile_task_detail_handler');
+  assert.equal(event.decision, decision);
+  assert.deepEqual(Object.keys(event).sort(), Object.keys(event)
+    .filter((key) => ENGINEER_MOBILE_AUDIT_EVENT_KEYS.includes(key))
+    .sort());
+}
+
 function requireSpecifiers(source) {
   const specifiers = [];
   const requireRegex = /require\(['"]([^'"]+)['"]\)/g;
@@ -217,7 +246,7 @@ test('registers GET detail route with permission middleware before controller', 
   assert.equal(route.method, 'get');
   assert.equal(route.pathname, '/engineer-mobile/tasks/:appointmentId');
   assert.equal(route.handlers.length, 2);
-  assert.match(route.handlers[0].name, /engineerMobilePermissionMiddleware/);
+  assert.match(route.handlers[0].name, /engineerMobileTaskDetailPermissionMiddleware/);
   assert.match(route.handlers[1].name, /engineerMobileTaskDetailHandler/);
 });
 
@@ -250,6 +279,48 @@ test('valid engineer auth and matching task returns HTTP 200 detail', () => {
   assert.equal(res.jsonCalls[0].status, 'allow');
   assert.equal(res.jsonCalls[0].detail.appointmentId, 'apt_engineer_mobile_detail_route_001');
   assertNoForbiddenOutput(res.jsonCalls[0]);
+});
+
+test('task detail allow response writes one sanitized audit event without changing response', () => {
+  const auditEvents = [];
+  const route = registerRoute({
+    readModel() {
+      return { tasks: [task({ caseId: 'case_detail_audit_allow' })] };
+    },
+    auditWriter(event) {
+      auditEvents.push(event);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+  const { res } = invokeRoute(route, request());
+
+  assert.deepEqual(res.statusCalls, [200]);
+  assert.equal(res.jsonCalls[0].status, 'allow');
+  assert.equal(res.jsonCalls[0].detail.caseId, 'case_detail_audit_allow');
+  assert.equal(auditEvents.length, 1);
+  assertTaskDetailAuditEventBase(
+    auditEvents[0],
+    'engineer_mobile.task_detail.allow',
+    'allow',
+  );
+  assert.equal(auditEvents[0].appointmentId, 'apt_engineer_mobile_detail_route_001');
+  assert.equal(auditEvents[0].organizationId, 'org_engineer_mobile_detail_route_001');
+  assert.equal(auditEvents[0].engineerId, 'eng_engineer_mobile_detail_route_001');
+  assert.deepEqual(auditEvents[0].metadata, {
+    routeMatched: true,
+    contextPresent: true,
+    identifierValid: true,
+    permissionPassed: true,
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(auditEvents[0], 'reasonCode'), false);
+  assertNoForbiddenOutput(auditEvents[0]);
+  assertNoAuditResultOutput(res.jsonCalls[0]);
 });
 
 test('valid engineer auth and async matching task returns HTTP 200 detail', async () => {
@@ -296,6 +367,263 @@ test('wrong org engineer or appointment returns generic unavailable', () => {
   }
 });
 
+test('task detail safe deny writes one deny audit event without leaking raw provider detail', () => {
+  const auditEvents = [];
+  const route = registerRoute({
+    readModel() {
+      return {
+        tasks: [
+          task({
+            appointmentId: 'apt_other',
+            rawProviderPayload: 'provider_payload_should_not_leak',
+          }),
+        ],
+      };
+    },
+    auditWriter(event) {
+      auditEvents.push(event);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+  const { res } = invokeRoute(route, request());
+
+  assert.deepEqual(res.statusCalls, [404]);
+  assert.deepEqual(res.jsonCalls[0], {
+    detail: null,
+    messageKey: 'engineerMobile.taskDetailUnavailable',
+    status: 'deny',
+  });
+  assert.equal(auditEvents.length, 1);
+  assertTaskDetailAuditEventBase(
+    auditEvents[0],
+    'engineer_mobile.task_detail.deny',
+    'deny',
+  );
+  assert.equal(auditEvents[0].appointmentId, 'apt_engineer_mobile_detail_route_001');
+  assert.equal(auditEvents[0].reasonCode, 'engineerMobile.unavailable');
+  assert.deepEqual(auditEvents[0].metadata, {
+    routeMatched: true,
+    contextPresent: true,
+    identifierValid: true,
+    permissionPassed: false,
+  });
+  assert.equal(JSON.stringify(auditEvents[0]).includes('provider_payload_should_not_leak'), false);
+  assertNoForbiddenOutput(auditEvents[0]);
+  assertNoAuditResultOutput(res.jsonCalls[0]);
+});
+
+test('task detail permission deny writes one deny audit event before provider', () => {
+  const auditEvents = [];
+  const providerCalls = [];
+  const route = registerRoute({
+    readModel(input) {
+      providerCalls.push(input);
+      return { tasks: [task()] };
+    },
+    auditWriter(event) {
+      auditEvents.push(event);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+  const { res } = invokeRoute(route, request({
+    auth: auth({ permissions: [] }),
+  }));
+
+  assert.deepEqual(providerCalls, []);
+  assert.deepEqual(res.statusCalls, [403]);
+  assert.equal(auditEvents.length, 1);
+  assertTaskDetailAuditEventBase(
+    auditEvents[0],
+    'engineer_mobile.task_detail.deny',
+    'deny',
+  );
+  assert.equal(auditEvents[0].appointmentId, 'apt_engineer_mobile_detail_route_001');
+  assert.equal(auditEvents[0].reasonCode, 'engineerMobile.unavailable');
+  assertNoForbiddenOutput(res.jsonCalls[0]);
+  assertNoAuditResultOutput(res.jsonCalls[0]);
+});
+
+test('missing or malformed auditWriter skips audit and preserves detail allow and deny responses', () => {
+  const expectedAllowRoute = registerRoute({
+    readModel() {
+      return { tasks: [task({ caseId: 'case_no_writer_detail' })] };
+    },
+  });
+  const malformedAllowRoute = registerRoute({
+    readModel() {
+      return { tasks: [task({ caseId: 'case_no_writer_detail' })] };
+    },
+    auditWriter: {
+      record() {
+        throw new Error('object_writer_should_not_be_called');
+      },
+    },
+  });
+  const expectedAllow = invokeRoute(expectedAllowRoute, request()).res;
+  const malformedAllow = invokeRoute(malformedAllowRoute, request()).res;
+
+  assert.deepEqual(malformedAllow.statusCalls, expectedAllow.statusCalls);
+  assert.deepEqual(malformedAllow.jsonCalls, expectedAllow.jsonCalls);
+
+  const expectedDenyRoute = registerRoute({
+    readModel() {
+      return { tasks: [task({ appointmentId: 'apt_other' })] };
+    },
+  });
+  const malformedDenyRoute = registerRoute({
+    readModel() {
+      return { tasks: [task({ appointmentId: 'apt_other' })] };
+    },
+    auditWriter: {
+      write() {
+        throw new Error('object_writer_should_not_be_called');
+      },
+    },
+  });
+  const expectedDeny = invokeRoute(expectedDenyRoute, request()).res;
+  const malformedDeny = invokeRoute(malformedDenyRoute, request()).res;
+
+  assert.deepEqual(malformedDeny.statusCalls, expectedDeny.statusCalls);
+  assert.deepEqual(malformedDeny.jsonCalls, expectedDeny.jsonCalls);
+  assertNoAuditResultOutput(malformedAllow.jsonCalls[0]);
+  assertNoAuditResultOutput(malformedDeny.jsonCalls[0]);
+});
+
+test('audit writer failures and malformed results do not change task detail response', () => {
+  for (const auditWriter of [
+    () => {
+      throw new Error('stack token sql provider debug should not leak');
+    },
+    () => Promise.reject(new Error('reject token sql provider debug should not leak')),
+    () => ({ ok: true, status: 'recorded', auditWritten: false, persisted: false }),
+  ]) {
+    const route = registerRoute({
+      readModel() {
+        return { tasks: [task({ caseId: 'case_detail_writer_failure' })] };
+      },
+      auditWriter,
+    });
+    const { res } = invokeRoute(route, request());
+
+    assert.deepEqual(res.statusCalls, [200]);
+    assert.equal(res.jsonCalls[0].detail.caseId, 'case_detail_writer_failure');
+    assert.equal(JSON.stringify(res.jsonCalls[0]).includes('provider debug'), false);
+    assertNoForbiddenOutput(res.jsonCalls[0]);
+    assertNoAuditResultOutput(res.jsonCalls[0]);
+  }
+});
+
+test('audit event excludes raw request context and task detail provider sentinels', () => {
+  const auditEvents = [];
+  const route = registerRoute({
+    readModel() {
+      return {
+        tasks: [
+          task({
+            rawProviderPayload: 'provider_payload_should_not_leak',
+          }),
+        ],
+      };
+    },
+    auditWriter(event) {
+      auditEvents.push(event);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+  const { res } = invokeRoute(route, request({
+    auth: {
+      ...auth(),
+      rawSession: 'session_should_not_leak',
+      token: 'token_should_not_leak',
+      privateNote: 'private_should_not_leak',
+    },
+    headers: {
+      authorization: 'bearer token_should_not_leak',
+      cookie: 'cookie_should_not_leak',
+    },
+    rawHeaders: ['authorization', 'token_should_not_leak'],
+    body: {
+      debug: 'debug_should_not_leak',
+    },
+    params: {
+      appointmentId: 'apt_engineer_mobile_detail_route_001',
+      raw: 'params_should_not_leak',
+    },
+    query: {
+      sql: 'select secret_should_not_leak',
+    },
+  }));
+
+  assert.deepEqual(res.statusCalls, [200]);
+  assert.equal(auditEvents.length, 1);
+  assertNoForbiddenOutput(auditEvents[0]);
+  for (const forbiddenValue of [
+    'provider_payload_should_not_leak',
+    'session_should_not_leak',
+    'private_should_not_leak',
+    'cookie_should_not_leak',
+    'params_should_not_leak',
+    'debug_should_not_leak',
+  ]) {
+    assert.equal(JSON.stringify(auditEvents[0]).includes(forbiddenValue), false);
+  }
+  assertNoAuditResultOutput(res.jsonCalls[0]);
+});
+
+test('invalid task detail audit event builder result skips writer and preserves response', () => {
+  const builderPath = require.resolve('../../src/engineerMobile/engineerMobileAuditEventBuilder');
+  const controllerPath = require.resolve('../../src/controllers/engineerMobileTaskDetailController');
+  const builderModule = require(builderPath);
+  const originalBuilder = builderModule.buildEngineerMobileAuditEvent;
+
+  try {
+    builderModule.buildEngineerMobileAuditEvent = () => ({
+      ok: false,
+      reasonCode: 'invalid_route',
+    });
+    delete require.cache[controllerPath];
+    const freshController = require('../../src/controllers/engineerMobileTaskDetailController');
+    const auditEvents = [];
+    const res = createResponse();
+
+    freshController.handleEngineerMobileTaskDetailRequest(request(), res, {
+      readModel() {
+        return { tasks: [task({ caseId: 'case_detail_builder_invalid' })] };
+      },
+      auditWriter(event) {
+        auditEvents.push(event);
+      },
+    });
+
+    assert.deepEqual(res.statusCalls, [200]);
+    assert.equal(res.jsonCalls[0].detail.caseId, 'case_detail_builder_invalid');
+    assert.equal(auditEvents.length, 0);
+    assertNoAuditResultOutput(res.jsonCalls[0]);
+  } finally {
+    builderModule.buildEngineerMobileAuditEvent = originalBuilder;
+    delete require.cache[controllerPath];
+    require('../../src/controllers/engineerMobileTaskDetailController');
+  }
+});
+
 test('customer service and AI role denied before provider', () => {
   for (const role of ['customer_service', 'ai']) {
     const providerCalls = [];
@@ -329,6 +657,8 @@ test('route and controller import boundaries are safe', () => {
   ]);
   assert.deepEqual(requireSpecifiers(controllerSource), [
     '../engineerMobile/engineerMobileTaskDetailService',
+    '../engineerMobile/engineerMobileAuditEventBuilder',
+    '../engineerMobile/engineerMobileAuditWriterAdapter',
   ]);
 
   for (const [label, source] of [
