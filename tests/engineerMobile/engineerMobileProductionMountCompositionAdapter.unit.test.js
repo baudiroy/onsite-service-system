@@ -100,6 +100,32 @@ function createSyntheticRouter(overrides = {}) {
   };
 }
 
+function createSyntheticFunctionRouter() {
+  function router() {}
+
+  router.routes = [];
+  router.get = (path, ...handlers) => {
+    router.routes.push({
+      method: 'GET',
+      path,
+      handlers,
+    });
+
+    return router;
+  };
+  router.post = (path, ...handlers) => {
+    router.routes.push({
+      method: 'POST',
+      path,
+      handlers,
+    });
+
+    return router;
+  };
+
+  return router;
+}
+
 function createSyntheticDbClient() {
   return {
     calls: [],
@@ -218,6 +244,27 @@ test('valid composition delegates to existing Engineer Mobile route registration
   assert.deepEqual(router.listenCalls, []);
   assert.equal(dbClient.calls.length, 0);
   assert.deepEqual(provider.sends, []);
+  assertNoSummaryLeak(summary);
+});
+
+test('valid composition accepts function-shaped Express routers without side effects', () => {
+  const router = createSyntheticFunctionRouter();
+  const dbClient = createSyntheticDbClient();
+
+  const summary = createEngineerMobileProductionMountComposition({
+    router,
+    dbClient,
+    repository: createSyntheticRepository(),
+  });
+
+  assert.deepEqual(summary, expectedSuccessSummary());
+  assert.deepEqual(router.routes.map((route) => `${route.method} ${route.path}`), [
+    `GET ${ENGINEER_MOBILE_TASKS_ROUTE_PATH}`,
+    `GET ${ENGINEER_MOBILE_TASK_DETAIL_ROUTE_PATH}`,
+    `POST ${ENGINEER_MOBILE_VISIT_ACTION_ROUTE_PATH}`,
+  ]);
+  assert.equal(router.routes.every((route) => route.handlers.every((handler) => typeof handler === 'function')), true);
+  assert.equal(dbClient.calls.length, 0);
   assertNoSummaryLeak(summary);
 });
 

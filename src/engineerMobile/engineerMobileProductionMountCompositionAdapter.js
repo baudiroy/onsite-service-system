@@ -41,6 +41,12 @@ function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isMountTarget(value) {
+  return Boolean(value)
+    && (typeof value === 'object' || typeof value === 'function')
+    && !Array.isArray(value);
+}
+
 function successSummary() {
   return {
     registered: true,
@@ -60,7 +66,7 @@ function failureSummary(reasonCode) {
 }
 
 function isSupportedRouter(router) {
-  return isObject(router)
+  return isMountTarget(router)
     && typeof router.get === 'function'
     && typeof router.post === 'function';
 }

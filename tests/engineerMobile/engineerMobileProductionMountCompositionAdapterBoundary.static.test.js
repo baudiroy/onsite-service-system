@@ -88,7 +88,7 @@ test('adapter returns only sanitized summaries and never raw dependency objects'
   assert.match(adapter, /customerVisible:\s*false/);
 });
 
-test('app server route-index and public route files do not import the new adapter directly', () => {
+test('only production route index imports the Engineer Mobile production mount adapter', () => {
   const app = read(FILES.app);
   const server = read(FILES.server);
   const routeIndex = read(FILES.routeIndex);
@@ -103,6 +103,13 @@ test('app server route-index and public route files do not import the new adapte
   );
   assert.equal(
     requireSpecifiers(routeIndex).includes('../engineerMobile/engineerMobileProductionMountCompositionAdapter'),
-    false,
+    true,
   );
+  assert.match(
+    routeIndex,
+    /createEngineerMobileProductionMountComposition\(\{\s*\.\.\.engineerMobileOptions,\s*router:\s*appRouter,\s*\}\)/,
+  );
+  assert.doesNotMatch(routeIndex, /registerEngineerMobileRoutes\(appRouter/);
+  assert.doesNotMatch(routeIndex, /registerEngineerMobileTaskDetailRoutes\(appRouter/);
+  assert.doesNotMatch(routeIndex, /registerEngineerMobileVisitActionRoutes\(appRouter/);
 });

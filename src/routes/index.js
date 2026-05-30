@@ -20,15 +20,22 @@ const { dispatchUnitsRouter } = require('./dispatchUnits.routes');
 const { registerDispatchAssignmentRoutes } = require('./dispatchAssignment.routes');
 const { usersRouter } = require('./users.routes');
 const { createEngineerMobileWorkbenchRouter } = require('./engineerMobileWorkbench.routes');
-const { registerEngineerMobileRoutes } = require('./engineerMobileRoutes');
-const { registerEngineerMobileTaskDetailRoutes } = require('./engineerMobileTaskDetailRoutes');
-const { registerEngineerMobileVisitActionRoutes } = require('./engineerMobileVisitActionRoutes');
+const {
+  createEngineerMobileProductionMountComposition,
+} = require('../engineerMobile/engineerMobileProductionMountCompositionAdapter');
 const { registerCustomerAccessModuleRoutes } = require('../customerAccess/customerAccessRouteRegistry');
 const {
   createCustomerAccessProductionMountComposition,
 } = require('../customerAccess/customerAccessProductionMountCompositionAdapter');
 const { registerDataCorrectionRoutes } = require('./dataCorrectionRoutes');
 const { registerRepairIntakeDraftToCaseAdminRoutes } = require('./repairIntakeDraftToCase.routes');
+
+function registerEngineerMobileRoutesWithOptions(appRouter, engineerMobileOptions = {}) {
+  return createEngineerMobileProductionMountComposition({
+    ...engineerMobileOptions,
+    router: appRouter,
+  });
+}
 
 function registerCustomerAccessRoutesWithOptions(appRouter, customerAccessOptions) {
   if (customerAccessOptions === undefined) {
@@ -97,9 +104,7 @@ function createAppRouter(options = {}) {
     '/api/v1/engineer/mobile-workbench',
     createEngineerMobileWorkbenchRouter(options.engineerMobileWorkbench || options.engineerMobile || {})
   );
-  registerEngineerMobileRoutes(appRouter, options.engineerMobile);
-  registerEngineerMobileTaskDetailRoutes(appRouter, options.engineerMobile);
-  registerEngineerMobileVisitActionRoutes(appRouter, options.engineerMobile);
+  registerEngineerMobileRoutesWithOptions(appRouter, options.engineerMobile);
   registerCustomerAccessRoutesWithOptions(appRouter, options.customerAccess);
   registerDataCorrectionRoutes(appRouter, options.dataCorrection);
   registerRepairIntakeDraftToCaseAdminRoutes(appRouter, {

@@ -242,13 +242,18 @@ test('data correction permission middleware remains first handler on mounted rou
   assert.match(route.route.stack[0].handle.name, /dataCorrectionPermissionMiddleware|middleware/i);
 });
 
-test('route index imports engineer mobile route without direct DB, repository, provider, or server bootstrap', () => {
+test('route index mounts engineer mobile through production composition adapter only', () => {
   const source = fs.readFileSync(routeIndexFile, 'utf8');
   const specifiers = requireSpecifiers(source);
 
-  assert.ok(specifiers.includes('./engineerMobileRoutes'));
-  assert.ok(specifiers.includes('./customerAccessRoutes'));
+  assert.ok(specifiers.includes('../engineerMobile/engineerMobileProductionMountCompositionAdapter'));
+  assert.equal(specifiers.includes('./engineerMobileRoutes'), false);
+  assert.equal(specifiers.includes('./engineerMobileTaskDetailRoutes'), false);
+  assert.equal(specifiers.includes('./engineerMobileVisitActionRoutes'), false);
+  assert.ok(specifiers.includes('../customerAccess/customerAccessRouteRegistry'));
+  assert.ok(specifiers.includes('../customerAccess/customerAccessProductionMountCompositionAdapter'));
   assert.ok(specifiers.includes('./dataCorrectionRoutes'));
+  assert.match(source, /createEngineerMobileProductionMountComposition\(\{\s*\.\.\.engineerMobileOptions,\s*router:\s*appRouter,\s*\}\)/);
   assert.equal(specifiers.some((specifier) => /\/db|pool|repositories?|transaction|provider|lineProvider|sms|email|push|rag|vector/i.test(specifier)), false);
   assert.doesNotMatch(source, /app\.listen|server\.listen|createServer/);
 });
