@@ -166,13 +166,21 @@ function createAuditInput(input) {
   const draft = draftSummary(input.draft);
   const plan = planSummary(input.plan);
   const caseRef = caseRefSummary(input.caseRef);
+  const repairIntakeDraftId = firstSafeString(
+    input.repairIntakeDraftId,
+    input.draftId,
+    draft.draftId,
+    draft.id,
+    caseRef.sourceDraftId,
+  );
 
   return sanitizeValue(compactObject({
     draft,
     plan,
     caseRef,
     decision: safeString(input.decision) || 'submitted',
-    draftId: firstSafeString(input.draftId, draft.draftId, draft.id, caseRef.sourceDraftId),
+    draftId: repairIntakeDraftId,
+    repairIntakeDraftId,
     organizationId: firstSafeString(
       input.organizationId,
       input.context && input.context.organizationId,
@@ -181,6 +189,19 @@ function createAuditInput(input) {
     ),
     tenantId: firstSafeString(input.tenantId, input.context && input.context.tenantId, draft.tenantId, caseRef.tenantId),
     requestId: firstSafeString(input.requestId, input.context && input.context.requestId),
+    actorId: firstSafeString(
+      input.actorId,
+      input.context && input.context.actorId,
+      input.actor && input.actor.actorId,
+      input.actor && input.actor.id,
+    ),
+    actorRole: firstSafeString(
+      input.actorRole,
+      input.context && input.context.actorRole,
+      input.actor && input.actor.actorRole,
+      input.actor && input.actor.role,
+    ),
+    source: firstSafeString(input.source, input.context && input.context.source, draft.source),
     actor: input.actor || (input.context && { actorId: input.context.actorId }),
     metadata: input.metadata,
     warnings: input.warnings || plan.warnings,
