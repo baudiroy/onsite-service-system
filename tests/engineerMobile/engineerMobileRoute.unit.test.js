@@ -13,6 +13,9 @@ const {
   ENGINEER_MOBILE_TASKS_ROUTE_PATH,
   registerEngineerMobileRoutes,
 } = require('../../src/routes/engineerMobileRoutes');
+const {
+  ENGINEER_MOBILE_AUDIT_EVENT_KEYS,
+} = require('../../src/engineerMobile/engineerMobileAuditEventBuilder');
 
 const repoRoot = path.resolve(__dirname, '../..');
 const controllerFile = path.join(repoRoot, 'src/controllers/engineerMobileController.js');
@@ -104,6 +107,43 @@ function assertNoForbiddenOutput(value) {
   ]) {
     assert.equal(serialized.includes(forbiddenValue), false, `leaked ${forbiddenValue}`);
   }
+}
+
+function assertNoAuditResultOutput(value) {
+  const serialized = JSON.stringify(value);
+
+  for (const auditField of [
+    'auditEvent',
+    'auditWritten',
+    'persisted',
+    'audit result',
+    'audit_persistence_failed',
+    'invalid_writer_result',
+  ]) {
+    assert.equal(serialized.includes(auditField), false, `leaked ${auditField}`);
+  }
+}
+
+async function invokeTaskListRoute(options, req) {
+  const router = createRouter();
+  registerEngineerMobileRoutes(router, options);
+  const res = createResponse();
+  const [permissionMiddleware, controllerHandler] = router.registrations[0].handlers;
+
+  await permissionMiddleware(req, res, () => controllerHandler(req, res));
+
+  return res;
+}
+
+function assertTaskListAuditEventBase(event, eventType, decision) {
+  assert.equal(event.eventType, eventType);
+  assert.equal(event.route, '/engineer-mobile/tasks');
+  assert.equal(event.method, 'GET');
+  assert.equal(event.source, 'engineer_mobile_task_list_handler');
+  assert.equal(event.decision, decision);
+  assert.deepEqual(Object.keys(event).sort(), Object.keys(event)
+    .filter((key) => ENGINEER_MOBILE_AUDIT_EVENT_KEYS.includes(key))
+    .sort());
 }
 
 function requireSpecifiers(source) {
@@ -226,6 +266,308 @@ test('route handler awaits async read model when provided', async () => {
   assertNoForbiddenOutput(res.body);
 });
 
+test('task list allow response writes one sanitized audit event without changing response', async () => {
+  const auditEvents = [];
+  const response = await invokeTaskListRoute({
+    readModel: {
+      tasks: [task({ caseId: 'case_audit_allow' })],
+    },
+    auditWriter(event) {
+      auditEvents.push(event);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  }, {
+    auth: auth(),
+    query: {
+      from: '2026-05-21',
+      to: '2026-05-22',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body, {
+    status: 'allow',
+    tasks: [task({ caseId: 'case_audit_allow' })].map((entry) => ({
+      caseId: entry.caseId,
+      appointmentId: entry.appointmentId,
+      scheduledStart: entry.scheduledStart,
+      status: entry.status,
+      customerNameMasked: entry.customerNameMasked,
+      customerPhoneMasked: entry.customerPhoneMasked,
+      addressSummary: entry.addressSummary,
+      productSummary: entry.productSummary,
+      issueSummary: entry.issueSummary,
+    })),
+  });
+  assert.equal(auditEvents.length, 1);
+  assertTaskListAuditEventBase(
+    auditEvents[0],
+    'engineer_mobile.task_list.allow',
+    'allow',
+  );
+  assert.equal(auditEvents[0].organizationId, 'org_engineer_mobile_route_001');
+  assert.equal(auditEvents[0].engineerId, 'eng_engineer_mobile_route_001');
+  assert.deepEqual(auditEvents[0].metadata, {
+    routeMatched: true,
+    contextPresent: true,
+    identifierValid: true,
+    permissionPassed: true,
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(auditEvents[0], 'reasonCode'), false);
+  assertNoForbiddenOutput(auditEvents[0]);
+  assertNoAuditResultOutput(response.body);
+});
+
+test('task list permission deny writes one deny audit event without changing safe response', async () => {
+  const auditEvents = [];
+  const response = await invokeTaskListRoute({
+    readModel: {
+      tasks: [task({ caseId: 'case_audit_denied' })],
+    },
+    auditWriter(event) {
+      auditEvents.push(event);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  }, {
+    auth: {
+      engineerId: 'eng_engineer_mobile_route_001',
+      organizationId: 'org_engineer_mobile_route_001',
+      role: 'engineer',
+      userId: 'user_engineer_mobile_route_001',
+    },
+    query: {},
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.body, {
+    status: 'deny',
+    messageKey: 'engineerMobile.unavailable',
+    data: null,
+  });
+  assert.equal(auditEvents.length, 1);
+  assertTaskListAuditEventBase(
+    auditEvents[0],
+    'engineer_mobile.task_list.deny',
+    'deny',
+  );
+  assert.equal(auditEvents[0].reasonCode, 'engineerMobile.unavailable');
+  assert.deepEqual(auditEvents[0].metadata, {
+    routeMatched: true,
+    contextPresent: true,
+    identifierValid: true,
+    permissionPassed: false,
+  });
+  assertNoForbiddenOutput(auditEvents[0]);
+  assertNoAuditResultOutput(response.body);
+});
+
+test('task list handler deny writes one deny audit event without leaking raw provider failure', () => {
+  const auditEvents = [];
+  const res = createResponse();
+
+  handleEngineerMobileTaskListRequest({
+    auth: auth(),
+    query: {},
+  }, res, {
+    taskProvider: {
+      listTasks() {
+        throw new Error('select token_should_not_leak from provider_debug');
+      },
+    },
+    auditWriter(event) {
+      auditEvents.push(event);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  });
+
+  assert.equal(res.statusCode, 403);
+  assert.deepEqual(res.body, {
+    status: 'deny',
+    messageKey: 'engineerMobile.forbidden',
+    tasks: [],
+  });
+  assert.equal(auditEvents.length, 1);
+  assertTaskListAuditEventBase(
+    auditEvents[0],
+    'engineer_mobile.task_list.deny',
+    'deny',
+  );
+  assert.equal(auditEvents[0].reasonCode, 'engineerMobile.unavailable');
+  assert.equal(JSON.stringify(auditEvents[0]).includes('provider_debug'), false);
+  assertNoForbiddenOutput(res.body);
+  assertNoAuditResultOutput(res.body);
+});
+
+test('missing or malformed auditWriter skips audit and preserves task list response', async () => {
+  const expected = await invokeTaskListRoute({
+    readModel: {
+      tasks: [task({ caseId: 'case_no_writer' })],
+    },
+  }, {
+    auth: auth(),
+    query: {},
+  });
+  const malformed = await invokeTaskListRoute({
+    readModel: {
+      tasks: [task({ caseId: 'case_no_writer' })],
+    },
+    auditWriter: {
+      record() {
+        throw new Error('object_writer_should_not_be_called');
+      },
+    },
+  }, {
+    auth: auth(),
+    query: {},
+  });
+
+  assert.equal(malformed.statusCode, expected.statusCode);
+  assert.deepEqual(malformed.body, expected.body);
+  assertNoAuditResultOutput(malformed.body);
+});
+
+test('audit writer failures and malformed results do not change task list response', async () => {
+  for (const auditWriter of [
+    () => {
+      throw new Error('stack token sql provider debug should not leak');
+    },
+    () => Promise.reject(new Error('reject token sql provider debug should not leak')),
+    () => ({ ok: true, status: 'recorded', auditWritten: false, persisted: false }),
+  ]) {
+    const response = await invokeTaskListRoute({
+      readModel: {
+        tasks: [task({ caseId: 'case_writer_failure' })],
+      },
+      auditWriter,
+    }, {
+      auth: auth(),
+      query: {},
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.body.tasks.map((entry) => entry.caseId), ['case_writer_failure']);
+    assert.equal(JSON.stringify(response.body).includes('provider debug'), false);
+    assertNoForbiddenOutput(response.body);
+    assertNoAuditResultOutput(response.body);
+  }
+});
+
+test('audit event excludes raw request context and provider sentinels', async () => {
+  const auditEvents = [];
+  const response = await invokeTaskListRoute({
+    readModel: {
+      tasks: [task({
+        caseId: 'case_non_leakage',
+        rawProviderPayload: 'provider_payload_should_not_leak',
+      })],
+    },
+    auditWriter(event) {
+      auditEvents.push(event);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+      };
+    },
+  }, {
+    auth: {
+      ...auth(),
+      rawSession: 'session_should_not_leak',
+      token: 'token_should_not_leak',
+      privateNote: 'private_should_not_leak',
+    },
+    headers: {
+      authorization: 'bearer token_should_not_leak',
+      cookie: 'cookie_should_not_leak',
+    },
+    rawHeaders: ['authorization', 'token_should_not_leak'],
+    body: {
+      debug: 'debug_should_not_leak',
+    },
+    query: {
+      from: '2026-05-21',
+      sql: 'select secret_should_not_leak',
+    },
+    params: {
+      raw: 'params_should_not_leak',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(auditEvents.length, 1);
+  assertNoForbiddenOutput(auditEvents[0]);
+  for (const forbiddenValue of [
+    'provider_payload_should_not_leak',
+    'session_should_not_leak',
+    'private_should_not_leak',
+    'cookie_should_not_leak',
+    'params_should_not_leak',
+    'debug_should_not_leak',
+  ]) {
+    assert.equal(JSON.stringify(auditEvents[0]).includes(forbiddenValue), false);
+  }
+  assertNoAuditResultOutput(response.body);
+});
+
+test('invalid audit event builder result skips writer and preserves response', () => {
+  const builderPath = require.resolve('../../src/engineerMobile/engineerMobileAuditEventBuilder');
+  const controllerPath = require.resolve('../../src/controllers/engineerMobileController');
+  const builderModule = require(builderPath);
+  const originalBuilder = builderModule.buildEngineerMobileAuditEvent;
+
+  try {
+    builderModule.buildEngineerMobileAuditEvent = () => ({
+      ok: false,
+      reasonCode: 'invalid_route',
+    });
+    delete require.cache[controllerPath];
+    const freshController = require('../../src/controllers/engineerMobileController');
+    const auditEvents = [];
+    const res = createResponse();
+
+    freshController.handleEngineerMobileTaskListRequest({
+      auth: auth(),
+      query: {},
+    }, res, {
+      readModel: {
+        tasks: [task({ caseId: 'case_builder_invalid' })],
+      },
+      auditWriter(event) {
+        auditEvents.push(event);
+      },
+    });
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body.tasks.map((entry) => entry.caseId), ['case_builder_invalid']);
+    assert.equal(auditEvents.length, 0);
+    assertNoAuditResultOutput(res.body);
+  } finally {
+    builderModule.buildEngineerMobileAuditEvent = originalBuilder;
+    delete require.cache[controllerPath];
+    require('../../src/controllers/engineerMobileController');
+  }
+});
+
 test('handle function returns safe deny without raw internal reason', () => {
   const res = createResponse();
 
@@ -259,6 +601,8 @@ test('controller and route source import no DB, repository, provider, notificati
 
   assert.deepEqual(specifiers.sort(), [
     '../controllers/engineerMobileController',
+    '../engineerMobile/engineerMobileAuditEventBuilder',
+    '../engineerMobile/engineerMobileAuditWriterAdapter',
     '../engineerMobile/engineerMobilePermissionMiddleware',
     '../engineerMobile/engineerMobileTaskListService',
   ].sort());
