@@ -21,7 +21,9 @@ const FILES = Object.freeze({
   task2277Doc: 'docs/task-2277-engineer-mobile-visit-action-decision-helper-static-boundary-guard-no-runtime-change-no-db-no-smoke-no-provider.md',
   task2278Doc: 'docs/task-2278-engineer-mobile-visit-action-decision-helper-branch-checkpoint-no-runtime-change-no-db-no-smoke-no-provider.md',
   task2280Doc: 'docs/task-2280-engineer-mobile-workbench-safe-envelope-presenter-runtime-wiring-no-db-no-smoke-no-provider.md',
+  task2283Doc: 'docs/task-2283-engineer-mobile-workbench-safe-envelope-list-runtime-wiring-no-db-no-smoke-no-provider.md',
   detailHandler: 'src/engineerMobile/engineerMobileAssignedAppointmentDetailHandler.js',
+  listHandler: 'src/engineerMobile/engineerMobileAssignedAppointmentsHandler.js',
 });
 
 const WORKBENCH_OUTPUT_FIELDS = Object.freeze([
@@ -302,24 +304,24 @@ test('unit and static evidence covers raw private internal non-exposure and immu
   ], 'portfolio unsafe marker evidence');
 });
 
-test('Engineer Mobile runtime source wires only the authorized Task2280 workbench presenter boundary', () => {
+test('Engineer Mobile runtime source wires only the authorized Task2280 and Task2283 workbench presenter boundaries', () => {
   const sourceFiles = engineerMobileSourceFiles()
     .filter((file) => file !== FILES.workbenchPresenter)
     .filter((file) => file !== FILES.decisionHelper);
 
   for (const file of sourceFiles) {
     const source = read(file);
-    const isTask2280DetailHandler = file === FILES.detailHandler;
+    const isAuthorizedWorkbenchPresenterConsumer = file === FILES.detailHandler || file === FILES.listHandler;
 
     assert.equal(
       source.includes('engineerMobileWorkbenchSafeEnvelopePresenter'),
-      isTask2280DetailHandler,
-      `${file} workbench presenter wiring must stay limited to Task2280 detail handler`,
+      isAuthorizedWorkbenchPresenterConsumer,
+      `${file} workbench presenter wiring must stay limited to Task2280 detail handler and Task2283 list handler`,
     );
     assert.equal(
       source.includes('presentEngineerMobileWorkbenchSafeEnvelope'),
-      isTask2280DetailHandler,
-      `${file} workbench presenter calls must stay limited to Task2280 detail handler`,
+      isAuthorizedWorkbenchPresenterConsumer,
+      `${file} workbench presenter calls must stay limited to Task2280 detail handler and Task2283 list handler`,
     );
     assert.equal(
       source.includes('engineerMobileVisitActionDecisionHelper'),
@@ -343,6 +345,7 @@ test('recent docs preserve authorized runtime wiring and remaining pure-helper b
     read(FILES.task2277Doc),
     read(FILES.task2278Doc),
     read(FILES.task2280Doc),
+    read(FILES.task2283Doc),
   ].join('\n');
 
   assertIncludesAll(docs, [

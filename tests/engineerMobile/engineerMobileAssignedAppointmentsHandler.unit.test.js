@@ -178,22 +178,50 @@ test('valid engineer and organization context returns safe assigned appointments
   assert.equal(result.status, 'allow');
   assert.equal(result.engineerMobileVisible, true);
   assert.deepEqual(
-    result.data.appointments.map((item) => item.appointmentId),
+    result.data.appointments.map((item) => Object.hasOwn(item, 'appointmentId')),
+    [false, false],
+  );
+  assert.deepEqual(
+    result.data.appointments.map((item) => item.appointmentReference),
     ['apt_1735_first', 'apt_1735_later'],
   );
   assert.deepEqual(Object.keys(result.data.appointments[0]).sort(), [
-    'appointmentId',
+    'actions',
+    'appointmentReference',
     'appointmentWindow',
-    'canOpenDetails',
     'caseReference',
-    'customerDisplayName',
-    'locationLabel',
-    'priorityLabel',
-    'scheduledEnd',
-    'scheduledStart',
-    'serviceType',
+    'customerDisplay',
+    'eligibility',
+    'locationSummary',
+    'messageKey',
+    'ok',
+    'serviceStatus',
     'status',
+    'workOrderSummary',
   ]);
+  assert.deepEqual(result.data.appointments[0], {
+    ok: true,
+    status: 'available',
+    messageKey: 'engineerMobile.assignedAppointments.available',
+    caseReference: 'CASE-1735-FIRST',
+    appointmentReference: 'apt_1735_first',
+    serviceStatus: 'scheduled',
+    appointmentWindow: '2026-05-28 09:00-11:00',
+    customerDisplay: {
+      displayName: 'Wang masked',
+    },
+    locationSummary: {
+      label: 'Taipei Da-an',
+    },
+    workOrderSummary: {
+      serviceType: 'onsite',
+      priorityLabel: 'normal',
+    },
+    eligibility: {
+      canOpenDetails: true,
+    },
+    actions: [],
+  });
   assertNoForbiddenLeak(result);
   assert.deepEqual(auditEvents, [
     {
@@ -313,7 +341,7 @@ test('cross-organization or cross-engineer repository rows are excluded', async 
 
   assert.equal(result.status, 'allow');
   assert.deepEqual(
-    result.data.appointments.map((item) => item.appointmentId),
+    result.data.appointments.map((item) => item.appointmentReference),
     ['apt_allowed'],
   );
 });

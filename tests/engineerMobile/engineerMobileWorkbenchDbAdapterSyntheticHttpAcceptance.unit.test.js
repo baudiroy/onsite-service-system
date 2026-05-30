@@ -334,25 +334,40 @@ test('synthetic HTTP acceptance covers canonical list and detail DB adapter path
   assert.equal(listResponse.body.status, 'allow');
   assert.deepEqual(listResponse.body.data.appointments, [
     {
-      appointmentId: 'apt_1764_list_001',
-      appointmentWindow: '2026-06-04 09:00-11:00',
-      canOpenDetails: true,
+      ok: true,
+      status: 'available',
+      messageKey: 'engineerMobile.assignedAppointments.available',
       caseReference: 'CASE-1764-LIST',
-      customerDisplayName: 'Workbench DB adapter customer',
-      locationLabel: 'Taipei safe district label',
-      priorityLabel: 'normal',
-      scheduledEnd: '2026-06-04T03:00:00.000Z',
-      scheduledStart: '2026-06-04T01:00:00.000Z',
-      serviceType: 'onsite',
-      status: 'confirmed',
+      appointmentReference: 'apt_1764_list_001',
+      serviceStatus: 'confirmed',
+      appointmentWindow: '2026-06-04 09:00-11:00',
+      customerDisplay: {
+        displayName: 'Workbench DB adapter customer',
+      },
+      locationSummary: {
+        label: 'Taipei safe district label',
+      },
+      workOrderSummary: {
+        serviceType: 'onsite',
+        priorityLabel: 'normal',
+      },
+      eligibility: {
+        canOpenDetails: true,
+      },
+      actions: [],
     },
   ]);
   assert.equal(detailResponse.statusCode, 200);
   assert.equal(detailResponse.body.status, 'allow');
-  assert.equal(detailResponse.body.data.appointment.appointmentId, 'apt_1764_detail_001');
+  assert.equal(detailResponse.body.data.appointment.ok, true);
+  assert.equal(detailResponse.body.data.appointment.status, 'available');
+  assert.equal(detailResponse.body.data.appointment.appointmentReference, 'apt_1764_detail_001');
   assert.equal(detailResponse.body.data.appointment.caseReference, 'CASE-1764-DETAIL');
-  assert.equal(detailResponse.body.data.appointment.serviceSummary, 'Safe detail summary');
-  assert.equal(detailResponse.body.data.appointment.publicCustomerNotes, 'Customer-visible note');
+  assert.equal(detailResponse.body.data.appointment.workOrderSummary.serviceSummary, 'Safe detail summary');
+  assert.equal(
+    detailResponse.body.data.appointment.workOrderSummary.publicCustomerNotes,
+    'Customer-visible note',
+  );
 
   assert.deepEqual(queryExecutor.calls.map((querySpec) => querySpec.name), [
     ASSIGNED_APPOINTMENT_LIST_QUERY_NAME,

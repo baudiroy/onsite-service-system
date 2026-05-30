@@ -584,17 +584,27 @@ test('module can use DB repository adapter with injected synthetic queryExecutor
   assert.equal(listResponse.body.status, 'allow');
   assert.deepEqual(listResponse.body.data.appointments, [
     {
-      appointmentId: 'apt_1762_list_001',
+      ok: true,
+      status: 'available',
+      messageKey: 'engineerMobile.assignedAppointments.available',
       caseReference: 'CASE-1762-LIST',
+      appointmentReference: 'apt_1762_list_001',
+      serviceStatus: 'confirmed',
       appointmentWindow: '2026-06-02 09:00-11:00',
-      scheduledStart: '2026-06-02T01:00:00.000Z',
-      scheduledEnd: '2026-06-02T03:00:00.000Z',
-      serviceType: 'onsite',
-      customerDisplayName: 'DB adapter customer masked',
-      locationLabel: 'Taipei Xinyi',
-      status: 'confirmed',
-      priorityLabel: 'normal',
-      canOpenDetails: true,
+      customerDisplay: {
+        displayName: 'DB adapter customer masked',
+      },
+      locationSummary: {
+        label: 'Taipei Xinyi',
+      },
+      workOrderSummary: {
+        serviceType: 'onsite',
+        priorityLabel: 'normal',
+      },
+      eligibility: {
+        canOpenDetails: true,
+      },
+      actions: [],
     },
   ]);
   assert.equal(detailResponse.statusCode, 200);
