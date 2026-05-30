@@ -66,6 +66,34 @@ const BODY_OVERRIDE_FIELD_NAMES = new Set([
   'traceid',
 ]);
 
+const UNSAFE_TEXT_MARKERS = [
+  'audit internal',
+  'billing',
+  'customer address',
+  'customer phone',
+  'customer private',
+  'database_url',
+  'debug detail',
+  'invoice',
+  'line access token',
+  'password',
+  'postgres://',
+  'postgresql://',
+  'process.env',
+  'provider payload',
+  'rag',
+  'raw body',
+  'raw draft',
+  'raw draftinput',
+  'raw error',
+  'raw request',
+  'secret',
+  'select *',
+  'settlement',
+  'stack trace',
+  'token',
+];
+
 const IDEMPOTENCY_CONTEXT_MAX_LENGTH = 128;
 const IDEMPOTENCY_CONTEXT_PATTERN = /^[a-zA-Z0-9._:-]+$/;
 
@@ -84,6 +112,12 @@ function fieldIsUnsafe(key) {
   const normalized = normalizedFieldName(key);
 
   return normalized.startsWith('raw') || UNSAFE_FIELD_NAMES.has(normalized);
+}
+
+function stringHasUnsafeText(value) {
+  const normalized = value.toLowerCase();
+
+  return UNSAFE_TEXT_MARKERS.some((marker) => normalized.includes(marker));
 }
 
 function sanitizeNestedValue(value, options = {}) {
@@ -118,6 +152,7 @@ function sanitizeNestedValue(value, options = {}) {
     || typeof value === 'function'
     || typeof value === 'symbol'
     || (value !== null && typeof value === 'object')
+    || (typeof value === 'string' && stringHasUnsafeText(value))
   ) {
     return undefined;
   }
@@ -128,6 +163,10 @@ function sanitizeNestedValue(value, options = {}) {
 function safeScalar(value) {
   if (typeof value === 'string') {
     const trimmed = value.trim();
+
+    if (stringHasUnsafeText(trimmed)) {
+      return null;
+    }
 
     return trimmed.length > 0 ? trimmed : null;
   }
@@ -177,6 +216,16 @@ function unavailableEnvelope(reasonCode = UNAVAILABLE_BODY.reasonCode) {
       reasonCode,
     },
   };
+}
+
+function sanitizeRouteOutput(output) {
+  if (!isPlainObject(output)) {
+    return unavailableEnvelope(
+      'REPAIR_INTAKE_DRAFT_TO_CASE_ROUTE_ADAPTER_OUTPUT_INVALID',
+    );
+  }
+
+  return sanitizeNestedValue(output);
 }
 
 function resolvePreRouteHandler(preRouteHandler) {
@@ -229,7 +278,7 @@ function createRepairIntakeDraftToCaseRouteAdapterContract(options = {}) {
       const preRouteInput = routeLikeToPreRouteInput(routeLikeInput);
       const preRouteOutput = await handlePreRoute(preRouteInput);
 
-      return sanitizeNestedValue(preRouteOutput);
+      return sanitizeRouteOutput(preRouteOutput);
     } catch (error) {
       return unavailableEnvelope(
         'REPAIR_INTAKE_DRAFT_TO_CASE_ROUTE_ADAPTER_PRE_ROUTE_HANDLER_FAILED',
