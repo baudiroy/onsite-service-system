@@ -6,6 +6,10 @@ const path = require('node:path');
 const test = require('node:test');
 
 const { createAppRouter, router } = require('../../src/routes');
+const {
+  CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+  CUSTOMER_ACCESS_ROUTE_PATH,
+} = require('../../src/routes/customerAccessRoutes');
 
 const repoRoot = path.resolve(__dirname, '../..');
 const routeIndexFile = path.join(repoRoot, 'src/routes/index.js');
@@ -13,8 +17,16 @@ const routeIndexFile = path.join(repoRoot, 'src/routes/index.js');
 function mountedCustomerAccessRoute(appRouter) {
   return appRouter.stack.find((layer) => (
     layer.route
-    && layer.route.path === '/customer-access/:caseId'
+    && layer.route.path === CUSTOMER_ACCESS_ROUTE_PATH
     && layer.route.methods.get === true
+  ));
+}
+
+function mountedCustomerAccessRoutes(appRouter) {
+  return appRouter.stack.filter((layer) => (
+    layer.route
+    && layer.route.methods.get === true
+    && String(layer.route.path).startsWith('/customer-access/')
   ));
 }
 
@@ -38,10 +50,15 @@ function createSyntheticRes() {
 }
 
 function createSyntheticRequest(overrides) {
+  const caseId = (overrides && overrides.caseId) || 'case_route_index_001';
+
   return {
+    params: {
+      caseId,
+    },
     customerAccessContextInput: {
       organizationId: 'org_route_index_001',
-      caseId: 'case_route_index_001',
+      caseId,
       customerId: 'customer_route_index_001',
       rawPhone: 'raw_phone_should_not_leak',
       rawAddress: 'raw_address_should_not_leak',
@@ -221,8 +238,27 @@ test('createAppRouter({ customerAccess: { dbClient } }) mounts GET /customer-acc
   const route = mountedCustomerAccessRoute(appRouter);
 
   assert.ok(route, 'customer access route should be mounted');
-  assert.equal(route.route.path, '/customer-access/:caseId');
+  assert.equal(route.route.path, CUSTOMER_ACCESS_ROUTE_PATH);
   assert.equal(route.route.methods.get, true);
+});
+
+test('createAppRouter production mount registers only accepted customer access public routes', () => {
+  const appRouter = createAppRouter({
+    customerAccess: {
+      dbClient: createSyntheticDbClient(),
+    },
+  });
+
+  assert.deepEqual(mountedCustomerAccessRoutes(appRouter).map((layer) => layer.route.path), [
+    CUSTOMER_ACCESS_ROUTE_PATH,
+    CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+  ]);
+  assert.equal(
+    mountedCustomerAccessRoutes(appRouter).some((layer) => (
+      String(layer.route.path).includes('/__internal/customer-access')
+    )),
+    false,
+  );
 });
 
 test('factory creation with dbClient does not call dbClient', () => {
@@ -269,13 +305,22 @@ test('route index does not import real DB, transaction, repository, provider, or
   const specifiers = requireSpecifiers(source);
 
   assert.ok(specifiers.includes('express'));
-  assert.ok(specifiers.includes('./customerAccessRoutes'));
   assert.ok(specifiers.includes('../customerAccess/customerAccessRouteRegistry'));
+  assert.ok(specifiers.includes('../customerAccess/customerAccessProductionMountCompositionAdapter'));
+  assert.equal(specifiers.includes('./customerAccessRoutes'), false);
   assert.equal(specifiers.includes('../customerAccess/customerAccessDbAdapter'), false);
   assert.equal(specifiers.some((specifier) => specifier.includes('/db')), false);
   assert.equal(specifiers.some((specifier) => /repositories?/i.test(specifier)), false);
   assert.equal(specifiers.some((specifier) => /provider|rag|vector/i.test(specifier)), false);
   assert.doesNotMatch(source, /transaction|begin|commit|rollback/i);
+});
+
+test('route index explicit customer access mount uses production composition adapter', () => {
+  const source = fs.readFileSync(routeIndexFile, 'utf8');
+
+  assert.match(source, /createCustomerAccessProductionMountComposition\(\{\s*router:\s*appRouter,\s*dbClient:\s*customerAccessOptions\.dbClient,\s*repository:\s*customerAccessOptions\.repository,\s*auditWriter:\s*customerAccessOptions\.auditWriter,\s*\}\)/);
+  assert.doesNotMatch(source, /registerCustomerAccessRoutes\(appRouter,\s*customerAccessOptions\)/);
+  assert.doesNotMatch(source, /\/__internal\/customer-access/);
 });
 
 test('route index does not import server bootstrap or call app.listen', () => {

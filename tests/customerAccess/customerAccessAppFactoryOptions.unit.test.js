@@ -6,6 +6,10 @@ const path = require('node:path');
 const test = require('node:test');
 
 const { app, createApp } = require('../../src/app');
+const {
+  CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+  CUSTOMER_ACCESS_ROUTE_PATH,
+} = require('../../src/routes/customerAccessRoutes');
 
 const repoRoot = path.resolve(__dirname, '../..');
 const appFile = path.join(repoRoot, 'src/app.js');
@@ -21,8 +25,16 @@ function appRouter(appInstance) {
 function mountedCustomerAccessRoute(appInstance) {
   return appRouter(appInstance).stack.find((layer) => (
     layer.route
-    && layer.route.path === '/customer-access/:caseId'
+    && layer.route.path === CUSTOMER_ACCESS_ROUTE_PATH
     && layer.route.methods.get === true
+  ));
+}
+
+function mountedCustomerAccessRoutes(appInstance) {
+  return appRouter(appInstance).stack.filter((layer) => (
+    layer.route
+    && layer.route.methods.get === true
+    && String(layer.route.path).startsWith('/customer-access/')
   ));
 }
 
@@ -46,10 +58,15 @@ function createSyntheticRes() {
 }
 
 function createSyntheticRequest(overrides) {
+  const caseId = (overrides && overrides.caseId) || 'case_app_factory_001';
+
   return {
+    params: {
+      caseId,
+    },
     customerAccessContextInput: {
       organizationId: 'org_app_factory_001',
-      caseId: 'case_app_factory_001',
+      caseId,
       customerId: 'customer_app_factory_001',
       rawPhone: 'raw_phone_should_not_leak',
       rawAddress: 'raw_address_should_not_leak',
@@ -229,8 +246,27 @@ test('createApp({ customerAccess: { dbClient } }) creates app with customer acce
   const route = mountedCustomerAccessRoute(appInstance);
 
   assert.ok(route, 'customer access route should be mounted');
-  assert.equal(route.route.path, '/customer-access/:caseId');
+  assert.equal(route.route.path, CUSTOMER_ACCESS_ROUTE_PATH);
   assert.equal(route.route.methods.get, true);
+});
+
+test('createApp({ customerAccess: { dbClient } }) exposes only accepted customer access public routes', () => {
+  const appInstance = createApp({
+    customerAccess: {
+      dbClient: createSyntheticDbClient(),
+    },
+  });
+
+  assert.deepEqual(mountedCustomerAccessRoutes(appInstance).map((layer) => layer.route.path), [
+    CUSTOMER_ACCESS_ROUTE_PATH,
+    CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+  ]);
+  assert.equal(
+    mountedCustomerAccessRoutes(appInstance).some((layer) => (
+      String(layer.route.path).includes('/__internal/customer-access')
+    )),
+    false,
+  );
 });
 
 test('app factory creation with dbClient does not call dbClient', () => {

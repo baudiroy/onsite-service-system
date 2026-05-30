@@ -23,8 +23,10 @@ const { createEngineerMobileWorkbenchRouter } = require('./engineerMobileWorkben
 const { registerEngineerMobileRoutes } = require('./engineerMobileRoutes');
 const { registerEngineerMobileTaskDetailRoutes } = require('./engineerMobileTaskDetailRoutes');
 const { registerEngineerMobileVisitActionRoutes } = require('./engineerMobileVisitActionRoutes');
-const { registerCustomerAccessRoutes } = require('./customerAccessRoutes');
 const { registerCustomerAccessModuleRoutes } = require('../customerAccess/customerAccessRouteRegistry');
+const {
+  createCustomerAccessProductionMountComposition,
+} = require('../customerAccess/customerAccessProductionMountCompositionAdapter');
 const { registerDataCorrectionRoutes } = require('./dataCorrectionRoutes');
 const { registerRepairIntakeDraftToCaseAdminRoutes } = require('./repairIntakeDraftToCase.routes');
 
@@ -33,7 +35,12 @@ function registerCustomerAccessRoutesWithOptions(appRouter, customerAccessOption
     return registerCustomerAccessModuleRoutes(appRouter);
   }
 
-  return registerCustomerAccessRoutes(appRouter, customerAccessOptions);
+  return createCustomerAccessProductionMountComposition({
+    router: appRouter,
+    dbClient: customerAccessOptions.dbClient,
+    repository: customerAccessOptions.repository,
+    auditWriter: customerAccessOptions.auditWriter,
+  });
 }
 
 function createAppRouter(options = {}) {
