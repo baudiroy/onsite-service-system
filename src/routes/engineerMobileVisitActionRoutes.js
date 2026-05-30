@@ -1,13 +1,22 @@
 'use strict';
 
 const {
-  createEngineerMobilePermissionMiddleware,
+  buildEngineerMobilePermissionContext,
 } = require('../engineerMobile/engineerMobilePermissionMiddleware');
 const {
   createEngineerMobileVisitActionHttpHandlerAdapter,
 } = require('../engineerMobile/engineerMobileVisitActionHttpHandlerAdapter');
+const {
+  buildEngineerMobileAuditEvent,
+} = require('../engineerMobile/engineerMobileAuditEventBuilder');
+const {
+  writeEngineerMobileAuditEvent,
+} = require('../engineerMobile/engineerMobileAuditWriterAdapter');
 
 const ENGINEER_MOBILE_VISIT_ACTION_ROUTE_PATH = '/engineer-mobile/appointments/:appointmentId/actions/:action';
+const ENGINEER_MOBILE_VISIT_ACTION_AUDIT_ROUTE = '/engineer-mobile/appointments/:appointmentId/actions/:action';
+const ENGINEER_MOBILE_VISIT_ACTION_AUDIT_METHOD = 'POST';
+const ENGINEER_MOBILE_VISIT_ACTION_AUDIT_SOURCE = 'engineer_mobile_visit_action_handler';
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -78,6 +87,111 @@ function visitActionServiceFrom(options = {}) {
   const nested = visitActionOptions(options);
 
   return options.visitActionService || nested.visitActionService;
+}
+
+function hasVisitActionAuditWriter(options) {
+  return isObject(options) && typeof options.auditWriter === 'function';
+}
+
+function buildVisitActionAuditMetadata(context, params, allowed) {
+  return {
+    routeMatched: true,
+    contextPresent: isObject(context) && Object.keys(context).length > 0,
+    identifierValid: Boolean(context.organizationId && context.engineerId && params.appointmentId),
+    permissionPassed: allowed === true,
+    actionAllowed: allowed === true,
+  };
+}
+
+function buildEngineerMobileVisitActionAuditEvent(req, response) {
+  const context = permissionContextFrom(req);
+  const params = paramsFrom(req);
+  const allowed = isObject(response)
+    && response.statusCode >= 200
+    && response.statusCode < 300
+    && isObject(response.body)
+    && response.body.accepted === true;
+  const input = {
+    eventType: allowed
+      ? 'engineer_mobile.visit_action.allow'
+      : 'engineer_mobile.visit_action.deny',
+    actorType: isObject(context) && Object.keys(context).length > 0 ? 'engineer' : 'runtime',
+    action: stringValue(params.action),
+    appointmentId: stringValue(params.appointmentId),
+    decision: allowed ? 'allow' : 'deny',
+    engineerId: stringValue(context.engineerId),
+    method: ENGINEER_MOBILE_VISIT_ACTION_AUDIT_METHOD,
+    metadata: buildVisitActionAuditMetadata(context, params, allowed),
+    organizationId: stringValue(context.organizationId),
+    route: ENGINEER_MOBILE_VISIT_ACTION_AUDIT_ROUTE,
+    source: ENGINEER_MOBILE_VISIT_ACTION_AUDIT_SOURCE,
+  };
+
+  if (!allowed) {
+    input.reasonCode = 'engineerMobile.unavailable';
+  }
+
+  const result = buildEngineerMobileAuditEvent(input);
+
+  return isObject(result) && result.ok === true && isObject(result.auditEvent)
+    ? result.auditEvent
+    : undefined;
+}
+
+function writeEngineerMobileVisitActionAuditSideChannel(req, response, options = {}) {
+  if (!hasVisitActionAuditWriter(options)) {
+    return undefined;
+  }
+
+  const auditEvent = buildEngineerMobileVisitActionAuditEvent(req, response);
+
+  if (!auditEvent) {
+    return undefined;
+  }
+
+  const writeResult = writeEngineerMobileAuditEvent({
+    auditEvent,
+    auditWriter: options.auditWriter,
+  });
+
+  if (writeResult && typeof writeResult.catch === 'function') {
+    writeResult.catch(() => undefined);
+  }
+
+  return undefined;
+}
+
+function writeDeniedResponse(res, decision) {
+  if (!res || typeof res.status !== 'function' || typeof res.json !== 'function') {
+    return decision;
+  }
+
+  return res.status(decision.statusCode).json(decision.responseBody);
+}
+
+function createEngineerMobileVisitActionPermissionMiddleware(options = {}) {
+  return function engineerMobileVisitActionPermissionMiddleware(req, res, next) {
+    const decision = buildEngineerMobilePermissionContext(req, options.permission);
+
+    if (!decision.allowed) {
+      writeEngineerMobileVisitActionAuditSideChannel(req, {
+        statusCode: decision.statusCode,
+        body: decision.responseBody,
+      }, options);
+
+      return writeDeniedResponse(res, decision);
+    }
+
+    if (isObject(req)) {
+      req.engineerMobilePermissionContext = decision.permissionContext;
+    }
+
+    if (typeof next === 'function') {
+      return next();
+    }
+
+    return decision;
+  };
 }
 
 function appointmentProviderFrom(options = {}) {
@@ -193,6 +307,8 @@ function createEngineerMobileVisitActionRouteHandler(options = {}) {
         syntheticHandlerRequest({ req, appointment, options }),
       );
 
+      writeEngineerMobileVisitActionAuditSideChannel(req, response, options);
+
       return res.status(response.statusCode).json(response.body);
     } catch (error) {
       return next(error);
@@ -207,7 +323,7 @@ function registerEngineerMobileVisitActionRoutes(router, options = {}) {
 
   router.post(
     ENGINEER_MOBILE_VISIT_ACTION_ROUTE_PATH,
-    createEngineerMobilePermissionMiddleware(options.permission),
+    createEngineerMobileVisitActionPermissionMiddleware(options),
     createEngineerMobileVisitActionRouteHandler(options),
   );
 
@@ -218,4 +334,6 @@ module.exports = {
   ENGINEER_MOBILE_VISIT_ACTION_ROUTE_PATH,
   createEngineerMobileVisitActionRouteHandler,
   registerEngineerMobileVisitActionRoutes,
+  buildEngineerMobileVisitActionAuditEvent,
+  writeEngineerMobileVisitActionAuditSideChannel,
 };
