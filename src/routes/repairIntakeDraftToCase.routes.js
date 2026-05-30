@@ -10,8 +10,52 @@ const REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION = 'cases.create';
 const REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_BASE_PATH = '/api/v1/admin';
 const REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_ROUTE_PATH = '/api/v1/admin/repair-intake/drafts/:draftId/case/submit';
 
+const BODY_CONTEXT_FIELD_NAMES = new Set([
+  'actorid',
+  'actorrole',
+  'caseid',
+  'correlationid',
+  'debugid',
+  'dedupekey',
+  'draftid',
+  'duplicate',
+  'idempotencykey',
+  'organizationid',
+  'repairintakedraftid',
+  'replay',
+  'requestid',
+  'source',
+  'traceid',
+]);
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizedFieldName(value) {
+  return String(value).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+}
+
+function stripBodyContextFields(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripBodyContextFields(item));
+  }
+
+  if (!isObject(value)) {
+    return value;
+  }
+
+  const result = {};
+
+  for (const [key, fieldValue] of Object.entries(value)) {
+    if (BODY_CONTEXT_FIELD_NAMES.has(normalizedFieldName(key))) {
+      continue;
+    }
+
+    result[key] = stripBodyContextFields(fieldValue);
+  }
+
+  return result;
 }
 
 function getRepairIntakeDraftToCaseRuntimePorts(options = {}) {
@@ -61,11 +105,17 @@ function tenantId(req, body, user) {
   );
 }
 
-function requestId(req, body) {
+function requestId(req) {
   return firstString(
     req.requestId,
     req.context && req.context.requestId,
-    body.requestId,
+  );
+}
+
+function idempotencyKey(req) {
+  return firstString(
+    req.idempotencyKey,
+    req.context && req.context.idempotencyKey,
   );
 }
 
@@ -79,14 +129,23 @@ function bodyWithoutServerOwnedContext(body) {
   const {
     actorId,
     actorRole,
+    caseId,
+    correlationId,
+    debugId,
+    dedupeKey,
     draftId: bodyDraftId,
+    duplicate,
+    idempotencyKey,
     organizationId: bodyOrganizationId,
     repairIntakeDraftId,
+    replay,
+    requestId: bodyRequestId,
     source,
+    traceId,
     ...safeBody
   } = body;
 
-  return safeBody;
+  return stripBodyContextFields(safeBody);
 }
 
 function buildAdminRequestLike(req = {}) {
@@ -97,7 +156,8 @@ function buildAdminRequestLike(req = {}) {
   const params = isObject(req.params) ? req.params : {};
   const resolvedOrganizationId = organizationId(req, body, user);
   const resolvedTenantId = tenantId(req, body, user);
-  const resolvedRequestId = requestId(req, body);
+  const resolvedRequestId = requestId(req);
+  const resolvedIdempotencyKey = idempotencyKey(req);
   const resolvedActorId = userId(user);
   const resolvedDraftId = draftId(params, body);
   const normalizedParams = {
@@ -137,6 +197,7 @@ function buildAdminRequestLike(req = {}) {
     organizationId: resolvedOrganizationId,
     tenantId: resolvedTenantId,
     requestId: resolvedRequestId,
+    idempotencyKey: resolvedIdempotencyKey,
     repairIntakeDraftId: resolvedDraftId,
     draftId: resolvedDraftId,
   };

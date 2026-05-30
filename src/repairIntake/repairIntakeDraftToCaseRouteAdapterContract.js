@@ -52,7 +52,9 @@ const BODY_OVERRIDE_FIELD_NAMES = new Set([
   'actorid',
   'actorrole',
   'caseid',
+  'correlationid',
   'dedupekey',
+  'debugid',
   'draftid',
   'duplicate',
   'idempotencykey',
@@ -61,6 +63,7 @@ const BODY_OVERRIDE_FIELD_NAMES = new Set([
   'replay',
   'requestid',
   'source',
+  'traceid',
 ]);
 
 const IDEMPOTENCY_CONTEXT_MAX_LENGTH = 128;

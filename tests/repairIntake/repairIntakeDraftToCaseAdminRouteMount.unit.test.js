@@ -167,7 +167,7 @@ function request(overrides = {}) {
       organizationId: 'org_body_should_not_win_001',
       tenantId: 'tenant_body_admin_mount_001',
       actorId: 'actor_body_should_not_win_001',
-      idempotencyKey: 'idem_admin_mount_runtime_001',
+      idempotencyKey: 'idem_body_should_not_win_001',
       permissionContext: {
         canCreateCaseFromRepairIntakeDraft: false,
       },
@@ -188,6 +188,7 @@ function request(overrides = {}) {
       requestId: 'req_context_admin_mount_001',
     },
     requestId: 'req_admin_mount_runtime_001',
+    idempotencyKey: 'idem_admin_mount_runtime_001',
     user: {
       id: 'user_admin_mount_runtime_001',
       organizationId: 'org_admin_mount_runtime_001',
@@ -323,6 +324,9 @@ test('protected admin route derives permission context and actor from authentica
   assert.equal(draftReadCall.input.organizationId, 'org_admin_mount_runtime_001');
   assert.equal(draftReadCall.input.actorId, 'user_admin_mount_runtime_001');
 
+  const idempotencyReadCall = calls.find((call) => call.name === 'idempotency.find');
+  assert.equal(idempotencyReadCall.input.idempotencyKey, 'idem_admin_mount_runtime_001');
+
   const caseCreateCall = calls.find((call) => call.name === 'case.create');
   assert.equal(caseCreateCall.input.draftId, 'draft_admin_mount_runtime_001');
   assert.equal(caseCreateCall.input.organizationId, 'org_admin_mount_runtime_001');
@@ -401,11 +405,13 @@ test('admin request builder ignores body actor and grants permission from route 
   assert.equal(Object.hasOwn(requestLike.body, 'draftId'), false);
   assert.equal(Object.hasOwn(requestLike.body, 'repairIntakeDraftId'), false);
   assert.equal(requestLike.organizationId, 'org_admin_mount_runtime_001');
+  assert.equal(requestLike.idempotencyKey, 'idem_admin_mount_runtime_001');
   assert.equal(requestLike.context.organizationId, 'org_admin_mount_runtime_001');
   assert.equal(requestLike.context.actorId, 'user_admin_mount_runtime_001');
   assert.equal(requestLike.actor.id, 'user_admin_mount_runtime_001');
   assert.equal(Object.hasOwn(requestLike.body, 'actorId'), false);
   assert.equal(Object.hasOwn(requestLike.body, 'organizationId'), false);
+  assert.equal(Object.hasOwn(requestLike.body, 'idempotencyKey'), false);
   assert.equal(requestLike.body.permissionContext.canCreateCaseFromRepairIntakeDraft, true);
   assert.equal(requestLike.context.permissionContext.permission, REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION);
 });

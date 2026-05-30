@@ -16,6 +16,7 @@ const SAFE_REQUEST_INPUT_FIELDS = new Set([
   'actor',
   'body',
   'context',
+  'idempotencyKey',
   'organizationId',
   'params',
   'query',

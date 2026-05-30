@@ -177,8 +177,9 @@ function draftAlreadyConvertedFailureEnvelope(input, draft) {
 
 function submitPreconditionFailure(input) {
   const body = isObject(input.body) ? input.body : {};
+  const idempotencyKey = firstSafeString(input.idempotencyKey, body.idempotencyKey);
 
-  if (!safeString(body.idempotencyKey)) {
+  if (!idempotencyKey) {
     return safeFailure(
       'REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_IDEMPOTENCY_REQUIRED',
       ['provide_idempotency_key'],

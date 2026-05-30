@@ -79,7 +79,7 @@ function sanitizeRequestInput(requestLike = {}) {
     organizationId: stringValue(context.organizationId) || stringValue(body.organizationId),
     actorId: stringValue(context.actorId),
     requestId: stringValue(context.requestId),
-    idempotencyKey: stringValue(body.idempotencyKey),
+    idempotencyKey: stringValue(source.idempotencyKey) || stringValue(body.idempotencyKey),
     approvalContext: {
       accepted: sanitizeBoolean(approvalContext.accepted),
       approvalId: stringValue(approvalContext.approvalId),

@@ -69,7 +69,9 @@ const BODY_OVERRIDE_FIELD_NAMES = new Set([
   'actorid',
   'actorrole',
   'caseid',
+  'correlationid',
   'dedupekey',
+  'debugid',
   'draftid',
   'duplicate',
   'idempotencykey',
@@ -78,6 +80,7 @@ const BODY_OVERRIDE_FIELD_NAMES = new Set([
   'replay',
   'requestid',
   'source',
+  'traceid',
 ]);
 
 function isPlainObject(value) {
@@ -217,6 +220,9 @@ function routeLikeInputFromFutureRouterInput(input, repairIntakeDraftId) {
     body: requestBody,
     headers: safeHeaders(safeInput.headers),
     requestId: safeScalar(safeInput.requestId),
+    ...(safeScalar(safeInput.idempotencyKey) ? {
+      idempotencyKey: safeScalar(safeInput.idempotencyKey),
+    } : {}),
     source: safeScalar(safeInput.source),
   };
 }
