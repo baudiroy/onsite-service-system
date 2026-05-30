@@ -91,6 +91,7 @@ function sourceWithoutAllowedLists(source) {
 function syntheticInput(overrides = {}) {
   return {
     requestId: 'request-1251',
+    repairIntakeDraftId: 'draft-1251',
     sessionContext: {
       organizationId: 'org-session-1251',
       actorId: 'actor-session-1251',

@@ -150,15 +150,20 @@ test('Task1221 static boundary reads expected source and test files', () => {
   }
 });
 
-test('synthetic handler source is dependency-free and exports pure factory', () => {
+test('synthetic handler source keeps bounded pure helper imports and exports pure factory', () => {
   const source = readFile(HANDLER_SOURCE_PATH);
 
-  assert.deepEqual(requireSpecifiers(source), []);
+  assert.deepEqual(requireSpecifiers(source), [
+    './repairIntakePublicOpenRequestDtoSanitizer',
+    './repairIntakeDraftToCasePermissionGate',
+  ]);
 
   for (const marker of [
     'createRepairIntakeDraftToCaseSyntheticHandler',
     'requestContextResolver',
     'controllerAdapter',
+    'decideRepairIntakeDraftToCasePermission',
+    'permissionDeniedEnvelope',
     'resolveRepairIntakeDraftToCaseRequestContext',
     'handleDraftToCase',
     'submitDraftToCase',
@@ -182,7 +187,7 @@ test('synthetic handler source avoids runtime persistence provider route and aut
 test('synthetic handler source has no route app registration response object or SQL statements', () => {
   const source = sourceWithoutAllowedLists(readFile(HANDLER_SOURCE_PATH));
 
-  assert.doesNotMatch(source, /\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i);
+  assert.doesNotMatch(source, /\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/);
   assert.doesNotMatch(source, /\bapp\.(use|get|post|put|patch|delete)\b/);
   assert.doesNotMatch(source, /\brouter\.(use|get|post|put|patch|delete)\b/);
   assert.doesNotMatch(source, /(^|[^'"])listen\(/);

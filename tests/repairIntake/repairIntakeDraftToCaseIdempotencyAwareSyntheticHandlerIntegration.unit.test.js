@@ -83,6 +83,7 @@ function sourceWithoutAllowedLists(source) {
 function syntheticHandlerInput(overrides = {}) {
   return {
     requestId: 'request-1249',
+    repairIntakeDraftId: 'draft-1249',
     sessionContext: {
       organizationId: 'org-session-1249',
       actorId: 'actor-session-1249',

@@ -3,6 +3,9 @@
 const {
   sanitizeRepairIntakePublicOpenRequestDto,
 } = require('./repairIntakePublicOpenRequestDtoSanitizer');
+const {
+  decideRepairIntakeDraftToCasePermission,
+} = require('./repairIntakeDraftToCasePermissionGate');
 
 const UNAVAILABLE_MESSAGE_KEY = 'repair_intake_draft_to_case.synthetic_handler_unavailable';
 const INVALID_MESSAGE_KEY = 'repair_intake_draft_to_case.synthetic_handler_invalid';
@@ -158,6 +161,41 @@ function normalizeResolverInvalidResult(resolverResult) {
   });
 }
 
+function permissionReasonCode(reasonCode) {
+  if (reasonCode === 'missing_trusted_context') {
+    return 'REPAIR_INTAKE_DRAFT_TO_CASE_PERMISSION_GATE_MISSING_TRUSTED_CONTEXT';
+  }
+
+  if (reasonCode === 'role_not_allowed') {
+    return 'REPAIR_INTAKE_DRAFT_TO_CASE_PERMISSION_GATE_ROLE_NOT_ALLOWED';
+  }
+
+  if (reasonCode === 'invalid_source') {
+    return 'REPAIR_INTAKE_DRAFT_TO_CASE_PERMISSION_GATE_INVALID_SOURCE';
+  }
+
+  return 'REPAIR_INTAKE_DRAFT_TO_CASE_PERMISSION_GATE_DENIED';
+}
+
+function permissionDeniedEnvelope(permissionDecision) {
+  const safeDecision = safeObject(permissionDecision);
+  const reasonCode = safeString(safeDecision.reasonCode);
+  const status = reasonCode === 'missing_trusted_context' ? 'invalid_context' : 'denied';
+
+  return sanitizeNestedValue({
+    ok: false,
+    status,
+    messageKey: 'repair_intake_draft_to_case.permission_denied',
+    reasonCode: permissionReasonCode(reasonCode),
+    organizationId: safeString(safeDecision.organizationId),
+    actorId: safeString(safeDecision.actorId),
+    repairIntakeDraftId: safeString(safeDecision.repairIntakeDraftId),
+    source: safeString(safeDecision.source),
+    actorRole: safeString(safeDecision.actorRole),
+    draftInput: {},
+  });
+}
+
 function createAdapterInput(resolverResult) {
   const safeResult = safeObject(resolverResult);
   const draftInput = sanitizeRepairIntakePublicOpenRequestDto(safeResult.draftInput || {});
@@ -244,6 +282,12 @@ function createRepairIntakeDraftToCaseSyntheticHandler(options = {}) {
 
     if (!isPlainObject(resolverResult) || resolverResult.ok !== true) {
       return normalizeResolverInvalidResult(resolverResult);
+    }
+
+    const permissionDecision = decideRepairIntakeDraftToCasePermission(resolverResult);
+
+    if (permissionDecision.allowed !== true) {
+      return permissionDeniedEnvelope(permissionDecision);
     }
 
     const adapterInput = createAdapterInput(resolverResult);
