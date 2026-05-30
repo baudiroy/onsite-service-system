@@ -131,7 +131,8 @@ test('permission gate decision is checked after trusted context resolution and b
 
   const deniedPath = factory.slice(deniedGuard, adapterInput);
 
-  assert.match(deniedPath, /return permissionDeniedEnvelope\(permissionDecision\);/);
+  assert.match(deniedPath, /permissionDeniedEnvelope\(permissionDecision\);/);
+  assert.match(deniedPath, /return deniedEnvelope;/);
   assert.doesNotMatch(deniedPath, /callControllerAdapter/);
   assert.doesNotMatch(deniedPath, /createAdapterInput/);
 });

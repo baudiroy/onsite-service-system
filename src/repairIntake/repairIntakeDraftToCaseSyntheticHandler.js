@@ -196,6 +196,62 @@ function permissionDeniedEnvelope(permissionDecision) {
   });
 }
 
+function permissionDeniedAuditIntent(permissionDecision, deniedEnvelope) {
+  const safeDecision = safeObject(permissionDecision);
+  const safeEnvelope = safeObject(deniedEnvelope);
+  const reasonCode = safeString(safeDecision.reasonCode);
+
+  return sanitizeNestedValue({
+    eventType: 'repair_intake_draft_to_case_permission_denied',
+    phase: 'denied',
+    status: 'denied',
+    outcome: 'permission_denied',
+    organizationId: safeString(safeDecision.organizationId),
+    actorId: safeString(safeDecision.actorId),
+    actorRole: safeString(safeDecision.actorRole),
+    repairIntakeDraftId: safeString(safeDecision.repairIntakeDraftId),
+    source: safeString(safeDecision.source),
+    permissionReasonCode: permissionReasonCode(reasonCode),
+    reasonCode: safeString(safeEnvelope.reasonCode) || permissionReasonCode(reasonCode),
+  });
+}
+
+function resolvePermissionDeniedAuditWriter(auditWriter) {
+  if (typeof auditWriter === 'function') {
+    return auditWriter;
+  }
+
+  if (!isPlainObject(auditWriter)) {
+    return null;
+  }
+
+  for (const methodName of [
+    'recordRepairIntakeDraftToCasePermissionDenied',
+    'recordDraftToCasePermissionDenied',
+    'recordPermissionDenied',
+    'record',
+  ]) {
+    if (typeof auditWriter[methodName] === 'function') {
+      return auditWriter[methodName].bind(auditWriter);
+    }
+  }
+
+  return null;
+}
+
+async function writePermissionDeniedAuditIntent(writeAudit, permissionDecision, deniedEnvelope) {
+  if (!writeAudit) {
+    return;
+  }
+
+  const auditIntent = permissionDeniedAuditIntent(permissionDecision, deniedEnvelope);
+
+  try {
+    await writeAudit(sanitizeNestedValue({ auditIntent }));
+  } catch (error) {
+  }
+}
+
 function createAdapterInput(resolverResult) {
   const safeResult = safeObject(resolverResult);
   const draftInput = sanitizeRepairIntakePublicOpenRequestDto(safeResult.draftInput || {});
@@ -256,6 +312,9 @@ function createRepairIntakeDraftToCaseSyntheticHandler(options = {}) {
   const safeOptions = isPlainObject(options) ? options : {};
   const resolveRequestContext = resolveContextResolver(safeOptions.requestContextResolver);
   const callControllerAdapter = resolveControllerAdapter(safeOptions.controllerAdapter);
+  const writePermissionDeniedAudit = resolvePermissionDeniedAuditWriter(
+    safeOptions.permissionDeniedAuditWriter || safeOptions.auditWriter || safeOptions.auditSink,
+  );
 
   if (!resolveRequestContext) {
     return createInvalidSyntheticHandler(
@@ -287,7 +346,11 @@ function createRepairIntakeDraftToCaseSyntheticHandler(options = {}) {
     const permissionDecision = decideRepairIntakeDraftToCasePermission(resolverResult);
 
     if (permissionDecision.allowed !== true) {
-      return permissionDeniedEnvelope(permissionDecision);
+      const deniedEnvelope = permissionDeniedEnvelope(permissionDecision);
+
+      await writePermissionDeniedAuditIntent(writePermissionDeniedAudit, permissionDecision, deniedEnvelope);
+
+      return deniedEnvelope;
     }
 
     const adapterInput = createAdapterInput(resolverResult);
