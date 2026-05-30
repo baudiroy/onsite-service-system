@@ -2,7 +2,9 @@
 
 const UNSAFE_FIELD_NAMES = new Set([
   'address',
+  'auditinternal',
   'authorization',
+  'billing',
   'cookie',
   'customername',
   'customerphone',
@@ -11,13 +13,19 @@ const UNSAFE_FIELD_NAMES = new Set([
   'database_url',
   'databaseurl',
   'db',
+  'debug',
   'error',
   'finalappointmentid',
   'handler',
   'headers',
+  'internal',
+  'invoice',
   'lineaccesstoken',
   'lineuserid',
+  'password',
   'phone',
+  'providerpayload',
+  'rag',
   'raw',
   'rawbody',
   'rawdraft',
@@ -25,6 +33,7 @@ const UNSAFE_FIELD_NAMES = new Set([
   'rawportoutput',
   'rawrows',
   'secret',
+  'settlement',
   'sql',
   'stack',
   'token',
@@ -432,6 +441,10 @@ function createRepairIntakeDraftToCaseApplicationService(options = {}) {
 
       const plan = sanitizeValue(await casePlanner.planCaseFromDraft(createPlanPayload(safeInput, draft)));
 
+      if (!isObject(plan)) {
+        return safeFailure('REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_PLAN_FAILED');
+      }
+
       return planEnvelope(safeInput, draft, plan);
     } catch (error) {
       return safeFailure('REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_PLAN_FAILED');
@@ -476,10 +489,22 @@ function createRepairIntakeDraftToCaseApplicationService(options = {}) {
       }
 
       const plan = sanitizeValue(await casePlanner.planCaseFromDraft(createPlanPayload(safeInput, draft)));
+      if (!isObject(plan)) {
+        return safeFailure('REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_SUBMIT_FAILED');
+      }
+
       const caseRef = sanitizeValue(await caseCreator.createCaseFromDraft(createCasePayload(safeInput, draft, plan)));
+      if (!isObject(caseRef)) {
+        return safeFailure('REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_SUBMIT_FAILED');
+      }
+
       const auditEvent = sanitizeValue(
         await auditWriter.recordDraftToCaseDecision(createAuditPayload(safeInput, draft, plan, caseRef)),
       );
+      if (!isObject(auditEvent)) {
+        return safeFailure('REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_SUBMIT_FAILED');
+      }
+
       const result = submitEnvelope(safeInput, draft, plan, caseRef, auditEvent);
 
       if (idempotencyPort) {
