@@ -28,6 +28,33 @@ const PUBLIC_RESULTS = {
   },
 };
 
+const UNSAFE_PUBLIC_VALUE_MARKERS = [
+  'address',
+  'appointment',
+  'audit',
+  'authorization',
+  'billing',
+  'cookie',
+  'customer',
+  'database',
+  'debug',
+  'engineer',
+  'error',
+  'invoice',
+  'password',
+  'permission',
+  'phone',
+  'provider',
+  'rag',
+  'raw',
+  'secret',
+  'select ',
+  'settlement',
+  'sql',
+  'stack',
+  'token',
+];
+
 function isPlainObject(value) {
   return Boolean(value)
     && typeof value === 'object'
@@ -35,8 +62,29 @@ function isPlainObject(value) {
     && Object.getPrototypeOf(value) === Object.prototype;
 }
 
+function stringLooksUnsafe(value) {
+  const normalized = value.toLowerCase();
+
+  return UNSAFE_PUBLIC_VALUE_MARKERS.some((marker) => normalized.includes(marker));
+}
+
 function safeScalar(value) {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  if (
+    trimmed.length === 0
+    || trimmed.length > 160
+    || !/^[a-zA-Z0-9_.:-]+$/.test(trimmed)
+    || stringLooksUnsafe(trimmed)
+  ) {
+    return null;
+  }
+
+  return trimmed;
 }
 
 function publicBase(publicResult, ok) {

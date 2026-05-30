@@ -90,7 +90,10 @@ function stripConstArrayBlock(source, constName) {
 }
 
 function sourceWithoutAllowedLists(source) {
-  return stripConstArrayBlock(source, 'FORBIDDEN_MARKERS');
+  return stripConstArrayBlock(
+    stripConstArrayBlock(source, 'FORBIDDEN_MARKERS'),
+    'UNSAFE_PUBLIC_VALUE_MARKERS',
+  );
 }
 
 function requireSpecifiers(source) {
