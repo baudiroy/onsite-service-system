@@ -9,6 +9,14 @@ const REPAIR_INTAKE_DRAFT_TO_CASE_ROUTES_ENABLED_ENV = 'REPAIR_INTAKE_DRAFT_TO_C
 const REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION = 'cases.create';
 const REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_BASE_PATH = '/api/v1/admin';
 const REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_ROUTE_PATH = '/api/v1/admin/repair-intake/drafts/:draftId/case/submit';
+const REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_ROUTE_SAFE_ERROR_BODY = {
+  ok: false,
+  status: 'unavailable',
+  messageKey: 'repair_intake_draft_to_case.admin_route_unavailable',
+  reasonCode: 'REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_ROUTE_SAFE_ERROR',
+  caseId: null,
+  repairIntakeDraftId: null,
+};
 
 const BODY_CONTEXT_FIELD_NAMES = new Set([
   'actorid',
@@ -220,7 +228,16 @@ function createExpressSubmitHandler(routeHandler) {
 
       res.status(statusCodeFromResult(result)).json(bodyFromResult(result));
     } catch (error) {
-      next(error);
+      if (res && typeof res.status === 'function' && typeof res.json === 'function') {
+        res.status(503).json(REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_ROUTE_SAFE_ERROR_BODY);
+        return;
+      }
+
+      if (typeof next === 'function') {
+        next({
+          code: REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_ROUTE_SAFE_ERROR_BODY.reasonCode,
+        });
+      }
     }
   };
 }
