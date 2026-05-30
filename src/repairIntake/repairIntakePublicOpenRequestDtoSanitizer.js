@@ -161,6 +161,7 @@ function sanitizeRepairIntakePublicOpenRequestDto(rawInput = {}) {
     ['preferredTime', 'description'],
     ['schedule', 'preferredTimeDescription'],
     ['visit', 'preferredTimeDescription'],
+    ['preferredWindow'],
   ]);
   assignString(result, 'addressDescription', rawInput, [
     ['addressDescription'],

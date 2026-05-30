@@ -1,5 +1,9 @@
 'use strict';
 
+const {
+  sanitizeRepairIntakePublicOpenRequestDto,
+} = require('./repairIntakePublicOpenRequestDtoSanitizer');
+
 const CONTEXT_INVALID_MESSAGE_KEY = 'repair_intake_draft_to_case.invalid_context';
 const INPUT_INVALID_MESSAGE_KEY = 'repair_intake_draft_to_case.invalid_input';
 const RESOLVED_MESSAGE_KEY = 'repair_intake_draft_to_case.request_context_resolved';
@@ -184,7 +188,7 @@ function resolveRepairIntakeDraftToCaseRequestContext(input = {}) {
     );
   }
 
-  const draftInput = safeObject(requestBody.draftInput, bodyFieldIsUnsafe);
+  const draftInput = sanitizeRepairIntakePublicOpenRequestDto(requestBody.draftInput || {});
 
   return sanitizeNestedValue({
     ok: true,

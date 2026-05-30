@@ -478,8 +478,8 @@ test('unsafe input fields are stripped before permission resolver and repository
   await handler.handleDraftToCase(syntheticHandlerInput());
 
   assert.deepEqual(adapterCalls[0].draftInput, {
-    issueSummary: 'dishwasher leaks',
-    preferredWindow: 'morning',
+    problemDescription: 'dishwasher leaks',
+    preferredTimeDescription: 'morning',
   });
   assert.equal(authCalls[0].organizationId, 'org-session-1222');
   assert.equal(repositoryCalls[0].organizationId, 'org-session-1222');

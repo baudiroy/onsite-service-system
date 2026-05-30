@@ -124,7 +124,7 @@ test('request shaping files keep explicit sanitizer and override-deny markers', 
   for (const marker of [
     'BODY_OVERRIDE_FIELD_NAMES',
     'bodyFieldIsUnsafe',
-    'safeObject(requestBody.draftInput, bodyFieldIsUnsafe)',
+    'sanitizeRepairIntakePublicOpenRequestDto(requestBody.draftInput || {})',
     'resolveRepairIntakeDraftToCaseRequestContext',
   ]) {
     assertIncludes(requestContextResolver, marker, SOURCE_PATHS.requestContextResolver);

@@ -23,6 +23,7 @@ function validInput(overrides = {}) {
       organizationId: 'body-org-override',
       actorId: 'body-actor-override',
       draftInput: {
+        customerDisplayName: 'Ms. Chen',
         issueSummary: 'washer does not drain',
         preferredWindow: 'morning',
         organizationId: 'draft-org-override',
@@ -96,8 +97,9 @@ test('valid synthetic session and body returns safe context', () => {
   assert.equal(result.source, 'synthetic_controller_adapter');
   assert.equal(result.actorRole, 'service_agent');
   assert.deepEqual(result.draftInput, {
-    issueSummary: 'washer does not drain',
-    preferredWindow: 'morning',
+    customerDisplayName: 'Ms. Chen',
+    problemDescription: 'washer does not drain',
+    preferredTimeDescription: 'morning',
   });
   assertNoUnsafeText(result);
 });
@@ -171,13 +173,14 @@ test('body-provided organizationId is ignored and does not override session org'
       organizationId: 'body-org-override',
       draftInput: {
         organizationId: 'draft-org-override',
-        issueSummary: 'safe summary',
+        problemDescription: 'safe summary',
       },
     },
   }));
 
   assert.equal(result.organizationId, 'org-1220');
   assert.equal(result.draftInput.organizationId, undefined);
+  assert.equal(result.draftInput.problemDescription, 'safe summary');
   assertNoUnsafeText(result);
 });
 
@@ -188,13 +191,14 @@ test('body-provided actorId is ignored and does not override session actor', () 
       actorId: 'body-actor-override',
       draftInput: {
         actorId: 'draft-actor-override',
-        preferredWindow: 'afternoon',
+        preferredTimeDescription: 'afternoon',
       },
     },
   }));
 
   assert.equal(result.actorId, 'actor-1220');
   assert.equal(result.draftInput.actorId, undefined);
+  assert.equal(result.draftInput.preferredTimeDescription, 'afternoon');
   assertNoUnsafeText(result);
 });
 
@@ -218,7 +222,11 @@ test('draftInput must be object if provided', () => {
 test('unsafe body fields are stripped', () => {
   const result = resolveRepairIntakeDraftToCaseRequestContext(validInput());
 
-  assert.deepEqual(Object.keys(result.draftInput).sort(), ['issueSummary', 'preferredWindow']);
+  assert.deepEqual(Object.keys(result.draftInput).sort(), [
+    'customerDisplayName',
+    'preferredTimeDescription',
+    'problemDescription',
+  ]);
   assertNoUnsafeText(result);
 });
 
@@ -255,7 +263,7 @@ test('returned draftInput is detached from requestBody draftInput', () => {
   const input = validInput();
   const result = resolveRepairIntakeDraftToCaseRequestContext(input);
 
-  result.draftInput.issueSummary = 'changed after return';
+  result.draftInput.problemDescription = 'changed after return';
 
   assert.equal(input.requestBody.draftInput.issueSummary, 'washer does not drain');
 });

@@ -478,8 +478,8 @@ test('unsafe input fields are stripped before downstream calls and final body', 
   const result = await handleToHttpEnvelope(syntheticHandlerInput());
 
   assert.deepEqual(adapterCalls[0].draftInput, {
-    issueSummary: 'range burner does not ignite',
-    preferredWindow: 'afternoon',
+    problemDescription: 'range burner does not ignite',
+    preferredTimeDescription: 'afternoon',
   });
   assert.equal(authCalls[0].organizationId, 'org-session-1224');
   assert.equal(repositoryCalls[0].organizationId, 'org-session-1224');
