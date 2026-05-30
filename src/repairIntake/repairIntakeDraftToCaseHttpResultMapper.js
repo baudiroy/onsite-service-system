@@ -42,14 +42,19 @@ const UNSAFE_VALUE_MARKERS = [
   'cookie',
   'customer',
   'database',
+  'database_url',
   'dbrow',
   'debug',
   'email',
   'internal',
   'invoice',
+  'openai',
   'password',
   'permission',
   'phone',
+  'postgres://',
+  'postgresql://',
+  'process.env',
   'provider',
   'query',
   'rag',
@@ -59,6 +64,7 @@ const UNSAFE_VALUE_MARKERS = [
   'settlement',
   'stack',
   'token',
+  'vector',
 ];
 
 function isPlainObject(value) {
@@ -100,14 +106,25 @@ function normalizeStatus(publicResult) {
 }
 
 function normalizeBody(publicResult) {
-  const safeResult = isPlainObject(publicResult) ? publicResult : {};
+  if (!isPlainObject(publicResult)) {
+    return { ...DEFAULT_PUBLIC_RESULT };
+  }
+
+  const safeResult = publicResult;
   const status = normalizeStatus(safeResult);
+  const messageKey = safePublicString(safeResult.messageKey);
+  const reasonCode = safePublicString(safeResult.reasonCode);
+  const successStatus = STATUS_CODE_BY_STATUS[status] === 201;
+
+  if (safeResult.ok === true && successStatus && (!messageKey || !reasonCode)) {
+    return { ...DEFAULT_PUBLIC_RESULT };
+  }
 
   return {
-    ok: safeResult.ok === true && STATUS_CODE_BY_STATUS[status] === 201,
+    ok: safeResult.ok === true && successStatus,
     status,
-    messageKey: safePublicString(safeResult.messageKey) || DEFAULT_PUBLIC_RESULT.messageKey,
-    reasonCode: safePublicString(safeResult.reasonCode) || DEFAULT_PUBLIC_RESULT.reasonCode,
+    messageKey: messageKey || DEFAULT_PUBLIC_RESULT.messageKey,
+    reasonCode: reasonCode || DEFAULT_PUBLIC_RESULT.reasonCode,
     caseId: safePublicString(safeResult.caseId),
     repairIntakeDraftId: safePublicString(safeResult.repairIntakeDraftId),
   };
