@@ -292,7 +292,7 @@ test('command planner builds explicit transition intent from policy decision onl
   const transitionBody = functionBody(source, 'transitionIntentFor');
   const plannerBody = functionBody(source, 'planEngineerMobileVisitActionCommand');
 
-  assert.deepEqual(requireSpecifiers(source), ['./engineerMobileVisitActionPolicyRegistry']);
+  assert.deepEqual(requireSpecifiers(source), ['./engineerMobileVisitActionDecisionHelper']);
   for (const [action, status] of Object.entries(ACTION_STATUS_MAP)) {
     assert.equal(source.includes(`'${action}': '${status}'`), true, `missing ${action} -> ${status}`);
   }
@@ -303,16 +303,17 @@ test('command planner builds explicit transition intent from policy decision onl
     'appointmentId: subject.appointmentId',
     'caseId: subject.caseId',
     'organizationId: subject.organizationId',
-    'mobileVisitStatus,',
-    'visitResult: stringValue(policyDecision.visitResult)',
+    'mobileVisitStatus: stringValue(helperTransitionIntent.mobileVisitStatus) || mobileVisitStatus',
+    'visitResult: stringValue(helperTransitionIntent.visitResult) || stringValue(policyDecision.visitResult)',
     'requestId: stringValue(requestId)',
-    'plannedAt: stringValue(now)',
+    'plannedAt: stringValue(helperTransitionIntent.plannedAt) || stringValue(now)',
   ], 'transition intent allowlist');
   assertIncludesAll(plannerBody, [
-    'evaluateEngineerMobileVisitAction({',
+    'decideEngineerMobileVisitAction({',
     'action: source.action',
-    'actor: source.actor',
-    'appointment: source.appointment',
+    'trustedContext: trustedContextFromActor(source.actor)',
+    'assignmentContext: assignmentContextFromAppointment(source.appointment)',
+    'actionSubject:',
     'visitResult: source.visitResult',
     'return deniedCommandResult',
     'return allowedCommandResult',

@@ -22,8 +22,10 @@ const FILES = Object.freeze({
   task2278Doc: 'docs/task-2278-engineer-mobile-visit-action-decision-helper-branch-checkpoint-no-runtime-change-no-db-no-smoke-no-provider.md',
   task2280Doc: 'docs/task-2280-engineer-mobile-workbench-safe-envelope-presenter-runtime-wiring-no-db-no-smoke-no-provider.md',
   task2283Doc: 'docs/task-2283-engineer-mobile-workbench-safe-envelope-list-runtime-wiring-no-db-no-smoke-no-provider.md',
+  task2286Doc: 'docs/task-2286-engineer-mobile-visit-action-decision-helper-runtime-wiring-no-db-no-smoke-no-provider.md',
   detailHandler: 'src/engineerMobile/engineerMobileAssignedAppointmentDetailHandler.js',
   listHandler: 'src/engineerMobile/engineerMobileAssignedAppointmentsHandler.js',
+  commandPlanner: 'src/engineerMobile/engineerMobileVisitActionCommandPlanner.js',
 });
 
 const WORKBENCH_OUTPUT_FIELDS = Object.freeze([
@@ -304,7 +306,7 @@ test('unit and static evidence covers raw private internal non-exposure and immu
   ], 'portfolio unsafe marker evidence');
 });
 
-test('Engineer Mobile runtime source wires only the authorized Task2280 and Task2283 workbench presenter boundaries', () => {
+test('Engineer Mobile runtime source wires only authorized helper runtime boundaries', () => {
   const sourceFiles = engineerMobileSourceFiles()
     .filter((file) => file !== FILES.workbenchPresenter)
     .filter((file) => file !== FILES.decisionHelper);
@@ -312,6 +314,7 @@ test('Engineer Mobile runtime source wires only the authorized Task2280 and Task
   for (const file of sourceFiles) {
     const source = read(file);
     const isAuthorizedWorkbenchPresenterConsumer = file === FILES.detailHandler || file === FILES.listHandler;
+    const isAuthorizedDecisionHelperConsumer = file === FILES.commandPlanner;
 
     assert.equal(
       source.includes('engineerMobileWorkbenchSafeEnvelopePresenter'),
@@ -325,13 +328,13 @@ test('Engineer Mobile runtime source wires only the authorized Task2280 and Task
     );
     assert.equal(
       source.includes('engineerMobileVisitActionDecisionHelper'),
-      false,
-      `${file} should not import visit-action decision helper`,
+      isAuthorizedDecisionHelperConsumer,
+      `${file} should import visit-action decision helper only at Task2286 command planner boundary`,
     );
     assert.equal(
       source.includes('decideEngineerMobileVisitAction'),
-      false,
-      `${file} should not call visit-action decision helper`,
+      isAuthorizedDecisionHelperConsumer,
+      `${file} should call visit-action decision helper only at Task2286 command planner boundary`,
     );
   }
 });
@@ -346,6 +349,7 @@ test('recent docs preserve authorized runtime wiring and remaining pure-helper b
     read(FILES.task2278Doc),
     read(FILES.task2280Doc),
     read(FILES.task2283Doc),
+    read(FILES.task2286Doc),
   ].join('\n');
 
   assertIncludesAll(docs, [
@@ -353,7 +357,8 @@ test('recent docs preserve authorized runtime wiring and remaining pure-helper b
     'src/engineerMobile/engineerMobileAssignedAppointmentDetailHandler.js',
     'data.appointment',
     'presentEngineerMobileWorkbenchSafeEnvelope()',
-    'No runtime wiring of the visit-action decision helper is authorized',
+    'Task2286 wires the existing pure `decideEngineerMobileVisitAction()` helper',
+    'src/engineerMobile/engineerMobileVisitActionCommandPlanner.js',
     'No new route path or mount',
     'No DB, repository, or audit persistence behavior',
     'No provider sending',

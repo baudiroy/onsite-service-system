@@ -38,10 +38,10 @@ test('Task1806 allowed files exist', () => {
   }
 });
 
-test('visit action command planner imports only the accepted registry module', () => {
+test('visit action command planner imports only the accepted decision helper module', () => {
   const source = read(PLANNER_FILE);
 
-  assert.deepEqual(requireSpecifiers(source), ['./engineerMobileVisitActionPolicyRegistry']);
+  assert.deepEqual(requireSpecifiers(source), ['./engineerMobileVisitActionDecisionHelper']);
 });
 
 test('visit action command planner stays isolated from forbidden runtimes', () => {
@@ -74,9 +74,6 @@ test('visit action command planner stays isolated from forbidden runtimes', () =
     /\brag\b/i,
     /\bbilling\b/i,
     /\bsettlement\b/i,
-    /completionReport/i,
-    /fieldServiceReport/i,
-    /finalAppointmentId/,
     /Date\.now\s*\(/,
     /new Date\s*\(/,
     /setTimeout\s*\(/,

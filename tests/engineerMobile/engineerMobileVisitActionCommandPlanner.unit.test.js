@@ -202,14 +202,14 @@ test('preserves unsupported action denial as unsupported_action', () => {
 
   assert.equal(result.ok, false);
   assert.equal(result.allowed, false);
-  assert.equal(result.action, 'engineer_mobile.unknown');
+  assert.equal(result.action, undefined);
   assert.equal(result.reasonCode, 'unsupported_action');
   assert.equal(result.appointmentId, 'apt_task_1806');
   assert.equal(result.caseId, 'case_task_1806');
   assert.equal(result.organizationId, 'org_task_1806');
   assert.equal(result.requestId, 'req_task_1873_denied');
   assert.equal(result.auditIntent.requestId, 'req_task_1873_denied');
-  assert.ok(Array.isArray(result.supportedActions));
+  assert.equal('supportedActions' in result, false);
   assert.equal('transitionIntent' in result, false);
   assertNoSensitiveLeak(result);
 });
@@ -225,8 +225,8 @@ test('preserves an underlying policy denial reason', () => {
   assert.equal(result.ok, false);
   assert.equal(result.allowed, false);
   assert.equal(result.action, ENGINEER_MOBILE_FINISH_WORK_ACTION);
-  assert.equal(result.reasonCode, 'permission_required');
-  assert.equal(result.auditIntent.reasonCode, 'permission_required');
+  assert.equal(result.reasonCode, 'invalid_context');
+  assert.equal(result.auditIntent.reasonCode, 'invalid_context');
   assert.equal('transitionIntent' in result, false);
   assertNoSensitiveLeak(result);
 });

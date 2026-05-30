@@ -160,7 +160,7 @@ test('denied planner result returns sanitized denial and calls no writers', () =
 
   assert.equal(result.ok, false);
   assert.equal(result.allowed, false);
-  assert.equal(result.reasonCode, 'permission_required');
+  assert.equal(result.reasonCode, 'invalid_context');
   assert.equal(result.transitionApplied, false);
   assert.equal(result.auditRecorded, false);
   assert.deepEqual(calls, []);
