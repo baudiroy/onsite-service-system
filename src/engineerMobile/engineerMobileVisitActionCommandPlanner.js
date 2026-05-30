@@ -15,6 +15,33 @@ const MOBILE_VISIT_STATUS_BY_ACTION = Object.freeze({
   'engineer_mobile.record_visit_result': 'visit_result_recorded',
 });
 
+const SUPPORTED_VISIT_RESULTS = Object.freeze([
+  'resolved',
+  'follow_up_required',
+  'parts_required',
+  'cannot_repair',
+  'customer_unavailable',
+  'cancelled_on_site',
+]);
+
+const SAFE_REASON_CODES = Object.freeze([
+  'allowed',
+  'cross_scope',
+  'denied',
+  'ineligible',
+  'invalid_assignment',
+  'invalid_context',
+  'invalid_state',
+  'invalid_subject',
+  'invalid_visit_result',
+  'malformed_decision',
+  'malformed_transition_intent',
+  'not_assigned',
+  'report_boundary',
+  'unauthorized',
+  'unsupported_action',
+]);
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -64,6 +91,20 @@ function normalizedKey(value) {
   return String(value || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 }
 
+function safeAction(value) {
+  const action = stringValue(value);
+
+  return Object.prototype.hasOwnProperty.call(MOBILE_VISIT_STATUS_BY_ACTION, action)
+    ? action
+    : undefined;
+}
+
+function safeReasonCode(value, fallback = 'denied') {
+  const reasonCode = stringValue(value);
+
+  return SAFE_REASON_CODES.includes(reasonCode) ? reasonCode : fallback;
+}
+
 function hasUnsafeRequestContainer(source) {
   if (!isObject(source)) {
     return false;
@@ -88,15 +129,17 @@ function hasReportBoundaryMarker(source) {
     return false;
   }
 
-  return Object.keys(source).some((key) => [
-    'approvecompletionreport',
-    'approvefieldservicereport',
-    'completionreportid',
-    'createcompletionreport',
-    'createfieldservicereport',
-    'fieldservicereportid',
-    'finalappointmentid',
-    'formalizereport',
+    return Object.keys(source).some((key) => [
+      'approvecompletionreport',
+      'approvefieldservicereport',
+      'approvereport',
+      'completionreportid',
+      'createcompletionreport',
+      'createfieldservicereport',
+      'createreport',
+      'fieldservicereportid',
+      'finalappointmentid',
+      'formalizereport',
     'publishreport',
   ].includes(normalizedKey(key)));
 }
@@ -165,7 +208,6 @@ function actionSubjectFromAppointment(appointment) {
 }
 
 function safeSubject(policyDecision, actor, appointment) {
-  const subject = isObject(policyDecision.subject) ? policyDecision.subject : {};
   const transitionIntent = isObject(policyDecision.transitionIntent) ? policyDecision.transitionIntent : {};
   const assignmentReference = isObject(policyDecision.assignmentReference)
     ? policyDecision.assignmentReference
@@ -175,22 +217,20 @@ function safeSubject(policyDecision, actor, appointment) {
     : {};
 
   return {
-    actorId: stringValue(subject.actorId)
-      || stringValue(transitionIntent.actorId)
+    actorId: firstStringValue(actor, ['id', 'engineerId', 'engineer_id', 'userId', 'user_id'])
       || stringValue(assignmentReference.engineerId)
-      || firstStringValue(actor, ['id', 'engineerId', 'userId']),
-    appointmentId: stringValue(subject.appointmentId)
-      || stringValue(transitionIntent.appointmentId)
+      || stringValue(transitionIntent.actorId),
+    appointmentId: firstStringValue(appointment, ['appointmentId', 'appointment_id', 'id'])
       || stringValue(appointmentReference.appointmentId)
-      || firstStringValue(appointment, ['appointmentId', 'appointment_id', 'id']),
-    caseId: stringValue(transitionIntent.caseId)
+      || stringValue(transitionIntent.appointmentId),
+    caseId: firstStringValue(appointment, ['caseId', 'case_id'])
       || stringValue(appointmentReference.caseId)
-      || firstStringValue(appointment, ['caseId', 'case_id']),
-    organizationId: stringValue(subject.organizationId)
-      || stringValue(transitionIntent.organizationId)
+      || stringValue(transitionIntent.caseId),
+    organizationId: firstStringValue(actor, ['organizationId', 'organization_id'])
+      || firstStringValue(appointment, ['organizationId', 'organization_id'])
       || stringValue(assignmentReference.organizationId)
       || stringValue(appointmentReference.organizationId)
-      || firstStringValue(appointment, ['organizationId', 'organization_id']),
+      || stringValue(transitionIntent.organizationId),
   };
 }
 
@@ -205,18 +245,20 @@ function safeSupportedActions(value) {
     return undefined;
   }
 
-  return value
-    .map((action) => stringValue(action))
+  const supportedActions = value
+    .map((action) => safeAction(action))
     .filter(Boolean);
+
+  return supportedActions.length > 0 ? supportedActions : undefined;
 }
 
 function auditIntentFor({ action, allowed, reasonCode, subject, now, requestId }) {
   return compactRecord({
     type: 'engineer_mobile.visit_action_command_planner_decision',
     plannerKind: ENGINEER_MOBILE_VISIT_ACTION_COMMAND_PLANNER_KIND,
-    action: stringValue(action),
+    action: safeAction(action),
     allowed: Boolean(allowed),
-    reasonCode: stringValue(reasonCode),
+    reasonCode: safeReasonCode(reasonCode),
     actorId: subject.actorId,
     appointmentId: subject.appointmentId,
     caseId: subject.caseId,
@@ -228,8 +270,8 @@ function auditIntentFor({ action, allowed, reasonCode, subject, now, requestId }
 
 function deniedCommandResult({ policyDecision, actor, appointment, now, requestId }) {
   const subject = safeSubject(policyDecision, actor, appointment);
-  const action = stringValue(policyDecision.action);
-  const reasonCode = stringValue(policyDecision.reasonCode) || 'denied';
+  const action = safeAction(policyDecision.action);
+  const reasonCode = safeReasonCode(policyDecision.reasonCode);
   const safeRequestId = stringValue(requestId);
 
   return compactRecord({
@@ -256,11 +298,59 @@ function deniedCommandResult({ policyDecision, actor, appointment, now, requestI
 }
 
 function transitionIntentFor({ policyDecision, subject, now, requestId }) {
-  const action = stringValue(policyDecision.action);
+  const action = safeAction(policyDecision.action);
   const mobileVisitStatus = MOBILE_VISIT_STATUS_BY_ACTION[action];
   const helperTransitionIntent = isObject(policyDecision.transitionIntent)
     ? policyDecision.transitionIntent
-    : {};
+    : undefined;
+
+  if (!action || !helperTransitionIntent) {
+    return undefined;
+  }
+
+  const helperAction = safeAction(helperTransitionIntent.action);
+
+  if (!helperAction || helperAction !== action) {
+    return undefined;
+  }
+
+  const helperMobileVisitStatus = stringValue(helperTransitionIntent.mobileVisitStatus);
+
+  if (helperMobileVisitStatus !== mobileVisitStatus) {
+    return undefined;
+  }
+
+  if (
+    stringValue(helperTransitionIntent.actorId) !== subject.actorId
+    || stringValue(helperTransitionIntent.appointmentId) !== subject.appointmentId
+    || stringValue(helperTransitionIntent.organizationId) !== subject.organizationId
+  ) {
+    return undefined;
+  }
+
+  const helperCaseId = stringValue(helperTransitionIntent.caseId);
+
+  if (helperCaseId && subject.caseId && helperCaseId !== subject.caseId) {
+    return undefined;
+  }
+
+  const visitResult = stringValue(helperTransitionIntent.visitResult)
+    || stringValue(policyDecision.visitResult);
+
+  if (
+    action === 'engineer_mobile.record_visit_result'
+    && !SUPPORTED_VISIT_RESULTS.includes(visitResult)
+  ) {
+    return undefined;
+  }
+
+  if (
+    action !== 'engineer_mobile.record_visit_result'
+    && visitResult
+    && !SUPPORTED_VISIT_RESULTS.includes(visitResult)
+  ) {
+    return undefined;
+  }
 
   return compactRecord({
     kind: ENGINEER_MOBILE_VISIT_ACTION_TRANSITION_INTENT_KIND,
@@ -269,8 +359,8 @@ function transitionIntentFor({ policyDecision, subject, now, requestId }) {
     appointmentId: subject.appointmentId,
     caseId: subject.caseId,
     organizationId: subject.organizationId,
-    mobileVisitStatus: stringValue(helperTransitionIntent.mobileVisitStatus) || mobileVisitStatus,
-    visitResult: stringValue(helperTransitionIntent.visitResult) || stringValue(policyDecision.visitResult),
+    mobileVisitStatus,
+    visitResult: action === 'engineer_mobile.record_visit_result' ? visitResult : undefined,
     requestId: stringValue(requestId),
     plannedAt: stringValue(helperTransitionIntent.plannedAt) || stringValue(now),
   });
@@ -278,9 +368,41 @@ function transitionIntentFor({ policyDecision, subject, now, requestId }) {
 
 function allowedCommandResult({ policyDecision, actor, appointment, now, requestId }) {
   const subject = safeSubject(policyDecision, actor, appointment);
-  const action = stringValue(policyDecision.action);
+  const action = safeAction(policyDecision.action);
   const reasonCode = 'allowed';
   const safeRequestId = stringValue(requestId);
+  const transitionIntent = transitionIntentFor({
+    policyDecision,
+    subject,
+    now,
+    requestId: safeRequestId,
+  });
+
+  if (!action || !subject.actorId || !subject.appointmentId || !subject.organizationId) {
+    return deniedCommandResult({
+      policyDecision: {
+        action,
+        reasonCode: 'malformed_decision',
+      },
+      actor,
+      appointment,
+      now,
+      requestId,
+    });
+  }
+
+  if (!transitionIntent) {
+    return deniedCommandResult({
+      policyDecision: {
+        action,
+        reasonCode: 'malformed_transition_intent',
+      },
+      actor,
+      appointment,
+      now,
+      requestId,
+    });
+  }
 
   return compactRecord({
     ok: true,
@@ -293,12 +415,7 @@ function allowedCommandResult({ policyDecision, actor, appointment, now, request
     caseId: subject.caseId,
     organizationId: subject.organizationId,
     requestId: safeRequestId,
-    transitionIntent: transitionIntentFor({
-      policyDecision,
-      subject,
-      now,
-      requestId: safeRequestId,
-    }),
+    transitionIntent,
     auditIntent: auditIntentFor({
       action,
       allowed: true,

@@ -228,7 +228,7 @@ test('supported aliases helper decisions and command output shape remain guarded
   ], 'supported aliases');
   assertIncludesAll(source, [
     'function allowedCommandResult({ policyDecision, actor, appointment, now, requestId })',
-    'transitionIntent: transitionIntentFor({',
+    'const transitionIntent = transitionIntentFor({',
     'auditIntent: auditIntentFor({',
     'if (!policyDecision || policyDecision.allowed !== true)',
   ], 'allowed-only command output flow');
