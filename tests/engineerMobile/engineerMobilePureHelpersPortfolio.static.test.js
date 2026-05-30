@@ -20,6 +20,8 @@ const FILES = Object.freeze({
   task2276Doc: 'docs/task-2276-engineer-mobile-pure-visit-action-decision-helper-no-route-no-db-no-smoke-no-provider.md',
   task2277Doc: 'docs/task-2277-engineer-mobile-visit-action-decision-helper-static-boundary-guard-no-runtime-change-no-db-no-smoke-no-provider.md',
   task2278Doc: 'docs/task-2278-engineer-mobile-visit-action-decision-helper-branch-checkpoint-no-runtime-change-no-db-no-smoke-no-provider.md',
+  task2280Doc: 'docs/task-2280-engineer-mobile-workbench-safe-envelope-presenter-runtime-wiring-no-db-no-smoke-no-provider.md',
+  detailHandler: 'src/engineerMobile/engineerMobileAssignedAppointmentDetailHandler.js',
 });
 
 const WORKBENCH_OUTPUT_FIELDS = Object.freeze([
@@ -300,23 +302,24 @@ test('unit and static evidence covers raw private internal non-exposure and immu
   ], 'portfolio unsafe marker evidence');
 });
 
-test('Engineer Mobile runtime source does not import pure helpers yet', () => {
+test('Engineer Mobile runtime source wires only the authorized Task2280 workbench presenter boundary', () => {
   const sourceFiles = engineerMobileSourceFiles()
     .filter((file) => file !== FILES.workbenchPresenter)
     .filter((file) => file !== FILES.decisionHelper);
 
   for (const file of sourceFiles) {
     const source = read(file);
+    const isTask2280DetailHandler = file === FILES.detailHandler;
 
     assert.equal(
       source.includes('engineerMobileWorkbenchSafeEnvelopePresenter'),
-      false,
-      `${file} should not import workbench presenter helper`,
+      isTask2280DetailHandler,
+      `${file} workbench presenter wiring must stay limited to Task2280 detail handler`,
     );
     assert.equal(
       source.includes('presentEngineerMobileWorkbenchSafeEnvelope'),
-      false,
-      `${file} should not call workbench presenter helper`,
+      isTask2280DetailHandler,
+      `${file} workbench presenter calls must stay limited to Task2280 detail handler`,
     );
     assert.equal(
       source.includes('engineerMobileVisitActionDecisionHelper'),
@@ -331,7 +334,7 @@ test('Engineer Mobile runtime source does not import pure helpers yet', () => {
   }
 });
 
-test('recent docs preserve non-authorized no-runtime pure helper portfolio status', () => {
+test('recent docs preserve authorized runtime wiring and remaining pure-helper boundaries', () => {
   const docs = [
     read(FILES.task2269Doc),
     read(FILES.task2270Doc),
@@ -339,13 +342,16 @@ test('recent docs preserve non-authorized no-runtime pure helper portfolio statu
     read(FILES.task2276Doc),
     read(FILES.task2277Doc),
     read(FILES.task2278Doc),
+    read(FILES.task2280Doc),
   ].join('\n');
 
   assertIncludesAll(docs, [
-    'No route/runtime wiring was added',
+    'Task2280 authorizes one narrow runtime wiring point',
+    'src/engineerMobile/engineerMobileAssignedAppointmentDetailHandler.js',
+    'data.appointment',
+    'presentEngineerMobileWorkbenchSafeEnvelope()',
     'No runtime wiring of the visit-action decision helper is authorized',
-    'No runtime wiring of the safe Workbench envelope helper is authorized',
-    'No Engineer Mobile route/API/DTO/projection/handler/mobile behavior change',
+    'No new route path or mount',
     'No DB, repository, or audit persistence behavior',
     'No provider sending',
     'No auth/session middleware',

@@ -421,7 +421,9 @@ test('synthetic HTTP detail route flows through adapter, detail handler, and inj
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.status, 'allow');
-  assert.equal(response.body.data.appointment.appointmentId, 'apt_1742_detail_001');
+  assert.equal(response.body.data.appointment.ok, true);
+  assert.equal(response.body.data.appointment.status, 'available');
+  assert.equal(response.body.data.appointment.appointmentReference, 'apt_1742_detail_001');
   assert.deepEqual(repository.calls.detail, [
     {
       organizationId: 'org_engineer_mobile_1742',
@@ -597,9 +599,14 @@ test('module can use DB repository adapter with injected synthetic queryExecutor
   ]);
   assert.equal(detailResponse.statusCode, 200);
   assert.equal(detailResponse.body.status, 'allow');
-  assert.equal(detailResponse.body.data.appointment.appointmentId, 'apt_1762_detail_001');
+  assert.equal(detailResponse.body.data.appointment.ok, true);
+  assert.equal(detailResponse.body.data.appointment.status, 'available');
+  assert.equal(detailResponse.body.data.appointment.appointmentReference, 'apt_1762_detail_001');
   assert.equal(detailResponse.body.data.appointment.caseReference, 'CASE-1762-DETAIL');
-  assert.equal(detailResponse.body.data.appointment.serviceSummary, 'Read-only DB adapter detail');
+  assert.equal(
+    detailResponse.body.data.appointment.workOrderSummary.serviceSummary,
+    'Read-only DB adapter detail',
+  );
   assert.deepEqual(queryExecutor.calls.map((querySpec) => querySpec.name), [
     ASSIGNED_APPOINTMENT_LIST_QUERY_NAME,
     ASSIGNED_APPOINTMENT_DETAIL_QUERY_NAME,
@@ -920,7 +927,9 @@ test('canonical detail route works through resolver-backed request context', asy
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.body.status, 'allow');
-  assert.equal(response.body.data.appointment.appointmentId, 'apt_1746_detail_001');
+  assert.equal(response.body.data.appointment.ok, true);
+  assert.equal(response.body.data.appointment.status, 'available');
+  assert.equal(response.body.data.appointment.appointmentReference, 'apt_1746_detail_001');
   assert.deepEqual(repository.calls.detail, [
     {
       organizationId: 'org_engineer_mobile_1746',

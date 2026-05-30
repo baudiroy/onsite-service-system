@@ -7,6 +7,9 @@ const {
   createEngineerMobileWorkbenchDenyEnvelope,
   createEngineerMobileWorkbenchSuccessEnvelope,
 } = require('./engineerMobileWorkbenchSafeEnvelope');
+const {
+  presentEngineerMobileWorkbenchSafeEnvelope,
+} = require('./engineerMobileWorkbenchSafeEnvelopePresenter');
 
 const SAFE_DENY_MESSAGE_KEY = 'engineerMobile.assignedAppointmentDetail.unavailable';
 const ALLOW_MESSAGE_KEY = 'engineerMobile.assignedAppointmentDetail.available';
@@ -150,11 +153,33 @@ function buildSafeDenyEnvelope() {
   });
 }
 
+function eligibilityFromAppointment(appointment) {
+  return {
+    canOpenDetails: appointment && appointment.canOpenDetails,
+    canPrepareCompletionDraft: appointment && appointment.canPrepareCompletionDraft,
+    canRecordArrival: appointment && appointment.canRecordArrival,
+    canRecordVisitResult: appointment && appointment.canRecordVisitResult,
+    canStartTravel: appointment && appointment.canStartTravel,
+    canStartWork: appointment && appointment.canStartWork,
+    canFinishWork: appointment && appointment.canFinishWork,
+  };
+}
+
 function buildAllowEnvelope(appointment) {
+  const safeAppointment = presentEngineerMobileWorkbenchSafeEnvelope({
+    ...appointment,
+    ok: true,
+    status: 'available',
+    messageKey: ALLOW_MESSAGE_KEY,
+    appointmentReference: appointment && appointment.appointmentId,
+    serviceStatus: appointment && appointment.status,
+    eligibility: eligibilityFromAppointment(appointment),
+  });
+
   return createEngineerMobileWorkbenchSuccessEnvelope({
     messageKey: ALLOW_MESSAGE_KEY,
     data: {
-      appointment,
+      appointment: safeAppointment,
     },
   });
 }

@@ -183,28 +183,38 @@ test('valid engineer organization and appointment id returns safe appointment de
     engineerMobileVisible: true,
     data: {
       appointment: {
-        appointmentId: 'apt_1737_001',
-        canOpenDetails: true,
+        ok: true,
+        status: 'available',
+        messageKey: 'engineerMobile.assignedAppointmentDetail.available',
+        appointmentReference: 'apt_1737_001',
         caseReference: 'CASE-1737-001',
+        serviceStatus: 'confirmed',
         appointmentWindow: '2026-05-29 09:00-11:00',
-        scheduledStart: '2026-05-29T01:00:00.000Z',
-        scheduledEnd: '2026-05-29T03:00:00.000Z',
-        serviceType: 'onsite',
-        customerDisplayName: 'Chen masked',
-        locationLabel: 'Taipei Xinyi',
-        status: 'confirmed',
-        priorityLabel: 'normal',
-        serviceSummary: 'Air conditioner inspection',
-        publicCustomerNotes: 'Customer-visible preparation note.',
-        checklistPreview: [
-          {
-            label: 'Confirm model',
-            status: 'pending',
-          },
-          {
-            label: 'Take exterior photo',
-          },
-        ],
+        customerDisplay: {
+          displayName: 'Chen masked',
+        },
+        locationSummary: {
+          label: 'Taipei Xinyi',
+        },
+        workOrderSummary: {
+          serviceType: 'onsite',
+          serviceSummary: 'Air conditioner inspection',
+          publicCustomerNotes: 'Customer-visible preparation note.',
+          priorityLabel: 'normal',
+          checklistPreview: [
+            {
+              label: 'Confirm model',
+              status: 'pending',
+            },
+            {
+              label: 'Take exterior photo',
+            },
+          ],
+        },
+        eligibility: {
+          canOpenDetails: true,
+        },
+        actions: [],
       },
     },
   });
@@ -382,7 +392,8 @@ test('created handler accepts injected repository and synthetic request context'
   });
 
   assert.equal(result.status, 'allow');
-  assert.equal(result.data.appointment.appointmentId, 'apt_1737_001');
+  assert.equal(result.data.appointment.appointmentReference, 'apt_1737_001');
+  assert.equal(result.data.appointment.messageKey, 'engineerMobile.assignedAppointmentDetail.available');
   assert.deepEqual(assignedAppointmentRepository.calls[0].params, {
     organizationId: 'org_engineer_mobile_1737',
     engineerUserId: 'eng_user_1737',
