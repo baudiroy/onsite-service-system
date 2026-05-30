@@ -205,6 +205,7 @@ test('API module safe controller sanitizes request and handler output paths', ()
   const sanitizeRequestValue = functionBlock(source, 'sanitizeRequestValue');
   const sanitizeHandlerOutputValue = functionBlock(source, 'sanitizeHandlerOutputValue');
   const sanitizeHandlerOutput = functionBlock(source, 'sanitizeHandlerOutput');
+  const callSafeController = functionBlock(source, 'callSafeController');
   const createSafeController = functionBlock(source, 'createSafeController');
 
   assertIncludesAll(safeRequestFields, [
@@ -237,13 +238,20 @@ test('API module safe controller sanitizes request and handler output paths', ()
     'result[key] = sanitized',
   ], 'handler output sanitizer');
   assertIncludesAll(sanitizeHandlerOutput, [
-    'sanitizeHandlerOutputValue(await outputPromise)',
+    'const output = await outputPromise',
+    'REPAIR_INTAKE_DRAFT_TO_CASE_API_MODULE_CONTROLLER_OUTPUT_INVALID',
+    'sanitizeHandlerOutputValue(output)',
   ], 'handler output promise sanitizer');
-  assertIncludesAll(createSafeController, [
+  assertIncludesAll(callSafeController, [
     'sanitizeHandlerOutput(',
-    'controller.planDraftToCase.call(',
-    'controller.submitDraftToCase.call(',
+    'method.call(',
     'sanitizeRequestInput(requestLike)',
+    'REPAIR_INTAKE_DRAFT_CASE_ROUTE_HANDLER_FAILED',
+  ], 'safe controller call normalizer');
+  assertIncludesAll(createSafeController, [
+    'callSafeController(',
+    'controller.planDraftToCase',
+    'controller.submitDraftToCase',
   ], 'safe controller adapter');
   assert.doesNotMatch(createSafeController, /\.\.\.\s*(?:requestLike|body|draftInput|output|result)/);
 });

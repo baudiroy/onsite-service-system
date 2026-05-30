@@ -26,16 +26,22 @@ const SAFE_REQUEST_INPUT_FIELDS = new Set([
 const UNSAFE_REQUEST_FIELD_NAMES = new Set([
   'address',
   'app',
+  'auditinternal',
   'authorization',
   'baseurl',
+  'billing',
   'connection',
   'cookie',
   'cookies',
+  'customeraddress',
   'customerphone',
   'database_url',
+  'databaseurl',
+  'draftinput',
   'file',
   'files',
   'finalappointmentid',
+  'fulladdress',
   'headers',
   'hostname',
   'ip',
@@ -46,8 +52,15 @@ const UNSAFE_REQUEST_FIELD_NAMES = new Set([
   'originalurl',
   'phone',
   'protocol',
+  'providerpayload',
+  'rag',
+  'raw',
   'rawbody',
+  'rawdraft',
+  'rawdraftinput',
   'rawheaders',
+  'rawinput',
+  'rawrequest',
   'req',
   'res',
   'response',
@@ -56,36 +69,50 @@ const UNSAFE_REQUEST_FIELD_NAMES = new Set([
   'signedcookies',
   'socket',
   'sql',
+  'token',
 ]);
 const UNSAFE_OUTPUT_FIELD_NAMES = new Set([
   'address',
   'app',
   'applicationservice',
+  'auditinternal',
   'authorization',
+  'billing',
   'connection',
   'controller',
   'cookie',
   'cookies',
+  'customeraddress',
+  'customerdata',
   'customername',
   'customerphone',
   'database_url',
   'databaseurl',
   'db',
+  'debug',
   'error',
   'file',
   'files',
   'finalappointmentid',
+  'fulladdress',
   'handler',
   'headers',
+  'invoice',
   'lineaccesstoken',
   'lineuserid',
   'next',
   'paramssql',
   'phone',
+  'providerpayload',
   'query',
+  'rag',
   'raw',
   'rawbody',
+  'rawdraft',
+  'rawdraftinput',
+  'rawerror',
   'rawheaders',
+  'rawinput',
   'rawrows',
   'req',
   'res',
@@ -96,7 +123,46 @@ const UNSAFE_OUTPUT_FIELD_NAMES = new Set([
   'socket',
   'sql',
   'stack',
+  'token',
 ]);
+const UNSAFE_TEXT_MARKERS = [
+  'audit internal',
+  'audit_internal',
+  'auditinternal',
+  'billing',
+  'customer address',
+  'customer phone',
+  'customer private',
+  'customeraddress',
+  'customerphone',
+  'database_url',
+  'debug detail',
+  'invoice',
+  'line access token',
+  'lineaccesstoken',
+  'password',
+  'postgres://',
+  'postgresql://',
+  'process.env',
+  'provider payload',
+  'providerpayload',
+  'rag',
+  'raw body',
+  'raw draft',
+  'raw draftinput',
+  'raw error',
+  'raw request',
+  'rawbody',
+  'rawdraft',
+  'rawdraftinput',
+  'rawerror',
+  'rawrequest',
+  'secret',
+  'select *',
+  'settlement',
+  'stack trace',
+  'token',
+];
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -104,6 +170,12 @@ function isObject(value) {
 
 function requestFieldIsUnsafe(key) {
   return UNSAFE_REQUEST_FIELD_NAMES.has(String(key).toLowerCase());
+}
+
+function stringHasUnsafeText(value) {
+  const normalized = value.toLowerCase();
+
+  return UNSAFE_TEXT_MARKERS.some((marker) => normalized.includes(marker));
 }
 
 function sanitizeRequestValue(value) {
@@ -131,7 +203,12 @@ function sanitizeRequestValue(value) {
     return result;
   }
 
-  if (value === undefined || typeof value === 'function' || typeof value === 'symbol') {
+  if (
+    value === undefined
+    || typeof value === 'function'
+    || typeof value === 'symbol'
+    || (typeof value === 'string' && stringHasUnsafeText(value))
+  ) {
     return undefined;
   }
 
@@ -186,7 +263,12 @@ function sanitizeHandlerOutputValue(value) {
     return result;
   }
 
-  if (value === undefined || typeof value === 'function' || typeof value === 'symbol') {
+  if (
+    value === undefined
+    || typeof value === 'function'
+    || typeof value === 'symbol'
+    || (typeof value === 'string' && stringHasUnsafeText(value))
+  ) {
     return undefined;
   }
 
@@ -194,22 +276,62 @@ function sanitizeHandlerOutputValue(value) {
 }
 
 async function sanitizeHandlerOutput(outputPromise) {
-  return sanitizeHandlerOutputValue(await outputPromise);
+  const output = await outputPromise;
+
+  if (!isObject(output)) {
+    return safeControllerFailure(
+      'REPAIR_INTAKE_DRAFT_TO_CASE_API_MODULE_CONTROLLER_OUTPUT_INVALID',
+      ['retry_or_manual_review'],
+    );
+  }
+
+  return sanitizeHandlerOutputValue(output);
+}
+
+function safeControllerFailure(reasonCode, requiredActions = ['retry_or_manual_review']) {
+  return {
+    ok: false,
+    statusCode: 500,
+    body: {
+      ok: false,
+      action: null,
+      draftId: null,
+      organizationId: null,
+      reasonCode,
+      requiredActions,
+      caseRef: null,
+      auditEvent: null,
+    },
+  };
+}
+
+async function callSafeController(controller, method, requestLike = {}) {
+  try {
+    return await sanitizeHandlerOutput(
+      method.call(
+        controller,
+        sanitizeRequestInput(requestLike),
+      ),
+    );
+  } catch (error) {
+    return safeControllerFailure(
+      'REPAIR_INTAKE_DRAFT_CASE_ROUTE_HANDLER_FAILED',
+      ['retry_or_manual_review'],
+    );
+  }
 }
 
 function createSafeController(controller) {
   return {
-    planDraftToCase: (requestLike = {}) => sanitizeHandlerOutput(
-      controller.planDraftToCase.call(
-        controller,
-        sanitizeRequestInput(requestLike),
-      ),
+    planDraftToCase: (requestLike = {}) => callSafeController(
+      controller,
+      controller.planDraftToCase,
+      requestLike,
     ),
-    submitDraftToCase: (requestLike = {}) => sanitizeHandlerOutput(
-      controller.submitDraftToCase.call(
-        controller,
-        sanitizeRequestInput(requestLike),
-      ),
+    submitDraftToCase: (requestLike = {}) => callSafeController(
+      controller,
+      controller.submitDraftToCase,
+      requestLike,
     ),
   };
 }
