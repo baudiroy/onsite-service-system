@@ -16,13 +16,18 @@ const forbiddenValues = [
   'raw_db_client_should_not_leak',
   'raw_repository_should_not_leak',
   'raw_audit_writer_should_not_leak',
+  'raw_options_should_not_leak',
+  'authorization_header_should_not_leak',
   'route_registration_stack_should_not_leak',
   'postgres://user:password@localhost/customer_access_should_not_leak',
   'select secret_should_not_leak',
   'Bearer token_should_not_leak',
+  'DATABASE_URL_should_not_leak',
   'provider_should_not_leak',
   'debug_should_not_leak',
   'internal_should_not_leak',
+  'private_should_not_leak',
+  'function_source_should_not_leak',
 ];
 
 function expectedSuccessSummary() {
@@ -55,6 +60,7 @@ function createSyntheticRouter() {
     routes: [],
     listenCalls: [],
     rawRouter: 'raw_router_should_not_leak',
+    authorization: 'authorization_header_should_not_leak',
     get(path, ...handlers) {
       this.routes.push({
         method: 'GET',
@@ -75,6 +81,8 @@ function createSyntheticDbClient() {
   return {
     calls: [],
     rawDbClient: 'raw_db_client_should_not_leak',
+    sql: 'select secret_should_not_leak',
+    env: 'DATABASE_URL_should_not_leak',
     query(querySpec) {
       this.calls.push(querySpec);
 
@@ -86,6 +94,9 @@ function createSyntheticDbClient() {
 function createSyntheticRepository() {
   return {
     rawRepository: 'raw_repository_should_not_leak',
+    providerDebug: 'provider_should_not_leak',
+    internalNote: 'internal_should_not_leak',
+    privateField: 'private_should_not_leak',
     getOrganizationScope() {
       return { available: false };
     },
@@ -283,5 +294,162 @@ test('malformed input object does not leak dependencies and stays sanitized', ()
 
     assert.deepEqual(summary, expectedFailureSummary('mount_target_invalid'));
     assertNoSummaryLeak(summary);
+  }
+});
+
+test('repeated composition calls keep registration state isolated per injected router and dbClient', () => {
+  const firstRouter = createSyntheticRouter();
+  const secondRouter = createSyntheticRouter();
+  const firstDbClient = createSyntheticDbClient();
+  const secondDbClient = createSyntheticDbClient();
+
+  const firstSummary = createCustomerAccessProductionMountComposition({
+    router: firstRouter,
+    dbClient: firstDbClient,
+    repository: createSyntheticRepository(),
+  });
+  const secondSummary = createCustomerAccessProductionMountComposition({
+    router: secondRouter,
+    dbClient: secondDbClient,
+    repository: createSyntheticRepository(),
+  });
+
+  assert.deepEqual(firstSummary, expectedSuccessSummary());
+  assert.deepEqual(secondSummary, expectedSuccessSummary());
+  assert.notEqual(firstSummary, secondSummary);
+  assert.notEqual(firstSummary.routes, secondSummary.routes);
+  assert.notEqual(firstRouter.routes, secondRouter.routes);
+  assert.equal(firstRouter.routes.length, 2);
+  assert.equal(secondRouter.routes.length, 2);
+  assert.deepEqual(firstRouter.routes.map((route) => route.path), [
+    CUSTOMER_ACCESS_ROUTE_PATH,
+    CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+  ]);
+  assert.deepEqual(secondRouter.routes.map((route) => route.path), [
+    CUSTOMER_ACCESS_ROUTE_PATH,
+    CUSTOMER_ACCESS_REPORT_ROUTE_PATH,
+  ]);
+  assert.equal(firstDbClient.calls.length, 0);
+  assert.equal(secondDbClient.calls.length, 0);
+  assert.deepEqual(firstRouter.listenCalls, []);
+  assert.deepEqual(secondRouter.listenCalls, []);
+  assertNoSummaryLeak(firstSummary);
+  assertNoSummaryLeak(secondSummary);
+});
+
+test('raw dependency sentinels from all injected inputs never appear in success summary', async () => {
+  const auditEvents = [];
+  const router = createSyntheticRouter();
+  const dbClient = createSyntheticDbClient();
+  const repository = createSyntheticRepository();
+
+  const summary = createCustomerAccessProductionMountComposition({
+    router,
+    dbClient,
+    repository,
+    auditWriter(auditEvent) {
+      auditEvents.push(auditEvent);
+
+      return {
+        ok: true,
+        status: 'recorded',
+        auditWritten: true,
+        persisted: true,
+        rawAuditWriter: 'raw_audit_writer_should_not_leak',
+        token: 'Bearer token_should_not_leak',
+      };
+    },
+    rawOptions: 'raw_options_should_not_leak',
+    token: 'Bearer token_should_not_leak',
+    sql: 'select secret_should_not_leak',
+    env: 'DATABASE_URL_should_not_leak',
+    provider: 'provider_should_not_leak',
+    debug: 'debug_should_not_leak',
+    internal: 'internal_should_not_leak',
+    private: 'private_should_not_leak',
+    functionSource() {
+      throw new Error('function_source_should_not_leak');
+    },
+  });
+
+  await waitForAuditSideChannel();
+
+  assert.deepEqual(summary, expectedSuccessSummary());
+  assert.equal(auditEvents.length, 2);
+  assert.equal(JSON.stringify(summary).includes('auditWritten'), false);
+  assertNoSummaryLeak(summary);
+});
+
+test('registration failure summaries remain exact and omit partial routes across dependency failures', () => {
+  const firstRouteThrow = {
+    routes: [],
+    rawRouter: 'raw_router_should_not_leak',
+    get(path, ...handlers) {
+      this.routes.push({
+        method: 'GET',
+        path,
+        handlers,
+        rawRoute: 'raw_router_should_not_leak',
+      });
+      throw new Error('route_registration_stack_should_not_leak select secret_should_not_leak');
+    },
+  };
+  const secondRouteThrow = {
+    routes: [],
+    rawRouter: 'raw_router_should_not_leak',
+    get(path, ...handlers) {
+      this.routes.push({
+        method: 'GET',
+        path,
+        handlers,
+        rawRoute: 'raw_router_should_not_leak',
+      });
+
+      if (this.routes.length === 2) {
+        throw new Error('debug_should_not_leak internal_should_not_leak');
+      }
+
+      return this;
+    },
+  };
+  const cases = [
+    {
+      summary: createCustomerAccessProductionMountComposition({
+        router: { get: 'not function', rawRouter: 'raw_router_should_not_leak' },
+        dbClient: createSyntheticDbClient(),
+      }),
+      reasonCode: 'mount_target_invalid',
+    },
+    {
+      summary: createCustomerAccessProductionMountComposition({
+        router: createSyntheticRouter(),
+        dbClient: {
+          query: 'not function',
+          rawDbClient: 'raw_db_client_should_not_leak',
+          sql: 'select secret_should_not_leak',
+        },
+      }),
+      reasonCode: 'db_client_invalid',
+    },
+    {
+      summary: createCustomerAccessProductionMountComposition({
+        router: firstRouteThrow,
+        dbClient: createSyntheticDbClient(),
+      }),
+      reasonCode: 'route_registration_failed',
+    },
+    {
+      summary: createCustomerAccessProductionMountComposition({
+        router: secondRouteThrow,
+        dbClient: createSyntheticDbClient(),
+      }),
+      reasonCode: 'route_registration_failed',
+    },
+  ];
+
+  for (const candidate of cases) {
+    assert.deepEqual(candidate.summary, expectedFailureSummary(candidate.reasonCode));
+    assert.equal(Object.prototype.hasOwnProperty.call(candidate.summary, 'routes'), false);
+    assertNoSummaryLeak(candidate.summary);
   }
 });
