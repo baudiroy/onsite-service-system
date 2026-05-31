@@ -1,5 +1,18 @@
 'use strict';
 
+const {
+  buildDepotWorkshopRepairOrderAuditEvent,
+} = require('../depotWorkshop/depotWorkshopRepairOrderAuditEvent');
+const {
+  buildDepotWorkshopRepairOrderDraft,
+} = require('../depotWorkshop/depotWorkshopRepairOrderContract');
+const {
+  buildDepotWorkshopRepairOrderCustomerProjection,
+} = require('../depotWorkshop/depotWorkshopRepairOrderCustomerProjection');
+const {
+  planDepotWorkshopRepairOrderStatusTransition,
+} = require('../depotWorkshop/depotWorkshopRepairOrderTransitionPolicy');
+
 const WORKSHOP_ASSIGNMENT_SERVICE_KIND = 'depot_workshop.workshop_assignment_service';
 const WORKSHOP_ASSIGN_PERMISSION = 'workshop.assign';
 
@@ -156,6 +169,23 @@ function hasExplicitSubcontractorAssignmentScope(input = {}) {
     || firstString(input.assignmentRelationship, context.assignmentRelationship, context.caseRelationship) === 'assigned_executor';
 }
 
+function assignmentRelationshipFrom(input = {}) {
+  const context = isObject(input.context) ? input.context : {};
+
+  return firstString(input.assignmentRelationship, context.assignmentRelationship, context.caseRelationship);
+}
+
+function targetDepotStatusFrom(input = {}) {
+  return firstString(
+    input.targetDepotStatus,
+    input.target_depot_status,
+    input.targetStatus,
+    input.target_status,
+    input.nextStatus,
+    input.next_status,
+  );
+}
+
 function resolveDepotIntakeRepository(options = {}) {
   if (!isObject(options)) {
     return undefined;
@@ -223,6 +253,8 @@ function validateCommand(input = {}) {
   const brandId = stringValue(input.brandId || input.brand_id);
   const serviceProviderId = stringValue(input.serviceProviderId || input.service_provider_id || input.providerId);
   const subcontractorId = stringValue(input.subcontractorId || input.subcontractor_id);
+  const assignmentRelationship = assignmentRelationshipFrom(input);
+  const targetDepotStatus = targetDepotStatusFrom(input);
   const assignmentFields = assignmentFieldsFrom(input);
 
   if (input.writeRequested === true || input.writeApproved === true || input.persist === true) {
@@ -271,6 +303,8 @@ function validateCommand(input = {}) {
     subcontractorId,
     actorId,
     actorRole,
+    assignmentRelationship,
+    targetDepotStatus,
     requestId,
     assignmentFields,
   };
@@ -301,6 +335,8 @@ function normalizeDepotIntake(depotIntake) {
     draftId: firstString(depotIntake.draftId, depotIntake.depotIntakeId),
     organizationId: stringValue(depotIntake.organizationId),
     tenantId: stringValue(depotIntake.tenantId) || null,
+    caseId: stringValue(depotIntake.caseId || depotIntake.case_id),
+    repairOrderId: stringValue(depotIntake.repairOrderId || depotIntake.repair_order_id),
     workflowType: firstString(depotIntake.workflowType, depotIntake.serviceType),
     depotStatus: firstString(depotIntake.depotStatus, depotIntake.status),
     brandId: stringValue(depotIntake.brandId) || null,
@@ -308,6 +344,14 @@ function normalizeDepotIntake(depotIntake) {
     itemRef: stringValue(depotIntake.itemRef) || null,
     productRef: stringValue(depotIntake.productRef) || null,
     issueSummaryRef: stringValue(depotIntake.issueSummaryRef) || null,
+    repairOrderReference: stringValue(depotIntake.repairOrderReference || depotIntake.customerRepairReference),
+    caseReference: stringValue(depotIntake.caseReference || depotIntake.customerCaseReference),
+    statusLabelKey: stringValue(depotIntake.statusLabelKey),
+    lastUpdatedAt: stringValue(depotIntake.lastUpdatedAt || depotIntake.customerFacingUpdatedAt),
+    customerMessageKey: stringValue(depotIntake.customerMessageKey),
+    estimatedReadyAt: stringValue(depotIntake.estimatedReadyAt || depotIntake.customerEstimatedReadyAt),
+    returnMethod: stringValue(depotIntake.returnMethod),
+    publicNotes: stringValue(depotIntake.publicNotes || depotIntake.customerPublicNotes),
   });
 }
 
@@ -352,6 +396,101 @@ function buildRepositoryLookup(validation) {
   });
 }
 
+function buildRepairOrderHelperInput(depotIntake, validation) {
+  return compactRecord({
+    repairOrderId: depotIntake.repairOrderId,
+    caseId: depotIntake.caseId,
+    depotIntakeId: depotIntake.draftId,
+    organizationId: validation.organizationId,
+    tenantId: validation.tenantId || depotIntake.tenantId || null,
+    workflowType: depotIntake.workflowType,
+    depotStatus: depotIntake.depotStatus,
+    workshopId: validation.assignmentFields.workshopId || null,
+    workshopTeamId: validation.assignmentFields.workshopTeamId || null,
+    assignedTechnicianId: validation.assignmentFields.assignedTechnicianId || null,
+    subcontractorOrganizationId: validation.assignmentFields.subcontractorOrganizationId || null,
+    assignmentRelationship: validation.assignmentRelationship || null,
+    itemRef: depotIntake.itemRef || null,
+    productRef: depotIntake.productRef || null,
+    issueSummaryRef: depotIntake.issueSummaryRef || null,
+    requestId: validation.requestId || null,
+    createdByActorId: validation.actorId,
+    updatedByActorId: validation.actorId,
+    actorId: validation.actorId,
+    actorRole: validation.actorRole || null,
+  });
+}
+
+function buildRepairOrderTransitionPlan(helperInput, validation) {
+  if (!validation.targetDepotStatus) {
+    return undefined;
+  }
+
+  const transitionResult = planDepotWorkshopRepairOrderStatusTransition({
+    ...helperInput,
+    fromStatus: helperInput.depotStatus,
+    toStatus: validation.targetDepotStatus,
+  });
+
+  return transitionResult.ok ? { ...transitionResult.plannedTransition } : undefined;
+}
+
+function buildRepairOrderAuditIntent(helperInput, transitionPlan) {
+  const auditResult = buildDepotWorkshopRepairOrderAuditEvent({
+    ...helperInput,
+    eventType: 'depot_workshop_repair_assignment_intent_prepared',
+    assignmentStatus: 'prepared',
+    transitionReasonCode: transitionPlan ? 'depot_workshop_repair_order_transition_planned' : undefined,
+    projectionStatus: 'prepared',
+    auditStatus: 'prepared',
+    dataProfile: 'depot_internal',
+  });
+
+  return auditResult.ok ? { ...auditResult.auditEvent, metadata: { ...auditResult.auditEvent.metadata } } : undefined;
+}
+
+function buildRepairOrderCustomerProjection(depotIntake) {
+  const projectionResult = buildDepotWorkshopRepairOrderCustomerProjection({
+    source: {
+      repairOrderReference: depotIntake.repairOrderReference || depotIntake.draftId,
+      caseReference: depotIntake.caseReference || depotIntake.caseId,
+      depotStatus: depotIntake.depotStatus,
+      statusLabelKey: depotIntake.statusLabelKey,
+      lastUpdatedAt: depotIntake.lastUpdatedAt,
+      customerMessageKey: depotIntake.customerMessageKey,
+      estimatedReadyAt: depotIntake.estimatedReadyAt,
+      returnMethod: depotIntake.returnMethod,
+      publicNotes: depotIntake.publicNotes,
+    },
+  });
+
+  if (!projectionResult.ok || Object.keys(projectionResult.projection).length === 0) {
+    return undefined;
+  }
+
+  return { ...projectionResult.projection };
+}
+
+function buildRepairOrderHelperSections(depotIntake, validation) {
+  const helperInput = buildRepairOrderHelperInput(depotIntake, validation);
+  const draftResult = buildDepotWorkshopRepairOrderDraft(helperInput);
+
+  if (!draftResult.ok) {
+    return {};
+  }
+
+  const transitionPlan = buildRepairOrderTransitionPlan(helperInput, validation);
+  const auditIntent = buildRepairOrderAuditIntent(helperInput, transitionPlan);
+  const customerProjection = buildRepairOrderCustomerProjection(depotIntake);
+
+  return compactRecord({
+    repairOrderDraft: { ...draftResult.draft },
+    repairOrderTransitionPlan: transitionPlan,
+    repairOrderAuditIntent: auditIntent,
+    repairOrderCustomerProjection: customerProjection,
+  });
+}
+
 function buildAssignmentIntent(depotIntake, validation) {
   return compactRecord({
     depotIntakeId: depotIntake.draftId,
@@ -374,6 +513,7 @@ function buildAssignmentIntent(depotIntake, validation) {
     permission: WORKSHOP_ASSIGN_PERMISSION,
     writeRequired: false,
     requestId: validation.requestId || null,
+    ...buildRepairOrderHelperSections(depotIntake, validation),
   });
 }
 

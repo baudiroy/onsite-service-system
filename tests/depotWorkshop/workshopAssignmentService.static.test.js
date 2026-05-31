@@ -11,6 +11,12 @@ const SERVICE_FILE = 'src/services/WorkshopAssignmentService.js';
 const UNIT_TEST_FILE = 'tests/depotWorkshop/workshopAssignmentService.unit.test.js';
 const STATIC_TEST_FILE = 'tests/depotWorkshop/workshopAssignmentService.static.test.js';
 const TASK_DOC = 'docs/task-1911-workshop-assignment-service.md';
+const ACCEPTED_HELPER_IMPORTS = Object.freeze([
+  '../depotWorkshop/depotWorkshopRepairOrderAuditEvent',
+  '../depotWorkshop/depotWorkshopRepairOrderContract',
+  '../depotWorkshop/depotWorkshopRepairOrderCustomerProjection',
+  '../depotWorkshop/depotWorkshopRepairOrderTransitionPolicy',
+]);
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -38,10 +44,10 @@ test('Task1911 allowed files exist', () => {
   }
 });
 
-test('workshop assignment service uses injected dependencies only', () => {
+test('workshop assignment service uses accepted pure helper imports and injected repository only', () => {
   const source = read(SERVICE_FILE);
 
-  assert.deepEqual(requireSpecifiers(source), []);
+  assert.deepEqual(requireSpecifiers(source).sort(), [...ACCEPTED_HELPER_IMPORTS].sort());
 
   for (const pattern of [
     /require\(['"]pg['"]\)/,

@@ -167,7 +167,7 @@ test('pure helpers import only approved pure helper modules', () => {
   }
 });
 
-test('pure helper portfolio is not wired into runtime modules', () => {
+test('pure helper portfolio is wired only into the accepted Task2381 service boundary', () => {
   const runtimeFiles = RUNTIME_DIRS.flatMap((relativeDir) => collectJsFiles(relativeDir));
   const forbiddenRuntimeMarkers = Object.freeze([
     'depotWorkshopRepairOrderStateModel',
@@ -180,9 +180,26 @@ test('pure helper portfolio is not wired into runtime modules', () => {
     'buildDepotWorkshopRepairOrderAuditEvent',
     'buildDepotWorkshopRepairOrderCustomerProjection',
   ]);
+  const acceptedServiceBoundary = 'src/services/WorkshopAssignmentService.js';
+  const acceptedServiceImports = Object.freeze([
+    '../depotWorkshop/depotWorkshopRepairOrderAuditEvent',
+    '../depotWorkshop/depotWorkshopRepairOrderContract',
+    '../depotWorkshop/depotWorkshopRepairOrderCustomerProjection',
+    '../depotWorkshop/depotWorkshopRepairOrderTransitionPolicy',
+  ]);
 
   for (const runtimeFile of runtimeFiles) {
     const source = read(runtimeFile);
+
+    if (runtimeFile === acceptedServiceBoundary) {
+      assert.deepEqual(requireSpecifiers(source).sort(), [...acceptedServiceImports].sort());
+      assertIncludesAll(source, [
+        'buildRepairOrderHelperSections',
+        'written: false',
+        'workshop_assignment_write_scope_not_approved',
+      ], acceptedServiceBoundary);
+      continue;
+    }
 
     for (const marker of forbiddenRuntimeMarkers) {
       assert.equal(source.includes(marker), false, `${runtimeFile} should not include ${marker}`);

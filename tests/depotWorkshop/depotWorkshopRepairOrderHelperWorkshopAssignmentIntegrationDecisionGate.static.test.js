@@ -28,12 +28,18 @@ const PURE_HELPER_ARTIFACTS = Object.freeze([
 ]);
 
 const BOUNDARY_FILES = Object.freeze([
-  'src/services/WorkshopAssignmentService.js',
   'src/routes/depotRepair.routes.js',
   'src/guards/DepotRepairStatusBoundary.js',
   'src/guards/DepotAccessScopeGuard.js',
   'src/depotWorkshop/depotRepairCustomerVisibleDataFilter.js',
   'src/depotWorkshop/depotWorkshopAuditBoundary.js',
+]);
+
+const TASK2381_ACCEPTED_SERVICE_IMPORTS = Object.freeze([
+  '../depotWorkshop/depotWorkshopRepairOrderAuditEvent',
+  '../depotWorkshop/depotWorkshopRepairOrderContract',
+  '../depotWorkshop/depotWorkshopRepairOrderCustomerProjection',
+  '../depotWorkshop/depotWorkshopRepairOrderTransitionPolicy',
 ]);
 
 const PURE_HELPER_WIRING_MARKERS = Object.freeze([
@@ -84,14 +90,15 @@ test('Task2380 allowed files and accepted pure helper portfolio artifacts exist'
   }
 });
 
-test('WorkshopAssignmentService remains prepare-only with written false and no helper wiring', () => {
+test('WorkshopAssignmentService remains prepare-only with written false and only Task2381 helper wiring', () => {
   const source = read('src/services/WorkshopAssignmentService.js');
 
-  assert.deepEqual(requireSpecifiers(source), []);
+  assert.deepEqual(requireSpecifiers(source).sort(), [...TASK2381_ACCEPTED_SERVICE_IMPORTS].sort());
   assertIncludesAll(source, [
     'createWorkshopAssignmentService',
     'prepareAssignmentIntent',
     'buildAssignmentIntent',
+    'buildRepairOrderHelperSections',
     'written: false',
     'writeRequired: false',
     'workshop_assignment_write_scope_not_approved',
@@ -179,7 +186,7 @@ test('Task2380 future integration requirements preserve prepare-only and domain 
   ], 'Task2380 future integration requirements');
 });
 
-test('repair order helpers are not wired into current service route guard filter or audit boundaries', () => {
+test('repair order helpers are not wired into current route guard filter or audit boundaries', () => {
   for (const boundaryFile of BOUNDARY_FILES) {
     const source = read(boundaryFile);
 
