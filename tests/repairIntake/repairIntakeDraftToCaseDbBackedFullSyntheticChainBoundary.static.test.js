@@ -114,7 +114,7 @@ test('successful path coverage remains visible', () => {
     "call.text.includes('FROM repair_intake_drafts')",
     "call.text.includes('FROM repair_intake_idempotency_records')",
     "call.text.includes('INSERT INTO repair_intake_idempotency_records')",
-    "call.text.includes('INSERT INTO repair_intake_audit_events')",
+    "textIncludes(call.text, 'insert into repair_intake_audit_events')",
     "'tx:insert into cases'",
     "'tx:update repair_intake_drafts set'",
     "'commit'",

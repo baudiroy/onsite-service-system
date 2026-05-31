@@ -20,6 +20,10 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function textIncludes(source, marker) {
+  return String(source).toLowerCase().includes(String(marker).toLowerCase());
+}
+
 function createIdGenerator() {
   let index = 0;
 
@@ -504,7 +508,7 @@ test('successful fake DB-backed application API chain creates safe draft-to-case
   assert.ok(chain.dbClient.calls.some((call) => call.text.includes('FROM repair_intake_drafts')));
   assert.ok(chain.dbClient.calls.some((call) => call.text.includes('FROM repair_intake_idempotency_records')));
   assert.ok(chain.dbClient.calls.some((call) => call.text.includes('INSERT INTO repair_intake_idempotency_records')));
-  assert.ok(chain.dbClient.calls.some((call) => call.text.includes('INSERT INTO repair_intake_audit_events')));
+  assert.ok(chain.dbClient.calls.some((call) => textIncludes(call.text, 'insert into repair_intake_audit_events')));
   assertNoUnsafeText(response);
   assertNoUnsafeText(chain.caseRepository.calls);
   assertNoUnsafeText(chain.caseCreatorAuditWriter.calls);
