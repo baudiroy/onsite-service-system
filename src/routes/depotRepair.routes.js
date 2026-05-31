@@ -2,6 +2,9 @@
 
 const { requirePermission } = require('../middlewares/requirePermission');
 const { evaluateDepotAccessScope } = require('../guards/DepotAccessScopeGuard');
+const {
+  presentDepotWorkshopAssignmentIntentResponse,
+} = require('../depotWorkshop/depotWorkshopAssignmentIntentResponsePresenter');
 
 const DEPOT_REPAIR_ROUTE_PERMISSION = 'depot.repair.prepare';
 const DEPOT_REPAIR_ROUTE_PATH = '/api/v1/depot/repairs/:depotIntakeId/assignment-intent';
@@ -364,18 +367,9 @@ function failure(reasonCode, req = {}) {
 }
 
 function successBody(result, req = {}) {
-  return {
-    data: {
-      depotRepair: sanitizeValue(result.assignmentIntent || result.depotRepair || result.intent || null),
-    },
-    meta: {
-      ok: true,
-      prepared: result.prepared === true || result.ok === true,
-      written: false,
-      reasonCode: stringValue(result.reasonCode) || 'depot_repair_route_prepared',
-    },
-    requestId: stringValue(result.requestId) || requestIdFrom(req, bodyFromRequest(req)) || null,
-  };
+  return presentDepotWorkshopAssignmentIntentResponse(result, {
+    requestId: requestIdFrom(req, bodyFromRequest(req)),
+  });
 }
 
 function failureBody(result, req = {}) {

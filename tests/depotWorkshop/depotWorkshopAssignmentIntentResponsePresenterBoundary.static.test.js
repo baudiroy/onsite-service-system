@@ -67,16 +67,23 @@ test('presenter helper has no DB repository provider route app server env or pac
   ], 'Task2387 presenter helper');
 });
 
-test('presenter helper is not wired into depot repair route', () => {
+test('presenter helper route wiring is limited to accepted success response boundary', () => {
   const route = read(ROUTE_FILE);
 
-  assert.equal(route.includes('depotWorkshopAssignmentIntentResponsePresenter'), false);
-  assert.equal(route.includes('presentDepotWorkshopAssignmentIntentResponse'), false);
   assertIncludesAll(route, [
-    'depotRepair: sanitizeValue(result.assignmentIntent || result.depotRepair || result.intent || null)',
+    "require('../depotWorkshop/depotWorkshopAssignmentIntentResponsePresenter')",
+    'presentDepotWorkshopAssignmentIntentResponse',
+    'return presentDepotWorkshopAssignmentIntentResponse(result, {',
     'depot_repair_route_write_scope_not_approved',
-    'written: false',
-  ], 'current unwired route source');
+  ], 'accepted Task2388 route presenter wiring');
+
+  assertDoesNotMatchAny(route, [
+    /require\(['"].*repositories/i,
+    /require\(['"].*providers/i,
+    /require\(['"].*package/i,
+    /process\.env/,
+    /DATABASE_URL\s*=/,
+  ], 'accepted Task2388 route presenter wiring');
 });
 
 test('presenter helper exports pure allowlist presenter contract', () => {

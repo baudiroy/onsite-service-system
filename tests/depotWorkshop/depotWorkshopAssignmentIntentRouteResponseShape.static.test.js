@@ -52,14 +52,14 @@ test('assignment-intent route path permission and write-scope denial remain visi
   ], 'assignment-intent route boundary');
 });
 
-test('current route response exposes sanitized assignmentIntent as data.depotRepair', () => {
+test('current route response delegates success body to accepted presenter', () => {
   const route = read(ROUTE_FILE);
 
-  assert.match(route, /function successBody\(result, req = \{\}\) \{[\s\S]*data:\s*\{[\s\S]*depotRepair: sanitizeValue\(result\.assignmentIntent \|\| result\.depotRepair \|\| result\.intent \|\| null\),[\s\S]*meta:/);
   assertIncludesAll(route, [
-    'sanitizeValue(result.assignmentIntent || result.depotRepair || result.intent || null)',
-    'written: false',
-    'prepared: result.prepared === true || result.ok === true',
+    "require('../depotWorkshop/depotWorkshopAssignmentIntentResponsePresenter')",
+    'function successBody(result, req = {})',
+    'return presentDepotWorkshopAssignmentIntentResponse(result, {',
+    'requestId: requestIdFrom(req, bodyFromRequest(req))',
   ], 'assignment-intent route success body');
 });
 

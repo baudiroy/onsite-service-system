@@ -114,15 +114,16 @@ test('future helper-derived section handling narrows internal service intent', (
   ], 'Task2386 helper-derived section handling');
 });
 
-test('route response source is unchanged and no presenter implementation exists yet', () => {
+test('route response source now uses accepted presenter wiring while service source remains unchanged', () => {
   const route = read(ROUTE_FILE);
   const service = read(SERVICE_FILE);
 
   assertIncludesAll(route, [
-    'depotRepair: sanitizeValue(result.assignmentIntent || result.depotRepair || result.intent || null)',
-    'written: false',
+    "require('../depotWorkshop/depotWorkshopAssignmentIntentResponsePresenter')",
+    'presentDepotWorkshopAssignmentIntentResponse',
+    'return presentDepotWorkshopAssignmentIntentResponse(result, {',
     'depot_repair_route_write_scope_not_approved',
-  ], 'current route source');
+  ], 'accepted Task2388 route response presenter source');
 
   assertIncludesAll(service, [
     '...buildRepairOrderHelperSections(depotIntake, validation)',
@@ -130,13 +131,13 @@ test('route response source is unchanged and no presenter implementation exists 
     'written: false',
   ], 'current service source');
 
-  assertDoesNotMatchAny(`${route}\n${service}`, [
+  assertDoesNotMatchAny(service, [
     /presentDepotWorkshopAssignmentIntentResponse/,
     /repairOrderDraftSummary/,
     /repairOrderTransitionPlanSummary/,
     /repairOrderAuditIntentSummary/,
     /repairOrderCustomerProjectionPreview/,
-  ], 'Task2386 no presenter implementation');
+  ], 'WorkshopAssignmentService remains independent of route presenter');
 });
 
 test('design explicitly forbids sensitive output and internal leakage', () => {

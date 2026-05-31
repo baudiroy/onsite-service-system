@@ -44,6 +44,7 @@ test('depot repair route imports only permission middleware and depot access gua
   assert.deepEqual(requireSpecifiers(source), [
     '../middlewares/requirePermission',
     '../guards/DepotAccessScopeGuard',
+    '../depotWorkshop/depotWorkshopAssignmentIntentResponsePresenter',
   ]);
 
   for (const forbidden of [
