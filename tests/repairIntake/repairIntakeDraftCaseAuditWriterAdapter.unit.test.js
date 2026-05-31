@@ -101,20 +101,23 @@ test('happy path records submitted audit event using synthetic query db client a
 
   assert.deepEqual(result, recordedResult());
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].sqlText.includes('insert into audit_events'), true);
+  assert.equal(calls[0].sqlText.includes('insert into repair_intake_audit_events'), true);
   assert.deepEqual(calls[0].values, [
     'audit_task955_001',
-    'repair_intake_draft_to_case_submission',
-    'submitted',
     'org_task955',
-    'actor_task955',
-    'request_task955',
-    'idem_task955',
-    'repair_intake_draft',
+    null,
+    'repair_intake_draft_to_case_submission',
     'draft_task955_001',
     'case_task955_001',
+    'case_task955_001',
+    'actor_task955',
+    null,
+    'request_task955',
+    'submitted',
+    'submitted',
     'CASE_REF_NORMALIZED',
-    [],
+    JSON.stringify({ idempotencyKey: 'idem_task955' }),
+    'internal_only',
     '2026-05-23T12:00:00.000Z',
   ]);
   assertNoForbiddenFields(result);
@@ -144,21 +147,24 @@ test('supports wrapped auditEvent and tx input with insert style client', async 
 
   assert.deepEqual(result, recordedResult());
   assert.deepEqual(calls, [{
-    tableName: 'audit_events',
+    tableName: 'repair_intake_audit_events',
     payload: {
       id: 'audit_task955_001',
-      event_type: 'repair_intake_draft_to_case_submission',
-      outcome: 'submitted',
       organization_id: 'org_task955',
+      tenant_id: null,
+      event_type: 'repair_intake_draft_to_case_submission',
+      draft_id: 'draft_task955_001',
+      case_id: 'case_task955_001',
+      case_ref: 'case_task955_001',
       actor_id: 'actor_task955',
+      actor_type: null,
       request_id: 'request_task955',
-      idempotency_key: 'idem_task955',
-      subject_type: 'repair_intake_draft',
-      subject_id: 'draft_task955_001',
-      related_case_id: 'case_task955_001',
+      decision: 'submitted',
+      outcome: 'submitted',
       reason_code: 'CASE_REF_NORMALIZED',
-      required_actions: [],
-      created_at: '2026-05-23T12:00:00.000Z',
+      safe_metadata: { idempotencyKey: 'idem_task955' },
+      visibility: 'internal_only',
+      occurred_at: '2026-05-23T12:00:00.000Z',
     },
   }]);
 });
@@ -214,12 +220,12 @@ test('tx query path uses transaction client and keeps SQL parameterized', async 
   assert.deepEqual(baseCalls, []);
   assert.equal(txCalls.length, 1);
   assert.equal(txCalls[0].sqlText.includes('$1'), true);
-  assert.equal(txCalls[0].sqlText.includes('$13'), true);
+  assert.equal(txCalls[0].sqlText.includes('$16'), true);
   assert.equal(txCalls[0].sqlText.includes(rawRequestId), false);
   assert.equal(txCalls[0].sqlText.includes(rawCaseId), false);
   assert.equal(txCalls[0].sqlText.includes('field_service_reports'), false);
-  assert.equal(txCalls[0].values.includes(rawRequestId), true);
-  assert.equal(txCalls[0].values.includes(rawCaseId), true);
+  assert.equal(txCalls[0].values.includes(rawRequestId), false);
+  assert.equal(txCalls[0].values.includes(rawCaseId), false);
   assertNoForbiddenFields(result);
 });
 
@@ -447,8 +453,8 @@ test('execute style passes parameter values separately and does not interpolate 
       next: () => 'audit_task955_001',
     },
   });
-  const rawDraftId = "draft_task955_002'; drop table audit_events; --";
-  const rawRequestId = "request_task955_002'; unsafe marker; --";
+  const rawDraftId = 'draft_task955_002';
+  const rawRequestId = "request_task955_002'; select * from field_service_reports; --";
 
   const result = await repository.recordRepairIntakeDraftToCaseCreated(auditEvent({
     draftId: rawDraftId,
@@ -459,7 +465,7 @@ test('execute style passes parameter values separately and does not interpolate 
   assert.equal(observed.sqlText.includes(rawDraftId), false);
   assert.equal(observed.sqlText.includes(rawRequestId), false);
   assert.equal(observed.values.includes(rawDraftId), true);
-  assert.equal(observed.values.includes(rawRequestId), true);
+  assert.equal(observed.values.includes(rawRequestId), false);
   assertNoForbiddenFields(result);
 });
 

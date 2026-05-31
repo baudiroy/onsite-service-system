@@ -1,9 +1,12 @@
 'use strict';
 
-const DEFAULT_TABLE_NAME = 'audit_events';
-const AUDIT_EVENT_TYPE = 'repair_intake_draft_to_case_submission';
-const SUBJECT_TYPE = 'repair_intake_draft';
+const DEFAULT_TABLE_NAME = 'repair_intake_audit_events';
+const AUDIT_EVENT_TYPES = new Set([
+  'repair_intake_draft_to_case_submission',
+  'repair_intake_draft_to_case_permission_denied',
+]);
 const ALLOWED_OUTCOMES = new Set(['submitted', 'blocked', 'failed']);
+const DEFAULT_VISIBILITY = 'internal_only';
 
 const FORBIDDEN_INPUT_FIELDS = new Set([
   'address',
@@ -27,6 +30,34 @@ const FORBIDDEN_INPUT_FIELDS = new Set([
   'tokenSecret',
 ]);
 
+const FORBIDDEN_TEXT_PATTERNS = Object.freeze([
+  /\bselect\s+\*/i,
+  /drop\s+table/i,
+  /insert\s+into/i,
+  /update\s+[a-z_]/i,
+  /delete\s+from/i,
+  /\bdatabase_url\b/i,
+  /\bpostgres:\/\//i,
+  /stack\s+trace/i,
+  /providerPayload/i,
+  /token/i,
+  /password/i,
+  /secret/i,
+  /phone/i,
+  /address/i,
+  /customerPayload/i,
+  /lineAccessToken/i,
+  /\bLINE access token\b/i,
+  /finalAppointmentId/i,
+  /\bfield_service_reports\b/i,
+  /\bopenai\b/i,
+  /\bvector\b/i,
+  /\bbilling\b/i,
+  /\bsettlement\b/i,
+  /\binvoice\b/i,
+  /\bpayment\b/i,
+]);
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -35,9 +66,21 @@ function stringValue(value) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function stringHasUnsafeContent(value) {
+  const text = stringValue(value);
+
+  return Boolean(text) && FORBIDDEN_TEXT_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function safeAuditText(value) {
+  const text = stringValue(value);
+
+  return text && !stringHasUnsafeContent(text) ? text : undefined;
+}
+
 function safeArray(value) {
   return Array.isArray(value)
-    ? value.map((item) => stringValue(item)).filter(Boolean)
+    ? value.map((item) => safeAuditText(item)).filter(Boolean)
     : [];
 }
 
@@ -127,9 +170,25 @@ function sanitizeCaseRef(value) {
     return null;
   }
 
-  const id = stringValue(value.id);
+  const id = safeAuditText(value.id || value.caseId);
+  const ref = safeAuditText(value.caseRef || value.caseNo || value.ref);
 
-  return id ? { id } : null;
+  if (!id && !ref) {
+    return null;
+  }
+
+  return {
+    ...(id ? { id } : {}),
+    ...(ref ? { ref } : {}),
+  };
+}
+
+function safeMetadata(auditEvent) {
+  return {
+    ...(safeAuditText(auditEvent.source) ? { source: safeAuditText(auditEvent.source) } : {}),
+    ...(safeAuditText(auditEvent.idempotencyKey) ? { idempotencyKey: safeAuditText(auditEvent.idempotencyKey) } : {}),
+    ...(safeArray(auditEvent.requiredActions).length > 0 ? { requiredActions: safeArray(auditEvent.requiredActions) } : {}),
+  };
 }
 
 function sanitizeAuditEvent(auditEvent) {
@@ -139,21 +198,28 @@ function sanitizeAuditEvent(auditEvent) {
 
   const eventType = stringValue(auditEvent.eventType);
   const outcome = stringValue(auditEvent.outcome);
-  const draftId = stringValue(auditEvent.draftId);
-  const organizationId = stringValue(auditEvent.organizationId);
-  const actorId = stringValue(auditEvent.actorId);
+  const draftId = safeAuditText(auditEvent.draftId);
+  const organizationId = safeAuditText(auditEvent.organizationId);
+  const tenantId = safeAuditText(auditEvent.tenantId);
+  const actorId = safeAuditText(auditEvent.actorId);
+  const actorType = safeAuditText(auditEvent.actorType || auditEvent.actorRole);
+  const requestId = safeAuditText(auditEvent.requestId);
+  const decision = safeAuditText(auditEvent.decision) || outcome;
 
   return {
     eventType,
     outcome,
     draftId,
     organizationId,
+    tenantId: tenantId || null,
     actorId,
-    requestId: stringValue(auditEvent.requestId) || null,
-    idempotencyKey: stringValue(auditEvent.idempotencyKey) || null,
+    actorType: actorType || null,
+    requestId: requestId || null,
     caseRef: sanitizeCaseRef(auditEvent.caseRef),
-    reasonCode: stringValue(auditEvent.reasonCode) || null,
+    decision: decision || null,
+    reasonCode: safeAuditText(auditEvent.reasonCode) || null,
     requiredActions: safeArray(auditEvent.requiredActions),
+    safeMetadata: safeMetadata(auditEvent),
   };
 }
 
@@ -181,7 +247,7 @@ function normalizeInput(input) {
     });
   }
 
-  if (auditEvent.eventType !== AUDIT_EVENT_TYPE) {
+  if (!AUDIT_EVENT_TYPES.has(auditEvent.eventType)) {
     return blocked({
       eventType: auditEvent.eventType || null,
       organizationId: auditEvent.organizationId || null,
@@ -288,44 +354,51 @@ function payloadFor({ id, auditEvent, createdAt }) {
   return {
     id,
     event_type: auditEvent.eventType,
-    outcome: auditEvent.outcome,
     organization_id: auditEvent.organizationId,
+    tenant_id: auditEvent.tenantId,
+    draft_id: auditEvent.draftId,
+    case_id: auditEvent.caseRef ? auditEvent.caseRef.id || null : null,
+    case_ref: auditEvent.caseRef ? auditEvent.caseRef.ref || auditEvent.caseRef.id || null : null,
     actor_id: auditEvent.actorId,
+    actor_type: auditEvent.actorType,
     request_id: auditEvent.requestId,
-    idempotency_key: auditEvent.idempotencyKey,
-    subject_type: SUBJECT_TYPE,
-    subject_id: auditEvent.draftId,
-    related_case_id: auditEvent.caseRef ? auditEvent.caseRef.id : null,
+    decision: auditEvent.decision,
+    outcome: auditEvent.outcome,
     reason_code: auditEvent.reasonCode,
-    required_actions: auditEvent.requiredActions,
-    created_at: createdAt,
+    safe_metadata: auditEvent.safeMetadata,
+    visibility: DEFAULT_VISIBILITY,
+    occurred_at: createdAt,
   };
 }
 
 function queryText(tableName) {
   return [
     `insert into ${tableName} (`,
-    'id, event_type, outcome, organization_id, actor_id, request_id, idempotency_key,',
-    'subject_type, subject_id, related_case_id, reason_code, required_actions, created_at',
-    ') values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
+    'id, organization_id, tenant_id, event_type, draft_id, case_id, case_ref,',
+    'actor_id, actor_type, request_id, decision, outcome, reason_code,',
+    'safe_metadata, visibility, occurred_at',
+    ') values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16)',
   ].join(' ');
 }
 
 function queryValues(payload) {
   return [
     payload.id,
-    payload.event_type,
-    payload.outcome,
     payload.organization_id,
+    payload.tenant_id,
+    payload.event_type,
+    payload.draft_id,
+    payload.case_id,
+    payload.case_ref,
     payload.actor_id,
+    payload.actor_type,
     payload.request_id,
-    payload.idempotency_key,
-    payload.subject_type,
-    payload.subject_id,
-    payload.related_case_id,
+    payload.decision,
+    payload.outcome,
     payload.reason_code,
-    payload.required_actions,
-    payload.created_at,
+    JSON.stringify(payload.safe_metadata),
+    payload.visibility,
+    payload.occurred_at,
   ];
 }
 
@@ -339,7 +412,7 @@ async function recordWithClient({ client, tableName, payload }) {
       auditEventId: payload.id,
       eventType: payload.event_type,
       organizationId: payload.organization_id,
-      subjectId: payload.subject_id,
+      subjectId: payload.draft_id,
       reasonCode: 'REPAIR_INTAKE_DRAFT_CASE_AUDIT_DB_CLIENT_NOT_CONFIGURED',
       requiredActions: ['configure_db_client'],
     });
@@ -359,7 +432,7 @@ async function recordWithClient({ client, tableName, payload }) {
         auditEventId: payload.id,
         eventType: payload.event_type,
         organizationId: payload.organization_id,
-        subjectId: payload.subject_id,
+        subjectId: payload.draft_id,
         reasonCode: 'REPAIR_INTAKE_DRAFT_CASE_AUDIT_DB_CLIENT_UNSUPPORTED',
         requiredActions: ['configure_db_client'],
       });
@@ -370,7 +443,7 @@ async function recordWithClient({ client, tableName, payload }) {
         auditEventId: payload.id,
         eventType: payload.event_type,
         organizationId: payload.organization_id,
-        subjectId: payload.subject_id,
+        subjectId: payload.draft_id,
         reasonCode: 'REPAIR_INTAKE_DRAFT_CASE_AUDIT_WRITE_FAILED',
         requiredActions: ['retry_or_manual_review'],
       });
@@ -380,14 +453,14 @@ async function recordWithClient({ client, tableName, payload }) {
       auditEventId: payload.id,
       eventType: payload.event_type,
       organizationId: payload.organization_id,
-      subjectId: payload.subject_id,
+      subjectId: payload.draft_id,
     });
   } catch (error) {
     return failed({
       auditEventId: payload.id,
       eventType: payload.event_type,
       organizationId: payload.organization_id,
-      subjectId: payload.subject_id,
+      subjectId: payload.draft_id,
       reasonCode: 'REPAIR_INTAKE_DRAFT_CASE_AUDIT_WRITE_FAILED',
       requiredActions: ['retry_or_manual_review'],
     });

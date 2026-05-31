@@ -211,9 +211,10 @@ test('draft-to-case audit writer adapter DB-capable shape is inventoried but not
   const doc = read(DOC_PATHS.task2330);
 
   assertIncludesAll(adapter, [
-    "const DEFAULT_TABLE_NAME = 'audit_events';",
-    "const AUDIT_EVENT_TYPE = 'repair_intake_draft_to_case_submission';",
-    "const SUBJECT_TYPE = 'repair_intake_draft';",
+    "const DEFAULT_TABLE_NAME = 'repair_intake_audit_events';",
+    'const AUDIT_EVENT_TYPES = new Set([',
+    "'repair_intake_draft_to_case_submission'",
+    "'repair_intake_draft_to_case_permission_denied'",
     'function payloadFor({ id, auditEvent, createdAt })',
     'function queryText(tableName)',
     'function dbClientFor(input, baseClient)',
