@@ -151,7 +151,7 @@ test('HTTP and generic customer access envelopes keep safe-deny and customer-vis
   assert.match(projectionHandler, /function safeDenyEnvelope\(\)/);
   assert.match(projectionHandler, /statusCodeForEnvelope\(envelope\)/);
   assert.match(projectionHandler, /envelope && envelope\.status === 'allow' \? 200 : 404/);
-  assert.match(projectionHandler, /function safeHttpEnvelopeFromServiceResult\(serviceResult\)/);
+  assert.match(projectionHandler, /function safeHttpEnvelopeFromServiceResult\(serviceResult,\s*customerAccessContext\)/);
   assert.match(projectionHandler, /hasOnlyAllowedKeys\(serviceResult, HTTP_ENVELOPE_KEYS\)/);
   assert.match(responseEnvelope, /const FORBIDDEN_KEYS = new Set\(\[/);
   assert.match(responseEnvelope, /function sanitizeCustomerVisibleData\(value\)/);
