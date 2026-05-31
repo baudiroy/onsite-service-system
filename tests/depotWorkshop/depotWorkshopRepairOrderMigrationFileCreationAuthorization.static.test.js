@@ -51,12 +51,15 @@ test('Task2402 authorization packet and context artifacts exist', () => {
   }
 });
 
-test('migration inventory records next recommended file without creating it', () => {
+test('migration inventory records Task2402 recommendation and allows only PM-authorized Task2403 migration', () => {
   const doc = read(TASK2402_DOC);
   const migrations = migrationFiles();
+  const depotWorkshopMigrations = migrations.filter((fileName) => (
+    /depot|workshop|repair_order|repair_orders|work_order|work_orders/i.test(fileName)
+  ));
 
   assert.equal(migrations.includes('027_create_customer_access_audit_events.sql'), true);
-  assert.equal(migrations.includes('028_create_depot_workshop_repair_orders.sql'), false);
+  assert.deepEqual(depotWorkshopMigrations, ['028_create_depot_workshop_repair_orders.sql']);
   assertIncludesAll(doc, [
     'Observed highest migration prefix: `027`.',
     '027_create_customer_access_audit_events.sql',

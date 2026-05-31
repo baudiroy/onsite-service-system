@@ -168,7 +168,7 @@ test('pure write command helper remains unwired into route service and repositor
   ], 'Task2397 helper runtime wiring');
 });
 
-test('Task2397 adds no dedicated migration or repository implementation', () => {
+test('Task2397 migration absence guard now allows only PM-authorized Task2403 migration and no repository implementation', () => {
   const depotWorkshopMigrations = migrationFiles().filter((fileName) => (
     /depot|workshop|repair_order|repair_orders|work_order|work_orders/i.test(fileName)
   ));
@@ -176,7 +176,7 @@ test('Task2397 adds no dedicated migration or repository implementation', () => 
     /DepotWorkshopRepairOrder|WorkshopRepairOrder|RepairOrderRepository|WorkshopJobRepository/i.test(fileName)
   ));
 
-  assert.deepEqual(depotWorkshopMigrations, []);
+  assert.deepEqual(depotWorkshopMigrations, ['028_create_depot_workshop_repair_orders.sql']);
   assert.deepEqual(repositoryFiles, []);
 });
 

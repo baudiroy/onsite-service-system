@@ -122,7 +122,7 @@ test('repository contract helper remains unwired and route write scope remains b
   ], 'Task2399 route write-scope block');
 });
 
-test('no migration file or dedicated repository implementation was added', () => {
+test('only PM-authorized Task2403 migration and no dedicated repository implementation were added', () => {
   const depotWorkshopMigrations = migrationFiles().filter((fileName) => (
     /depot|workshop|repair_order|repair_orders|work_order|work_orders/i.test(fileName)
   ));
@@ -130,7 +130,7 @@ test('no migration file or dedicated repository implementation was added', () =>
     /DepotWorkshopRepairOrder|WorkshopRepairOrder|RepairOrderRepository|WorkshopJobRepository/i.test(fileName)
   ));
 
-  assert.deepEqual(depotWorkshopMigrations, []);
+  assert.deepEqual(depotWorkshopMigrations, ['028_create_depot_workshop_repair_orders.sql']);
   assert.deepEqual(repositoryImplementations, []);
 });
 

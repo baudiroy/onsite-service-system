@@ -131,12 +131,12 @@ test('pure write command helper remains the upstream command source', () => {
   ], 'Task2398 upstream command unit coverage');
 });
 
-test('Task2398 adds no migration file', () => {
+test('Task2398 migration absence guard now allows only PM-authorized Task2403 migration', () => {
   const depotWorkshopMigrations = migrationFiles().filter((fileName) => (
     /depot|workshop|repair_order|repair_orders|work_order|work_orders/i.test(fileName)
   ));
 
-  assert.deepEqual(depotWorkshopMigrations, []);
+  assert.deepEqual(depotWorkshopMigrations, ['028_create_depot_workshop_repair_orders.sql']);
 });
 
 test('repository contract source keeps DB SQL formal report provider and finalAppointment behavior absent', () => {

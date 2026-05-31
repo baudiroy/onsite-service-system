@@ -57,12 +57,12 @@ test('Task2401 schema design packet and context artifacts exist', () => {
   }
 });
 
-test('Task2401 adds no migration file', () => {
+test('Task2401 migration absence guard now allows only PM-authorized Task2403 migration', () => {
   const depotWorkshopMigrations = migrationFiles().filter((fileName) => (
     /depot|workshop|repair_order|repair_orders|work_order|work_orders/i.test(fileName)
   ));
 
-  assert.deepEqual(depotWorkshopMigrations, []);
+  assert.deepEqual(depotWorkshopMigrations, ['028_create_depot_workshop_repair_orders.sql']);
 });
 
 test('design packet documents table candidate core columns constraints and indexes', () => {
