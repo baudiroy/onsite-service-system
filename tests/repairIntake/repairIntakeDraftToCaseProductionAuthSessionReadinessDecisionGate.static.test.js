@@ -219,9 +219,17 @@ test('trusted context remains explicit injected and body scrubbed by existing bo
   ], 'admin route body scrubber');
   assertIncludesAll(buildAdminRequestLike, [
     'const requestBody = bodyWithoutServerOwnedContext(body)',
-    'const resolvedOrganizationId = organizationId(req, body, user)',
-    'const resolvedActorId = userId(user)',
-    'const resolvedDraftId = draftId(params, body)',
+    'const trustedContextResult = normalizeRepairIntakeDraftToCaseTrustedContext({',
+    'params,',
+    'user,',
+    'context,',
+    'sessionContext: context',
+    'tenantId: tenantId(req, body, user)',
+    'requestId: requestId(req)',
+    'idempotencyKey: idempotencyKey(req)',
+    'const resolvedOrganizationId = trustedContext.organizationId',
+    'const resolvedActorId = trustedContext.actorId',
+    'const resolvedDraftId = trustedContext.repairIntakeDraftId',
     '...requestBody',
     'permission: REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION',
   ], 'admin route request builder');
