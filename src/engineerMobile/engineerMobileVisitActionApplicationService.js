@@ -4,6 +4,7 @@ const {
   planEngineerMobileVisitActionCommand,
 } = require('./engineerMobileVisitActionCommandPlanner');
 const {
+  ENGINEER_MOBILE_VISIT_ACTION_WRITER_RESULT_NORMALIZER_KIND,
   normalizeEngineerMobileVisitActionWriterResult,
 } = require('./engineerMobileVisitActionWriterResultNormalizer');
 
@@ -47,6 +48,18 @@ const SAFE_PLAN_REASON_CODES = Object.freeze([
   'unsupported_action',
 ]);
 
+const SAFE_WRITER_KINDS = Object.freeze([
+  'transition',
+  'audit',
+]);
+
+const SAFE_WRITER_RESULT_REASON_CODES = Object.freeze([
+  'unknown_writer_kind',
+  'writer_failed',
+  'writer_result_unrecognized',
+  'writer_succeeded',
+]);
+
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -86,6 +99,32 @@ function safePlanReasonCode(value, fallback = 'denied') {
   const reasonCode = stringValue(value);
 
   return SAFE_PLAN_REASON_CODES.includes(reasonCode) ? reasonCode : fallback;
+}
+
+function safeWriterKind(value) {
+  const writerKind = stringValue(value);
+
+  return SAFE_WRITER_KINDS.includes(writerKind) ? writerKind : 'unknown';
+}
+
+function safeWriterResultReasonCode(value) {
+  const reasonCode = stringValue(value);
+
+  return SAFE_WRITER_RESULT_REASON_CODES.includes(reasonCode)
+    ? reasonCode
+    : 'writer_failed';
+}
+
+function absorbWriterResultRejection(result) {
+  if (!isObject(result) || typeof result.catch !== 'function') {
+    return;
+  }
+
+  try {
+    result.catch(() => undefined);
+  } catch (error) {
+    // A hostile thenable must not affect the application-service envelope.
+  }
 }
 
 function clonePlain(value) {
@@ -251,6 +290,30 @@ function safeEnvelopeFrom(plan, overrides = {}) {
   });
 }
 
+function normalizeWriterResultForService(writerKind, result) {
+  absorbWriterResultRejection(result);
+
+  const normalized = normalizeEngineerMobileVisitActionWriterResult({
+    writerKind,
+    result,
+  });
+  const source = isObject(normalized) ? normalized : {};
+
+  return {
+    ok: source.ok === true,
+    writerKind: safeWriterKind(source.writerKind),
+    normalizerKind: ENGINEER_MOBILE_VISIT_ACTION_WRITER_RESULT_NORMALIZER_KIND,
+    reasonCode: safeWriterResultReasonCode(source.reasonCode),
+  };
+}
+
+function writerResultSucceeded(normalizedWriterResult, writerKind) {
+  return isObject(normalizedWriterResult)
+    && normalizedWriterResult.ok === true
+    && normalizedWriterResult.writerKind === writerKind
+    && normalizedWriterResult.normalizerKind === ENGINEER_MOBILE_VISIT_ACTION_WRITER_RESULT_NORMALIZER_KIND
+    && normalizedWriterResult.reasonCode === 'writer_succeeded';
+}
 
 function hasTransitionWrite(transitionWriter) {
   return isObject(transitionWriter) && typeof transitionWriter.write === 'function';
@@ -336,12 +399,9 @@ function createEngineerMobileVisitActionApplicationService(options = {}) {
 
     try {
       const transitionResult = transitionWriter.write(clonePlain(normalizedPlan.transitionIntent));
-      const normalizedTransitionResult = normalizeEngineerMobileVisitActionWriterResult({
-        writerKind: 'transition',
-        result: transitionResult,
-      });
+      const normalizedTransitionResult = normalizeWriterResultForService('transition', transitionResult);
 
-      if (!normalizedTransitionResult.ok) {
+      if (!writerResultSucceeded(normalizedTransitionResult, 'transition')) {
         return transitionWriteFailed(normalizedPlan);
       }
     } catch (error) {
@@ -354,12 +414,9 @@ function createEngineerMobileVisitActionApplicationService(options = {}) {
 
     try {
       const auditResult = auditWriter.record(clonePlain(normalizedPlan.auditIntent));
-      const normalizedAuditResult = normalizeEngineerMobileVisitActionWriterResult({
-        writerKind: 'audit',
-        result: auditResult,
-      });
+      const normalizedAuditResult = normalizeWriterResultForService('audit', auditResult);
 
-      if (!normalizedAuditResult.ok) {
+      if (!writerResultSucceeded(normalizedAuditResult, 'audit')) {
         return auditWriteFailed(normalizedPlan);
       }
     } catch (error) {

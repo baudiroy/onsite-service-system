@@ -108,8 +108,11 @@ ${read(SERVICE_FILE)}`;
 test('application service normalizes both transition and audit writer results', () => {
   const source = read(SERVICE_FILE);
 
-  assert.match(source, /normalizeEngineerMobileVisitActionWriterResult\(\{\s*writerKind: 'transition'/s);
-  assert.match(source, /normalizeEngineerMobileVisitActionWriterResult\(\{\s*writerKind: 'audit'/s);
+  assert.match(source, /function normalizeWriterResultForService\(writerKind, result\)/);
+  assert.match(source, /normalizeEngineerMobileVisitActionWriterResult\(\{\s*writerKind,\s*result,/s);
+  assert.match(source, /normalizeWriterResultForService\('transition', transitionResult\)/);
+  assert.match(source, /normalizeWriterResultForService\('audit', auditResult\)/);
+  assert.match(source, /function writerResultSucceeded\(normalizedWriterResult, writerKind\)/);
   assert.match(source, /transition_write_failed/);
   assert.match(source, /audit_write_failed/);
 });
