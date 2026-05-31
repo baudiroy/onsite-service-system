@@ -102,13 +102,28 @@ test('Task2355 adapter artifacts exist and helper remains pure', () => {
   ], 'pure helper runtime coupling');
 });
 
-test('adapter helper is not wired into route API controller application or middleware runtime paths', () => {
-  const runtimeSource = RUNTIME_SOURCE_PATHS.map(read).join('\n');
+test('adapter helper is wired only at the authorized route request-like boundary', () => {
+  const routeSource = read('src/routes/repairIntakeDraftToCase.routes.js');
+  const buildAdminRequestLike = routeSource.slice(routeSource.indexOf('function buildAdminRequestLike'));
+  const downstreamSource = RUNTIME_SOURCE_PATHS
+    .filter((relativePath) => relativePath !== 'src/routes/repairIntakeDraftToCase.routes.js')
+    .map(read)
+    .join('\n');
 
-  assertExcludesAll(runtimeSource, [
+  assertIncludesAll(routeSource, [
+    "require('../repairIntake/repairIntakeDraftToCaseAuthSessionContextAdapter')",
+    'buildRepairIntakeDraftToCaseAuthSessionContext',
+  ], 'authorized route auth adapter wiring');
+  assertIncludesAll(buildAdminRequestLike, [
+    'buildRepairIntakeDraftToCaseAuthSessionContext({',
+    'context: authSessionContext',
+    'sessionContext: authSessionContext',
+  ], 'authorized route auth adapter boundary');
+
+  assertExcludesAll(downstreamSource, [
     'repairIntakeDraftToCaseAuthSessionContextAdapter',
     'buildRepairIntakeDraftToCaseAuthSessionContext',
-  ], 'runtime adapter wiring');
+  ], 'downstream adapter wiring');
 });
 
 test('unit coverage proves trusted forbidden fail-closed no-leak and no-mutation behavior', () => {

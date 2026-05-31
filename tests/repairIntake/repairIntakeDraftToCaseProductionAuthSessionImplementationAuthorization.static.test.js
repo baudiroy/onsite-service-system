@@ -232,10 +232,14 @@ test('current middleware candidates and handoff sources remain inventoried but n
     "res.setHeader('X-Request-Id', currentRequestId)",
   ], 'request id middleware inventory');
 
+  assertIncludesAll(routeSource, [
+    "require('../repairIntake/repairIntakeDraftToCaseAuthSessionContextAdapter')",
+    'buildRepairIntakeDraftToCaseAuthSessionContext({',
+  ], 'accepted route-local auth adapter wiring');
+
   assertExcludesAll(routeSource, [
     'ProductionAuthSessionContextAdapter',
-    'repairIntakeDraftToCaseAuthSessionContextAdapter',
-  ], 'Task2354 must not introduce future adapter wiring');
+  ], 'Task2354 must not introduce global production adapter wiring');
 });
 
 test('request abuse guard remains downstream and no forbidden coupling is introduced', () => {

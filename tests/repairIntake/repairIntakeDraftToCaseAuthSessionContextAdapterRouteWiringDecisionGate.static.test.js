@@ -126,10 +126,11 @@ test('Task2356 decision gate reads current source docs and test artifacts only',
   ]);
 });
 
-test('auth adapter helper exists but remains unwired from runtime modules', () => {
+test('auth adapter helper exists and is wired only into the authorized route boundary', () => {
   const helperSource = read(SOURCE_PATHS.authAdapter);
-  const runtimeSource = [
-    SOURCE_PATHS.route,
+  const routeSource = read(SOURCE_PATHS.route);
+  const buildAdminRequestLike = functionBlock(routeSource, 'buildAdminRequestLike');
+  const downstreamSource = [
     SOURCE_PATHS.apiModule,
     SOURCE_PATHS.applicationService,
     SOURCE_PATHS.controllerAdapter,
@@ -146,10 +147,20 @@ test('auth adapter helper exists but remains unwired from runtime modules', () =
     'buildRepairIntakeDraftToCaseAuthSessionContext',
   ], 'auth session context adapter helper');
 
-  assertExcludesAll(runtimeSource, [
+  assertIncludesAll(routeSource, [
+    "require('../repairIntake/repairIntakeDraftToCaseAuthSessionContextAdapter')",
+    'buildRepairIntakeDraftToCaseAuthSessionContext',
+  ], 'authorized route auth adapter wiring');
+  assertIncludesAll(buildAdminRequestLike, [
+    'buildRepairIntakeDraftToCaseAuthSessionContext({',
+    'context: authSessionContext',
+    'sessionContext: authSessionContext',
+  ], 'authorized route auth adapter boundary');
+
+  assertExcludesAll(downstreamSource, [
     'repairIntakeDraftToCaseAuthSessionContextAdapter',
     'buildRepairIntakeDraftToCaseAuthSessionContext',
-  ], 'runtime auth adapter wiring');
+  ], 'downstream auth adapter wiring');
 });
 
 test('decision gate recommends exactly one future boundary and keeps route markers visible', () => {

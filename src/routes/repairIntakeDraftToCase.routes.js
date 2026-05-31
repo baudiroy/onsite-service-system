@@ -5,6 +5,9 @@ const {
   createRepairIntakeDraftToCaseInjectedRouteComposition,
 } = require('../repairIntake/repairIntakeDraftToCaseInjectedRouteComposition');
 const {
+  buildRepairIntakeDraftToCaseAuthSessionContext,
+} = require('../repairIntake/repairIntakeDraftToCaseAuthSessionContextAdapter');
+const {
   normalizeRepairIntakeDraftToCaseTrustedContext,
 } = require('../repairIntake/repairIntakeDraftToCaseTrustedContextNormalizer');
 
@@ -169,15 +172,26 @@ function buildAdminRequestLike(req = {}) {
     canCreateCaseFromRepairIntakeDraft: true,
     permission: REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION,
   };
-  const trustedContextResult = normalizeRepairIntakeDraftToCaseTrustedContext({
-    params,
+  const authSessionContextResult = buildRepairIntakeDraftToCaseAuthSessionContext({
     user,
     context,
     sessionContext: context,
     permissionContext: adminPermissionContext,
-    tenantId: tenantId(req, body, user),
     requestId: requestId(req),
     idempotencyKey: idempotencyKey(req),
+  });
+  const authSessionContext = authSessionContextResult.ok === true
+    ? authSessionContextResult.sessionContext
+    : {};
+  const trustedContextResult = normalizeRepairIntakeDraftToCaseTrustedContext({
+    params,
+    user: {},
+    context: authSessionContext,
+    sessionContext: authSessionContext,
+    permissionContext: authSessionContext.permissionContext || adminPermissionContext,
+    tenantId: tenantId(req, body, user),
+    requestId: authSessionContext.requestId || requestId(req),
+    idempotencyKey: authSessionContext.idempotencyKey || idempotencyKey(req),
   });
   const trustedContext = trustedContextResult.ok === true ? trustedContextResult.context : {};
   const resolvedOrganizationId = trustedContext.organizationId;
