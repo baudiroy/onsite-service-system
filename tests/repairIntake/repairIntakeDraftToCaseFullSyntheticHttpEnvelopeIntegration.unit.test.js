@@ -170,7 +170,19 @@ function createFullSyntheticHttpEnvelope(options = {}) {
         }
 
         if (options.repositorySkipped) {
-          return {};
+          return {
+            ok: true,
+            status: 'skipped',
+            draftId: input.draftId,
+            sourceDraftId: input.sourceDraftId,
+            organizationId: input.organizationId,
+            tenantId: input.tenantId,
+            requestId: input.requestId,
+            actorId: input.actorId,
+            metadata: {
+              safeKey: 'safe skipped metadata',
+            },
+          };
         }
 
         return {
@@ -424,7 +436,7 @@ test('denied authorization maps to 403 and does not call repository', async () =
   assertNoUnsafeText(result);
 });
 
-test('repository skipped no-case maps to documented 202 envelope', async () => {
+test('repository skipped no-case maps to safe 503 envelope under current repository contract', async () => {
   const {
     handleToHttpEnvelope,
     order,
@@ -443,8 +455,8 @@ test('repository skipped no-case maps to documented 202 envelope', async () => {
     'httpResultMapper',
   ]);
   assert.equal(repositoryCalls.length, 1);
-  assert.equal(result.statusCode, 202);
-  assert.equal(result.body.status, 'not_created');
+  assert.equal(result.statusCode, 503);
+  assert.equal(result.body.status, 'unavailable');
   assert.equal(result.body.ok, false);
   assert.equal(result.body.caseId, null);
   assertHttpBodyShape(result.body);

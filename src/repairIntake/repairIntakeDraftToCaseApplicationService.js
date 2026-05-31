@@ -386,6 +386,12 @@ function existingResultIsSuccessful(existingResult) {
   );
 }
 
+function portResultFailed(result) {
+  return !isObject(result)
+    || result.ok === false
+    || safeString(result.status) === 'failed';
+}
+
 async function callIdempotencyPort(operation) {
   try {
     return sanitizeValue(await operation());
@@ -494,23 +500,27 @@ function createRepairIntakeDraftToCaseApplicationService(options = {}) {
       }
 
       const caseRef = sanitizeValue(await caseCreator.createCaseFromDraft(createCasePayload(safeInput, draft, plan)));
-      if (!isObject(caseRef)) {
+      if (portResultFailed(caseRef)) {
         return safeFailure('REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_SUBMIT_FAILED');
       }
 
       const auditEvent = sanitizeValue(
         await auditWriter.recordDraftToCaseDecision(createAuditPayload(safeInput, draft, plan, caseRef)),
       );
-      if (!isObject(auditEvent)) {
+      if (portResultFailed(auditEvent)) {
         return safeFailure('REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_SUBMIT_FAILED');
       }
 
       const result = submitEnvelope(safeInput, draft, plan, caseRef, auditEvent);
 
       if (idempotencyPort) {
-        await callIdempotencyPort(
+        const recordedResult = await callIdempotencyPort(
           () => idempotencyPort.recordDraftToCaseResult(createIdempotencyRecordPayload(safeInput, result)),
         );
+
+        if (portResultFailed(recordedResult)) {
+          return safeFailure('REPAIR_INTAKE_DRAFT_TO_CASE_APPLICATION_SERVICE_IDEMPOTENCY_FAILED');
+        }
       }
 
       return result;

@@ -539,6 +539,7 @@ test('submit forwards sanitized caseRef to injected idempotency store record pat
         return {
           ok: true,
           draftId: input.draftId,
+          idempotencyKey: input.idempotencyKey,
           organizationId: input.organizationId,
           tenantId: input.tenantId,
           status: 'recorded',
