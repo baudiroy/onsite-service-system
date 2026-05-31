@@ -10,6 +10,7 @@ const repoRoot = path.resolve(__dirname, '../..');
 const TASK2383_DOC = 'docs/task-2383-depot-workshop-repair-order-workshop-assignment-service-integration-static-portfolio-guard-no-runtime-change-no-db-no-provider-no-package.md';
 const SERVICE_FILE = 'src/services/WorkshopAssignmentService.js';
 const ROUTE_FILE = 'src/routes/depotRepair.routes.js';
+const PRESENTER_FILE = 'src/depotWorkshop/depotWorkshopAssignmentIntentResponsePresenter.js';
 
 const PORTFOLIO_ARTIFACTS = Object.freeze([
   'docs/task-2373-depot-workshop-repair-order-state-model-pure-constants-helper-no-route-no-db-no-provider-no-package.md',
@@ -116,15 +117,23 @@ test('helper-derived sections remain safe optional and non-persistent', () => {
   ], 'Task2381 Task2382 safety evidence');
 });
 
-test('route write scope remains blocked and route has no helper wiring', () => {
+test('route write scope remains blocked and presenter owns false write response evidence', () => {
   const route = read(ROUTE_FILE);
+  const service = read(SERVICE_FILE);
+  const presenter = read(PRESENTER_FILE);
 
   assertIncludesAll(route, [
     'depot_repair_route_write_scope_not_approved',
     'writeRequested(req)',
-    'written: false',
+    'presentDepotWorkshopAssignmentIntentResponse',
+    'return presentDepotWorkshopAssignmentIntentResponse(result, {',
     "const DEPOT_REPAIR_ROUTE_PATH = '/api/v1/depot/repairs/:depotIntakeId/assignment-intent'",
   ], 'depot repair route write boundary');
+
+  assertIncludesAll(`${service}\n${presenter}`, [
+    'written: false',
+    'writeRequired: false',
+  ], 'presenter-owned write response evidence');
 
   assertDoesNotMatchAny(route, [
     /depotWorkshopRepairOrderContract/,
