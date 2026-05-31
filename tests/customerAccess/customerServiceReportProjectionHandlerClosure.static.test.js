@@ -39,11 +39,17 @@ test('handler delegates to Task908 service and imports no forbidden runtime depe
     './customerServiceReportProjectionService',
     './customerAccessAuditEventBuilder',
     './customerAccessAuditWriterAdapter',
+    './customerServiceReportSafeEnvelopePresenter',
   ]);
   assert.match(source, /getCustomerServiceReportProjection/);
   assert.match(source, /buildCustomerAccessAuditEvent/);
   assert.match(source, /writeCustomerAccessAuditEvent/);
-  assert.doesNotMatch(source, /require\(['"][^'"]*(routes|controllers|app|server|Repository|transaction|provider|OpenAI|RAG|billing|settlement|migration|smoke|config|env|logger)/i);
+  assert.match(source, /buildCustomerServiceReportSafeEnvelope/);
+  assert.match(source, /buildCustomerServiceReportSafeDenyEnvelope/);
+  for (const specifier of requireSpecifiers(source)) {
+    assert.doesNotMatch(specifier, /(routes|controllers|app|server|Repository|transaction|provider|OpenAI|RAG|billing|settlement|migration|smoke|config|logger)/i);
+    assert.doesNotMatch(specifier, /(?:^|\/|-)env(?:$|\/|-)/i);
+  }
   assert.doesNotMatch(source, /process\.env|console\.|fetch\(|axios|http\.request|https\.request|new Pool|createPool/i);
 });
 

@@ -5,6 +5,10 @@ const {
 } = require('./customerServiceReportProjectionService');
 const { buildCustomerAccessAuditEvent } = require('./customerAccessAuditEventBuilder');
 const { writeCustomerAccessAuditEvent } = require('./customerAccessAuditWriterAdapter');
+const {
+  buildCustomerServiceReportSafeDenyEnvelope,
+  buildCustomerServiceReportSafeEnvelope,
+} = require('./customerServiceReportSafeEnvelopePresenter');
 
 const SAFE_DENY_MESSAGE_KEY = 'customerAccess.unavailable';
 const ALLOW_MESSAGE_KEY = 'customerAccess.serviceReport.available';
@@ -20,6 +24,12 @@ const SERVICE_REPORT_KEYS = Object.freeze([
   'publicAttachments',
   'serviceStatus',
   'serviceSummary',
+]);
+const SAFE_REPORT_ENVELOPE_KEYS = Object.freeze([
+  'ok',
+  'status',
+  'messageKey',
+  ...SERVICE_REPORT_KEYS,
 ]);
 const PUBLIC_ATTACHMENT_KEYS = Object.freeze(['attachmentId', 'label', 'mimeType']);
 const SERVICE_INPUT_KEYS = Object.freeze(['caseId', 'customerAccessContext', 'dbClient', 'reportId']);
@@ -79,13 +89,19 @@ function booleanValue(...values) {
 }
 
 function safeDenyEnvelope() {
+  const safeReportDenyEnvelope = buildCustomerServiceReportSafeDenyEnvelope();
+  const messageKey = safeReportDenyEnvelope.status === 'deny' &&
+    safeReportDenyEnvelope.messageKey === SAFE_DENY_MESSAGE_KEY
+    ? safeReportDenyEnvelope.messageKey
+    : SAFE_DENY_MESSAGE_KEY;
+
   return {
     status: 'deny',
-    messageKey: SAFE_DENY_MESSAGE_KEY,
+    messageKey,
     customerVisible: false,
     data: null,
     error: {
-      messageKey: SAFE_DENY_MESSAGE_KEY,
+      messageKey,
     },
   };
 }
@@ -157,6 +173,40 @@ function isSafeAllowEnvelope(envelope) {
     envelope.error === undefined;
 }
 
+function isSafeReportEnvelope(envelope) {
+  return isPlainObject(envelope) &&
+    hasOnlyAllowedKeys(envelope, SAFE_REPORT_ENVELOPE_KEYS) &&
+    envelope.ok === true &&
+    envelope.status === 'allow' &&
+    envelope.messageKey === ALLOW_MESSAGE_KEY;
+}
+
+function serviceReportFromSafeEnvelope(envelope) {
+  if (!isSafeReportEnvelope(envelope)) {
+    return undefined;
+  }
+
+  const serviceReport = {};
+
+  for (const key of SERVICE_REPORT_KEYS) {
+    if (envelope[key] !== undefined) {
+      serviceReport[key] = envelope[key];
+    }
+  }
+
+  return Object.keys(serviceReport).length > 0 && isSafeServiceReport(serviceReport)
+    ? serviceReport
+    : undefined;
+}
+
+function isAllowEnvelopeCandidate(serviceResult) {
+  return serviceResult.status === 'allow' &&
+    serviceResult.messageKey === ALLOW_MESSAGE_KEY &&
+    serviceResult.customerVisible === true &&
+    isPlainObject(serviceResult.data) &&
+    hasOnlyAllowedKeys(serviceResult.data, ['serviceReport']);
+}
+
 function safeHttpEnvelopeFromServiceResult(serviceResult) {
   if (
     !isPlainObject(serviceResult) ||
@@ -166,8 +216,26 @@ function safeHttpEnvelopeFromServiceResult(serviceResult) {
     return safeDenyEnvelope();
   }
 
-  if (isSafeDenyEnvelope(serviceResult) || isSafeAllowEnvelope(serviceResult)) {
-    return serviceResult;
+  if (isSafeDenyEnvelope(serviceResult)) {
+    return safeDenyEnvelope();
+  }
+
+  if (isSafeAllowEnvelope(serviceResult) || isAllowEnvelopeCandidate(serviceResult)) {
+    const safeReportEnvelope = buildCustomerServiceReportSafeEnvelope(serviceResult);
+    const serviceReport = serviceReportFromSafeEnvelope(safeReportEnvelope);
+
+    if (!serviceReport) {
+      return safeDenyEnvelope();
+    }
+
+    return {
+      status: 'allow',
+      messageKey: ALLOW_MESSAGE_KEY,
+      customerVisible: true,
+      data: {
+        serviceReport,
+      },
+    };
   }
 
   return safeDenyEnvelope();

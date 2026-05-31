@@ -218,21 +218,31 @@ test('helper unit and boundary tests keep raw private internal non-exposure and 
   assert.match(resolverDecisionBoundary, /helper copies output into new allowlisted objects and unit tests keep immutability coverage/);
 });
 
-test('current runtime source files do not import or call either pure helper yet', () => {
-  const helperImportPatterns = [
-    /customerServiceReportSafeEnvelopePresenter/,
+test('current runtime source files only wire the service-report safe envelope presenter into projection handler', () => {
+  const resolverHelperPatterns = [
     /customerAccessResolverDecisionHelper/,
-    /buildCustomerServiceReportSafeEnvelope/,
-    /buildCustomerServiceReportSafeDenyEnvelope/,
     /buildCustomerAccessResolverDecision/,
     /buildCustomerAccessResolverDenyDecision/,
+  ];
+  const serviceReportPresenterPatterns = [
+    /customerServiceReportSafeEnvelopePresenter/,
+    /buildCustomerServiceReportSafeEnvelope/,
+    /buildCustomerServiceReportSafeDenyEnvelope/,
   ];
 
   for (const file of customerAccessSourceFiles()) {
     const source = read(file);
 
-    for (const pattern of helperImportPatterns) {
-      assert.doesNotMatch(source, pattern, `${file} should not import or call pure helpers yet`);
+    for (const pattern of resolverHelperPatterns) {
+      assert.doesNotMatch(source, pattern, `${file} should not import or call resolver decision helpers`);
+    }
+
+    for (const pattern of serviceReportPresenterPatterns) {
+      if (file === 'src/customerAccess/customerServiceReportProjectionHandler.js') {
+        assert.match(source, pattern, `${file} should keep accepted safe envelope presenter wiring`);
+      } else if (file !== 'src/customerAccess/customerServiceReportSafeEnvelopePresenter.js') {
+        assert.doesNotMatch(source, pattern, `${file} should not import or call the service-report presenter`);
+      }
     }
   }
 });
