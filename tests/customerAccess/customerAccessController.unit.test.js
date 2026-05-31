@@ -40,7 +40,6 @@ function validReq() {
       serviceReport: {
         caseNo: 'CASE-001',
         status: 'completed',
-        finalAppointmentId: 'appointment-final-001',
         summary: 'Service completed.',
       },
     },
@@ -266,7 +265,6 @@ test('valid verified request returns allow envelope', () => {
       serviceReport: {
         caseNo: 'CASE-001',
         status: 'completed',
-        finalAppointmentId: 'appointment-final-001',
         summary: 'Service completed.',
       },
     },
@@ -276,7 +274,6 @@ test('valid verified request returns allow envelope', () => {
   assert.deepEqual(Object.keys(response.data), ['serviceReport']);
   assert.deepEqual(Object.keys(response.data.serviceReport), [
     'caseNo',
-    'finalAppointmentId',
     'status',
     'summary',
   ]);
@@ -667,7 +664,6 @@ test('facade allow result is allowlisted and unknown raw containers are not emit
     data: {
       serviceReport: {
         caseNo: 'CASE-001',
-        finalAppointmentId: 'appointment-final-001',
         status: 'completed',
         summary: 'Service completed.',
       },
@@ -715,7 +711,6 @@ test('facade allow result uses only approved customer-visible status and summary
     data: {
       serviceReport: {
         caseNo: 'CASE-001',
-        finalAppointmentId: 'appointment-final-001',
       },
     },
   });
@@ -842,7 +837,6 @@ test('facade allow result omits malformed allowed serviceReport values without r
       data: {
         serviceReport: {
           caseNo: 'CASE-001',
-          finalAppointmentId: 'appointment-final-001',
           publicReportId: 'report-public-001',
           summary: 'Service completed.',
         },
@@ -911,7 +905,8 @@ test('input req object is not mutated and finalAppointmentId is not modified', (
 
   assert.deepEqual(req, before);
   assert.equal(req.customerAccessContext.customerVisibleData.serviceReport.finalAppointmentId, 'appointment-final-001');
-  assert.equal(response.data.serviceReport.finalAppointmentId, 'appointment-final-001');
+  assert.equal(response.data.serviceReport.finalAppointmentId, undefined);
+  assert.equal(JSON.stringify(response).includes('finalAppointmentId'), false);
   assertSafeResponse(response);
 });
 
@@ -942,7 +937,6 @@ test('case overview allow response writes one injected audit event without chang
     data: {
       serviceReport: {
         caseNo: 'CASE-001',
-        finalAppointmentId: 'appointment-final-001',
         status: 'completed',
         summary: 'Service completed.',
       },

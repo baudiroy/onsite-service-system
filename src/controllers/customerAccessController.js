@@ -3,6 +3,10 @@
 const { buildCustomerAccessHttpResponse } = require('../customerAccess/customerAccessHttpFacade');
 const { buildCustomerAccessAuditEvent } = require('../customerAccess/customerAccessAuditEventBuilder');
 const { writeCustomerAccessAuditEvent } = require('../customerAccess/customerAccessAuditWriterAdapter');
+const {
+  buildCustomerAccessCaseSummarySafeDenyEnvelope,
+  buildCustomerAccessCaseSummarySafeEnvelope,
+} = require('../customerAccess/customerAccessCaseSummarySafeEnvelopePresenter');
 
 const SAFE_DENY_ENVELOPE = Object.freeze({
   status: 'deny',
@@ -91,11 +95,21 @@ function plainEnvelopeObjectOrEmpty(value) {
 }
 
 function safeDenyEnvelope() {
+  const helperDenyEnvelope = buildCustomerAccessCaseSummarySafeDenyEnvelope();
+
   return {
-    status: SAFE_DENY_ENVELOPE.status,
-    messageKey: SAFE_DENY_ENVELOPE.messageKey,
-    customerVisible: SAFE_DENY_ENVELOPE.customerVisible,
-    data: SAFE_DENY_ENVELOPE.data,
+    status: helperDenyEnvelope.status === SAFE_DENY_ENVELOPE.status
+      ? helperDenyEnvelope.status
+      : SAFE_DENY_ENVELOPE.status,
+    messageKey: helperDenyEnvelope.messageKey === SAFE_DENY_ENVELOPE.messageKey
+      ? helperDenyEnvelope.messageKey
+      : SAFE_DENY_ENVELOPE.messageKey,
+    customerVisible: helperDenyEnvelope.customerVisible === SAFE_DENY_ENVELOPE.customerVisible
+      ? helperDenyEnvelope.customerVisible
+      : SAFE_DENY_ENVELOPE.customerVisible,
+    data: helperDenyEnvelope.data === SAFE_DENY_ENVELOPE.data
+      ? helperDenyEnvelope.data
+      : SAFE_DENY_ENVELOPE.data,
     error: {
       messageKey: SAFE_DENY_ENVELOPE.error.messageKey,
     },
@@ -146,36 +160,36 @@ function allowlistedServiceReport(candidate) {
     return undefined;
   }
 
-  const serviceReport = {};
+  const caseSummaryInput = {};
 
   assignSafeDisplayValue(
-    serviceReport,
+    caseSummaryInput,
     CUSTOMER_VISIBLE_CASE_NO_SOURCE_KEY,
     customerVisibleCaseNoValue(candidate),
   );
   assignSafeDisplayValue(
-    serviceReport,
-    CUSTOMER_VISIBLE_FINAL_APPOINTMENT_ID_SOURCE_KEY,
-    customerVisibleFinalAppointmentIdValue(candidate),
-  );
-  assignSafeDisplayValue(
-    serviceReport,
+    caseSummaryInput,
     CUSTOMER_VISIBLE_PUBLIC_REPORT_ID_SOURCE_KEY,
     customerVisiblePublicReportIdValue(candidate),
   );
-
   assignSafeDisplayValue(
-    serviceReport,
+    caseSummaryInput,
     CUSTOMER_VISIBLE_STATUS_SOURCE_KEY,
     customerVisibleStatusValue(candidate),
   );
   assignSafeDisplayValue(
-    serviceReport,
+    caseSummaryInput,
     CUSTOMER_VISIBLE_SUMMARY_SOURCE_KEY,
     customerVisibleSummaryValue(candidate),
   );
 
-  return serviceReport;
+  const caseSummaryEnvelope = buildCustomerAccessCaseSummarySafeEnvelope({
+    caseSummary: caseSummaryInput,
+  });
+  const caseSummaryData = safeProperty(caseSummaryEnvelope, 'data');
+  const caseSummary = safeProperty(caseSummaryData, 'caseSummary');
+
+  return isPlainEnvelopeObject(caseSummary) ? caseSummary : undefined;
 }
 
 function safeAllowEnvelopeFromFacadeResult(facadeResult) {
