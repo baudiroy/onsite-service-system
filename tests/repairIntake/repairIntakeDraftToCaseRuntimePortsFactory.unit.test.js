@@ -22,6 +22,10 @@ function read(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
+function textIncludes(source, marker) {
+  return String(source).toLowerCase().includes(String(marker).toLowerCase());
+}
+
 function createIdSequence(prefix = 'id') {
   let index = 0;
 
@@ -271,7 +275,7 @@ test('server-style prefixed runtime ids are normalized to DB-compatible UUIDs wi
 
   const caseInsert = dbClient.calls.find((call) => call.text.includes('insert into cases'));
   const conversionInsert = dbClient.calls.find((call) => call.text.includes('INSERT INTO repair_intake_draft_case_conversions'));
-  const auditInsert = dbClient.calls.find((call) => call.text.includes('INSERT INTO repair_intake_audit_events'));
+  const auditInsert = dbClient.calls.find((call) => textIncludes(call.text, 'insert into repair_intake_audit_events'));
 
   assert.equal(created.id, caseId);
   assert.equal(created.caseId, caseId);
@@ -405,7 +409,7 @@ test('audit and idempotency ports write safe rows through injected client', asyn
     caseRef: 'CASE_RUNTIME_PORTS_001',
     caseId: 'case_runtime_ports_001',
   });
-  assert.ok(dbClient.calls.some((call) => call.text.includes('INSERT INTO repair_intake_audit_events')));
+  assert.ok(dbClient.calls.some((call) => textIncludes(call.text, 'insert into repair_intake_audit_events')));
   assert.ok(dbClient.calls.some((call) => call.text.includes('INSERT INTO repair_intake_idempotency_records')));
 
   const idempotencyInsert = dbClient.calls.find((call) => call.text.includes('INSERT INTO repair_intake_idempotency_records'));

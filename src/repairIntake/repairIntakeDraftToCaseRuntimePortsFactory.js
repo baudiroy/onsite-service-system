@@ -24,6 +24,9 @@ const {
   createRepairIntakeDraftReaderPortAdapter,
 } = require('./repairIntakeDraftReaderPortAdapter');
 const {
+  createRepairIntakeDraftCaseAuditWriterAdapter,
+} = require('./repairIntakeDraftCaseAuditWriterAdapter');
+const {
   createRepairIntakeIdempotencyRepository,
 } = require('./repairIntakeIdempotencyRepository');
 const {
@@ -34,6 +37,9 @@ const {
 } = require('./repairIntakeAuditWriterPortAdapter');
 
 const DEFAULT_AUDIT_EVENT_TYPE = 'repair_intake_draft_to_case_submission';
+const DEFAULT_AUDIT_OUTCOME = 'submitted';
+const DEFAULT_AUDIT_REASON_CODE = 'REPAIR_INTAKE_DRAFT_TO_CASE_RUNTIME_PORTS_AUDIT_RECORDED';
+const DEFAULT_AUDIT_TABLE_NAME = 'repair_intake_audit_events';
 const DEFAULT_CONVERSION_STATUS = 'converted';
 const DEFAULT_IDEMPOTENCY_RECORD_STATUS = 'completed';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -392,66 +398,65 @@ function createCaseCreationPort({ caseRepository, recordConversion }) {
   };
 }
 
+function createAuditEvent(input) {
+  const caseRef = safeObject(input.caseRef);
+  const draft = safeObject(input.draft);
+  const organizationId = firstString(input.organizationId, draft.organizationId, caseRef.organizationId);
+  const tenantId = firstString(input.tenantId, draft.tenantId, caseRef.tenantId);
+  const draftId = firstString(input.draftId, draft.draftId, draft.id);
+  const caseId = firstString(caseRef.id, caseRef.caseId);
+  const caseRefText = firstString(caseNoFromResult(caseRef), caseId);
+
+  return {
+    eventType: DEFAULT_AUDIT_EVENT_TYPE,
+    outcome: DEFAULT_AUDIT_OUTCOME,
+    decision: firstString(input.decision) || DEFAULT_AUDIT_OUTCOME,
+    draftId,
+    organizationId,
+    tenantId,
+    actorId: firstString(input.actorId, input.context && input.context.actorId),
+    actorType: firstString(input.actorRole, input.actorType, input.context && input.context.actorRole) || 'system',
+    requestId: firstString(input.requestId, input.context && input.context.requestId),
+    source: 'repair_intake_draft_to_case_runtime_ports_factory',
+    caseRef: {
+      ...(caseId ? { id: caseId } : {}),
+      ...(caseRefText ? { ref: caseRefText } : {}),
+    },
+    reasonCode: DEFAULT_AUDIT_REASON_CODE,
+    requiredActions: [],
+  };
+}
+
+function createAuditIdGenerator(generate) {
+  return (scope = {}) => generateId(generate, {
+    kind: 'repair_intake_audit_event',
+    organizationId: scope.organizationId,
+    draftId: firstString(scope.subjectId, scope.draftId),
+    eventType: scope.eventType,
+  });
+}
+
 function createAuditPort({ dbClient, generateId: generate, now }) {
+  const auditWriter = createRepairIntakeDraftCaseAuditWriterAdapter({
+    dbClient,
+    tableName: DEFAULT_AUDIT_TABLE_NAME,
+    idGenerator: createAuditIdGenerator(generate),
+    clock: now,
+  });
+
   return {
     async recordDraftToCaseDecision(input) {
-      const caseRef = safeObject(input.caseRef);
-      const draft = safeObject(input.draft);
-      const auditEventId = await generateId(generate, {
-        kind: 'repair_intake_audit_event',
-        organizationId: input.organizationId,
-        draftId: input.draftId,
-      });
-      const organizationId = firstString(input.organizationId, draft.organizationId, caseRef.organizationId);
-      const tenantId = firstString(input.tenantId, draft.tenantId, caseRef.tenantId);
-      const draftId = firstString(input.draftId, draft.draftId, draft.id);
-      const caseId = firstString(caseRef.id, caseRef.caseId);
-      const caseRefText = firstString(caseNoFromResult(caseRef), caseId);
-      const actorId = firstString(input.actorId, input.context && input.context.actorId);
-      const requestId = firstString(input.requestId, input.context && input.context.requestId);
-
-      await dbClient.query(
-        [
-          'INSERT INTO repair_intake_audit_events (',
-          '    id, organization_id, tenant_id, event_type, draft_id, case_id, case_ref,',
-          '    actor_id, actor_type, request_id, decision, outcome, reason_code,',
-          '    safe_metadata, visibility, occurred_at',
-          ') VALUES (',
-          '    $1, $2, $3, $4, $5, $6, $7,',
-          '    $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16',
-          ')',
-        ].join('\n'),
-        [
-          auditEventId,
-          organizationId,
-          tenantId,
-          DEFAULT_AUDIT_EVENT_TYPE,
-          draftId,
-          caseId,
-          caseRefText,
-          actorId,
-          'system',
-          requestId,
-          'case_created_from_admin_route',
-          'submitted',
-          'REPAIR_INTAKE_DRAFT_TO_CASE_RUNTIME_PORTS_AUDIT_RECORDED',
-          JSON.stringify({
-            source: 'repair_intake_draft_to_case_runtime_ports_factory',
-          }),
-          'internal_only',
-          timestamp(now),
-        ],
-      );
+      const auditEvent = createAuditEvent(safeObject(input));
+      const result = await auditWriter.recordRepairIntakeDraftToCaseCreated({ auditEvent });
 
       return {
-        ok: true,
-        eventType: DEFAULT_AUDIT_EVENT_TYPE,
-        outcome: 'submitted',
-        draftId,
-        organizationId,
-        tenantId,
-        caseId,
-        reasonCode: 'REPAIR_INTAKE_DRAFT_TO_CASE_RUNTIME_PORTS_AUDIT_RECORDED',
+        ...result,
+        eventType: result.eventType || auditEvent.eventType,
+        outcome: auditEvent.outcome,
+        draftId: auditEvent.draftId,
+        organizationId: auditEvent.organizationId,
+        tenantId: auditEvent.tenantId,
+        caseId: auditEvent.caseRef.id || null,
       };
     },
   };
@@ -613,7 +618,7 @@ function createRepairIntakeDraftToCaseRuntimePorts(options = {}) {
     recordConversion,
   });
   const auditPort = createAuditPort({
-    dbClient,
+    dbClient: isObject(safeOptions.auditDbClient) ? safeOptions.auditDbClient : dbClient,
     generateId: generate,
     now,
   });
