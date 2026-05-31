@@ -13,6 +13,7 @@ const TASK2424_DOC = 'docs/task-2424-depot-workshop-admin-ui-read-only-preview-d
 const ROUTE_FILE = 'src/routes/depotRepair.routes.js';
 const SERVICE_FILE = 'src/services/WorkshopAssignmentService.js';
 const PRESENTER_FILE = 'src/depotWorkshop/depotWorkshopAssignmentIntentResponsePresenter.js';
+const ADMIN_PREVIEW_API_CLIENT_FILE = 'admin/src/api/depotWorkshop.ts';
 
 function projectPath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -69,6 +70,7 @@ test('Task2422 Task2423 and Task2424 portfolio artifacts exist', () => {
     'admin/src/App.tsx',
     'admin/src/config/menu.ts',
     'admin/src/lib/apiClient.ts',
+    ADMIN_PREVIEW_API_CLIENT_FILE,
   ]) {
     assert.equal(fs.existsSync(projectPath(relativePath)), true, `${relativePath} should exist`);
   }
@@ -77,19 +79,37 @@ test('Task2422 Task2423 and Task2424 portfolio artifacts exist', () => {
   assert.equal(fs.existsSync(projectPath('admin/src')), true, 'admin/src should exist');
 });
 
-test('current admin source still has no dedicated Depot Workshop UI or API client implementation', () => {
+test('current admin source has accepted read-only Depot Workshop API client only', () => {
   const adminSourceFiles = listFiles('admin/src');
-  const adminSource = readAll(adminSourceFiles);
+  const adminSourceWithoutAcceptedClient = readAll(
+    adminSourceFiles.filter((relativePath) => relativePath !== ADMIN_PREVIEW_API_CLIENT_FILE),
+  );
+  const apiClient = read(ADMIN_PREVIEW_API_CLIENT_FILE);
 
-  assertDoesNotMatchAny(adminSourceFiles.join('\n'), [
+  assert.equal(
+    adminSourceFiles.includes(ADMIN_PREVIEW_API_CLIENT_FILE),
+    true,
+    'Task2426 accepted admin preview API client should exist',
+  );
+
+  assertIncludesAll(apiClient, [
+    'previewDepotWorkshopAssignmentIntent',
+    'depotIntakePathSegment(depotIntakeId)',
+    'previewPayloadFrom(payload)',
+    'POST',
+    '/api/v1/depot/repairs/${depotIntakePath}/assignment-intent',
+    'writeRequired?: false',
+    'written?: false',
+  ], 'Task2426 accepted read-only API client');
+
+  assertDoesNotMatchAny(adminSourceFiles.filter((relativePath) => relativePath !== ADMIN_PREVIEW_API_CLIENT_FILE).join('\n'), [
     /DepotWorkshopAssignmentIntentPreviewPage/,
     /DepotWorkshopAssignmentIntentPreviewPanel/,
-    /depotWorkshop\.ts$/,
     /depot-workshop/i,
     /depotWorkshop/i,
   ], 'Task2424 admin implementation files');
 
-  assertDoesNotMatchAny(adminSource, [
+  assertDoesNotMatchAny(adminSourceWithoutAcceptedClient, [
     /DepotWorkshopAssignmentIntentPreviewPage/,
     /DepotWorkshopAssignmentIntentPreviewPanel/,
     /previewDepotWorkshopAssignmentIntent/,
@@ -98,6 +118,14 @@ test('current admin source still has no dedicated Depot Workshop UI or API clien
     /writePreparedAssignmentIntent/,
     /depotWorkshop/i,
   ], 'Task2424 admin implementation source');
+
+  assertDoesNotMatchAny(apiClient, [
+    /writePreparedAssignmentIntent/,
+    /writeDepotWorkshop/i,
+    /enabledWriteAction/i,
+    /formal Field Service Report/i,
+    /finalAppointmentId/i,
+  ], 'Task2426 accepted API client forbidden write/report source');
 });
 
 test('accepted design-only UI names route API function and backend candidate remain documented', () => {
