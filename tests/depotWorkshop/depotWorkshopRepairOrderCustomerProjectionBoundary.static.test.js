@@ -9,6 +9,7 @@ const repoRoot = path.resolve(__dirname, '../..');
 
 const HELPER_FILE = 'src/depotWorkshop/depotWorkshopRepairOrderCustomerProjection.js';
 const EXISTING_FILTER_FILE = 'src/depotWorkshop/depotRepairCustomerVisibleDataFilter.js';
+const ACCEPTED_SERVICE_FILE = 'src/services/WorkshopAssignmentService.js';
 const UNIT_TEST_FILE = 'tests/depotWorkshop/depotWorkshopRepairOrderCustomerProjection.unit.test.js';
 const STATIC_TEST_FILE = 'tests/depotWorkshop/depotWorkshopRepairOrderCustomerProjectionBoundary.static.test.js';
 const TASK2377_DOC = 'docs/task-2377-depot-workshop-repair-order-customer-visible-projection-pure-helper-no-route-no-db-no-provider-no-package.md';
@@ -149,12 +150,11 @@ test('customer projection helper exports pure allowlist constants and functions'
   ], 'Task2377 helper source');
 });
 
-test('customer projection helper is not wired into routes controllers repositories services or guards', () => {
+test('customer projection helper is wired only into accepted WorkshopAssignmentService boundary', () => {
   const scannedFiles = [
     ...collectJsFiles('src/routes'),
     ...collectJsFiles('src/controllers'),
     ...collectJsFiles('src/repositories'),
-    ...collectJsFiles('src/services'),
     ...collectJsFiles('src/guards'),
   ];
 
@@ -164,6 +164,34 @@ test('customer projection helper is not wired into routes controllers repositori
     assert.equal(source.includes('depotWorkshopRepairOrderCustomerProjection'), false, `${relativePath} should not import Task2377 helper`);
     assert.equal(source.includes('buildDepotWorkshopRepairOrderCustomerProjection'), false, `${relativePath} should not call Task2377 helper`);
   }
+
+  const serviceSource = read(ACCEPTED_SERVICE_FILE);
+
+  assertIncludesAll(serviceSource, [
+    "require('../depotWorkshop/depotWorkshopRepairOrderCustomerProjection')",
+    'buildDepotWorkshopRepairOrderCustomerProjection',
+    'buildRepairOrderCustomerProjection',
+    'repairOrderCustomerProjection',
+    'prepareAssignmentIntent',
+    'writeRequired: false',
+    'written: false',
+  ], 'accepted Task2381 service-level customer projection integration');
+
+  assertDoesNotMatchAny(serviceSource, [
+    /require\(['"].*routes/i,
+    /require\(['"].*controllers/i,
+    /require\(['"].*repositories/i,
+    /require\(['"].*providers/i,
+    /require\(['"].*package/i,
+    /process\.env/,
+    /DATABASE_URL\s*=/,
+    /\bnew\s+Pool\b|require\(['"]pg['"]\)|require\(['"]postgres['"]\)/,
+    /\bpsql\b|db:migrate|migrations\//i,
+    /send(Line|Sms|SMS|Email|Webhook)/,
+    /createFieldServiceReport|approveFieldServiceReport|publishFieldServiceReport|finalizeFieldServiceReport/i,
+    /createCompletionReport|approveCompletionReport|publishCompletionReport|finalizeCompletionReport/i,
+    /finalAppointmentId\s*[:=]/,
+  ], 'accepted Task2381 service-level customer projection integration');
 });
 
 test('existing customer visible filter remains allowlist projection only', () => {
