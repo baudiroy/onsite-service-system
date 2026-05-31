@@ -9,6 +9,9 @@ const {
 const {
   registerRepairIntakeDraftToCaseRoutes,
 } = require('./repairIntakeDraftToCaseRouteRegistrar');
+const {
+  guardRepairIntakeDraftToCaseRequest,
+} = require('./repairIntakeDraftToCaseRequestAbuseGuard');
 
 const SAFE_HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const SAFE_PATH_PATTERN = /^\/[A-Za-z0-9:_-]+(?:\/[A-Za-z0-9:_-]+)*$/;
@@ -34,7 +37,9 @@ const UNSAFE_REQUEST_FIELD_NAMES = new Set([
   'cookie',
   'cookies',
   'customeraddress',
+  'customercontact',
   'customerphone',
+  'customerprivate',
   'database_url',
   'databaseurl',
   'draftinput',
@@ -51,6 +56,7 @@ const UNSAFE_REQUEST_FIELD_NAMES = new Set([
   'next',
   'originalurl',
   'phone',
+  'photo',
   'protocol',
   'providerpayload',
   'rag',
@@ -67,9 +73,14 @@ const UNSAFE_REQUEST_FIELD_NAMES = new Set([
   'route',
   'session',
   'signedcookies',
+  'signature',
   'socket',
   'sql',
   'token',
+  'ai',
+  'openai',
+  'vector',
+  'payment',
 ]);
 const UNSAFE_OUTPUT_FIELD_NAMES = new Set([
   'address',
@@ -135,9 +146,12 @@ const UNSAFE_TEXT_MARKERS = [
   'customer private',
   'customeraddress',
   'customerphone',
+  'customer private',
+  'customer contact',
   'database_url',
   'debug detail',
   'invoice',
+  'openai',
   'line access token',
   'lineaccesstoken',
   'password',
@@ -162,6 +176,8 @@ const UNSAFE_TEXT_MARKERS = [
   'settlement',
   'stack trace',
   'token',
+  'vector',
+  'payment',
 ];
 
 function isObject(value) {
@@ -306,6 +322,15 @@ function safeControllerFailure(reasonCode, requiredActions = ['retry_or_manual_r
 }
 
 async function callSafeController(controller, method, requestLike = {}) {
+  const abuseGuardResult = guardRepairIntakeDraftToCaseRequest(requestLike);
+
+  if (!abuseGuardResult.ok) {
+    return safeControllerFailure(
+      abuseGuardResult.reasonCode,
+      abuseGuardResult.requiredActions,
+    );
+  }
+
   try {
     return await sanitizeHandlerOutput(
       method.call(

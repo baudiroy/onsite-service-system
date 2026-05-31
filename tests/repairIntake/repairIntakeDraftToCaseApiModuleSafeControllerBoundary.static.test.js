@@ -161,6 +161,7 @@ test('API module imports only bounded injected controller route helpers and no r
     './repairIntakeDraftCaseControllerAdapter',
     './repairIntakeDraftCaseRouteFactory',
     './repairIntakeDraftToCaseRouteRegistrar',
+    './repairIntakeDraftToCaseRequestAbuseGuard',
   ]);
   assertExcludesAll(specifiers.join('\n'), FORBIDDEN_IMPORT_PATTERNS, 'API module imports');
   assertExcludesAll(specifiers.join('\n'), [
