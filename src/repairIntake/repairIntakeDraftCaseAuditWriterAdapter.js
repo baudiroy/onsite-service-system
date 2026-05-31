@@ -438,7 +438,7 @@ async function recordWithClient({ client, tableName, payload }) {
       });
     }
 
-    if (isObject(result) && result.ok === false) {
+    if (!isObject(result) || result.ok === false) {
       return failed({
         auditEventId: payload.id,
         eventType: payload.event_type,
