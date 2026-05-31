@@ -9,22 +9,38 @@ const {
 
 const FORBIDDEN_INPUT_FIELDS = new Set([
   'address',
+  'billingPayload',
+  'body',
   'caseId',
   'case_id',
+  'client',
+  'clientSecret',
   'customerPayload',
+  'databaseError',
+  'draftInput',
   'finalAppointmentId',
   'final_appointment_id',
   'fullAddress',
+  'headers',
   'lineAccessToken',
+  'password',
   'phone',
   'phoneNumber',
   'providerPayload',
+  'query',
   'rawAddress',
+  'rawBody',
   'rawCustomerPayload',
+  'rawInput',
   'rawImportedRow',
   'rawImportedRowPayload',
   'rawPayload',
+  'rawRepositoryResult',
+  'rawRows',
+  'rawServicePayload',
+  'requestBody',
   'secret',
+  'stack',
   'token',
   'tokenSecret',
 ]);
@@ -129,6 +145,7 @@ function sanitizeCommand(command) {
 
   const draftId = stringValue(command.draftId);
   const organizationId = stringValue(command.organizationId);
+  const tenantId = stringValue(command.tenantId);
   const actorId = stringValue(command.actorId);
   const idempotencyKey = stringValue(command.idempotencyKey);
 
@@ -139,6 +156,7 @@ function sanitizeCommand(command) {
   return {
     draftId,
     organizationId,
+    ...(tenantId ? { tenantId } : {}),
     actorId,
     requestId: stringValue(command.requestId) || null,
     idempotencyKey,
@@ -152,6 +170,7 @@ function sanitizeCandidate(candidate) {
 
   const sourceDraftId = stringValue(candidate.sourceDraftId);
   const organizationId = stringValue(candidate.organizationId);
+  const tenantId = stringValue(candidate.tenantId);
   const intakeSource = stringValue(candidate.intakeSource);
 
   if (!sourceDraftId || !organizationId || !intakeSource) {
@@ -161,6 +180,7 @@ function sanitizeCandidate(candidate) {
   return {
     sourceDraftId,
     organizationId,
+    ...(tenantId ? { tenantId } : {}),
     brandId: stringValue(candidate.brandId) || null,
     serviceProviderId: stringValue(candidate.serviceProviderId) || null,
     intakeSource,
@@ -202,6 +222,10 @@ function normalizeCreatorInput(input) {
 
   if (command.draftId !== caseCandidate.sourceDraftId) {
     return blocked('REPAIR_INTAKE_CASE_CREATOR_SOURCE_DRAFT_MISMATCH', ['manual_review']);
+  }
+
+  if (command.tenantId && caseCandidate.tenantId && command.tenantId !== caseCandidate.tenantId) {
+    return blocked('REPAIR_INTAKE_CASE_CREATOR_TENANT_MISMATCH', ['manual_review']);
   }
 
   return {
@@ -272,7 +296,97 @@ function resolveTransactionRunner(transactionRunner) {
     return transactionRunner.transaction.bind(transactionRunner);
   }
 
+  return resolveManualTransactionRunner(transactionRunner);
+}
+
+function resolveMethod(target, methodNames) {
+  if (!isObject(target)) {
+    return undefined;
+  }
+
+  for (const methodName of methodNames) {
+    if (typeof target[methodName] === 'function') {
+      return target[methodName].bind(target);
+    }
+  }
+
   return undefined;
+}
+
+async function callTransactionMethod(tx, transactionRunner, txMethodNames, runnerMethodNames) {
+  const txMethod = resolveMethod(tx, txMethodNames);
+
+  if (txMethod) {
+    return txMethod();
+  }
+
+  const runnerMethod = resolveMethod(transactionRunner, runnerMethodNames);
+
+  return runnerMethod ? runnerMethod(tx) : undefined;
+}
+
+async function rollbackTransaction(tx, transactionRunner) {
+  try {
+    await callTransactionMethod(
+      tx,
+      transactionRunner,
+      ['rollback', 'rollbackTransaction'],
+      ['rollback', 'rollbackTransaction'],
+    );
+  } catch (error) {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function resolveManualTransactionRunner(transactionRunner) {
+  const begin = resolveMethod(transactionRunner, ['begin', 'beginTransaction', 'startTransaction']);
+
+  if (!begin) {
+    return undefined;
+  }
+
+  return async function runManualTransaction(callback) {
+    if (typeof callback !== 'function') {
+      throw failure('REPAIR_INTAKE_CASE_CREATOR_TRANSACTION_CALLBACK_MISSING', ['provide_transaction_callback']);
+    }
+
+    let tx;
+
+    try {
+      tx = await begin();
+    } catch (error) {
+      throw failure('REPAIR_INTAKE_CASE_CREATOR_TRANSACTION_BEGIN_FAILED', ['retry_or_manual_review']);
+    }
+
+    let callbackSucceeded = false;
+
+    try {
+      const result = await callback(tx);
+      callbackSucceeded = true;
+      try {
+        await callTransactionMethod(
+          tx,
+          transactionRunner,
+          ['commit', 'commitTransaction'],
+          ['commit', 'commitTransaction'],
+        );
+      } catch (error) {
+        await rollbackTransaction(tx, transactionRunner);
+
+        throw failure('REPAIR_INTAKE_CASE_CREATOR_TRANSACTION_COMMIT_FAILED', ['retry_or_manual_review']);
+      }
+
+      return result;
+    } catch (error) {
+      if (!callbackSucceeded) {
+        await rollbackTransaction(tx, transactionRunner);
+      }
+
+      throw error;
+    }
+  };
 }
 
 function resolveClock(clock) {
@@ -435,6 +549,7 @@ function createRepairIntakeCaseCreatorRepositoryAdapter(options = {}) {
           const linkResult = await markDraftLinked({
             draftId: command.draftId,
             organizationId: command.organizationId,
+            ...(command.tenantId ? { tenantId: command.tenantId } : {}),
             caseRef,
             actorId: command.actorId,
             requestId: command.requestId,
