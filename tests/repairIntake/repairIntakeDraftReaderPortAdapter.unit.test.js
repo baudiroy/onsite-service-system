@@ -74,9 +74,9 @@ function createDraftRepository(calls, options = {}) {
       }
 
       return {
-        id: 'draft_task1024',
-        organizationId: 'org_task1024',
-        tenantId: 'tenant_task1024',
+        id: lookup.draftId,
+        organizationId: lookup.organizationId,
+        tenantId: lookup.tenantId,
         status: 'ready',
         source: 'repair_intake',
         sourceRef: 'source_task1024',
@@ -187,10 +187,10 @@ test('getDraftForConversion forwards only sanitized lookup fields', async () => 
     actorId: 'actor_task1024_actor',
   });
   assert.equal(result.ok, true);
-  assert.equal(result.id, 'draft_task1024');
-  assert.equal(result.draftId, 'draft_task1024');
-  assert.equal(result.organizationId, 'org_task1024');
-  assert.equal(result.tenantId, 'tenant_task1024');
+  assert.equal(result.id, 'draft_task1024_top');
+  assert.equal(result.draftId, 'draft_task1024_top');
+  assert.equal(result.organizationId, 'org_task1024_top');
+  assert.equal(result.tenantId, 'tenant_task1024_top');
   assert.equal(result.reasonCode, 'DRAFT_READY_TASK1024');
   assert.equal(result.summary.title, 'safe draft summary');
   assertNoUnsafeText(calls);

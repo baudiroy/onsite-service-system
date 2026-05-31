@@ -125,7 +125,12 @@ function failureEnvelope(reasonCode, requiredActions = ['retry_or_manual_review'
 
 function createLookup(input) {
   return sanitizeValue(compactObject({
-    draftId: firstSafeString(input.draftId, input.params && input.params.draftId),
+    draftId: firstSafeString(
+      input.repairIntakeDraftId,
+      input.draftId,
+      input.params && input.params.repairIntakeDraftId,
+      input.params && input.params.draftId,
+    ),
     organizationId: firstSafeString(
       input.organizationId,
       input.context && input.context.organizationId,
@@ -138,6 +143,39 @@ function createLookup(input) {
       input.context && input.context.actorId,
     ),
   }));
+}
+
+function draftReadFailureEnvelope(draft, fallbackReasonCode, fallbackActions) {
+  if (!isObject(draft)) {
+    return failureEnvelope(fallbackReasonCode, fallbackActions);
+  }
+
+  return sanitizeValue({
+    ...failureEnvelope(
+      safeString(draft.reasonCode) || fallbackReasonCode,
+      safeArray(draft.requiredActions).length > 0 ? safeArray(draft.requiredActions) : fallbackActions,
+    ),
+    draftId: safeString(draft.draftId) || safeString(draft.id) || null,
+    organizationId: safeString(draft.organizationId),
+    tenantId: safeString(draft.tenantId),
+    status: safeString(draft.status) || 'failed',
+  });
+}
+
+function draftMatchesLookup(draft, lookup) {
+  const draftId = firstSafeString(draft.draftId, draft.id);
+  const organizationId = safeString(draft.organizationId);
+  const tenantId = safeString(draft.tenantId);
+
+  if (!draftId || !organizationId) {
+    return false;
+  }
+
+  if (draftId !== lookup.draftId || organizationId !== lookup.organizationId) {
+    return false;
+  }
+
+  return !lookup.tenantId || tenantId === lookup.tenantId;
 }
 
 function draftEnvelope(draft) {
@@ -187,6 +225,13 @@ function createRepairIntakeDraftReaderPortAdapter(options = {}) {
       );
     }
 
+    if (!safeString(lookup.organizationId)) {
+      return failureEnvelope(
+        'REPAIR_INTAKE_DRAFT_READER_PORT_ADAPTER_INPUT_INVALID',
+        ['provide_organization_id'],
+      );
+    }
+
     try {
       const draft = sanitizeValue(await draftRepository.findDraftForConversion(lookup));
 
@@ -194,6 +239,21 @@ function createRepairIntakeDraftReaderPortAdapter(options = {}) {
         return failureEnvelope(
           'REPAIR_INTAKE_DRAFT_READER_PORT_ADAPTER_DRAFT_NOT_FOUND',
           ['verify_draft_exists'],
+        );
+      }
+
+      if (draft.ok === false) {
+        return draftReadFailureEnvelope(
+          draft,
+          'REPAIR_INTAKE_DRAFT_READER_PORT_ADAPTER_READ_FAILED',
+          ['retry_or_manual_review'],
+        );
+      }
+
+      if (!draftMatchesLookup(draft, lookup)) {
+        return failureEnvelope(
+          'REPAIR_INTAKE_DRAFT_READER_PORT_ADAPTER_SCOPE_MISMATCH',
+          ['verify_draft_organization_scope'],
         );
       }
 

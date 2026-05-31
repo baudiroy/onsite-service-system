@@ -187,6 +187,7 @@ function createLookup(input) {
   }
 
   const draftId = safeString(input.draftId);
+  const organizationId = safeString(input.organizationId);
 
   if (!draftId) {
     throw new RepairIntakeDraftRepositoryError(
@@ -195,23 +196,25 @@ function createLookup(input) {
     );
   }
 
+  if (!organizationId) {
+    throw new RepairIntakeDraftRepositoryError(
+      'REPAIR_INTAKE_DRAFT_REPOSITORY_INPUT_INVALID',
+      ['provide_organization_id'],
+    );
+  }
+
   return {
     actorId: safeString(input.actorId),
     draftId,
-    organizationId: safeString(input.organizationId),
+    organizationId,
     requestId: safeString(input.requestId),
     tenantId: safeString(input.tenantId),
   };
 }
 
 function createSelectStatement(lookup) {
-  const clauses = ['id = $1'];
-  const params = [lookup.draftId];
-
-  if (lookup.organizationId) {
-    params.push(lookup.organizationId);
-    clauses.push(`organization_id = $${params.length}`);
-  }
+  const clauses = ['id = $1', 'organization_id = $2'];
+  const params = [lookup.draftId, lookup.organizationId];
 
   if (lookup.tenantId) {
     params.push(lookup.tenantId);
@@ -325,7 +328,21 @@ function createRepairIntakeDraftRepository(options = {}) {
       const result = await dbClient.query(statement.text, statement.params);
       const [row] = resolveRows(result);
 
-      return mapDraftRow(row);
+      const draft = mapDraftRow(row);
+
+      if (!draft) {
+        return null;
+      }
+
+      if (draft.draftId !== lookup.draftId || draft.organizationId !== lookup.organizationId) {
+        return null;
+      }
+
+      if (lookup.tenantId && draft.tenantId !== lookup.tenantId) {
+        return null;
+      }
+
+      return draft;
     } catch (error) {
       throw new RepairIntakeDraftRepositoryError(
         'REPAIR_INTAKE_DRAFT_REPOSITORY_QUERY_FAILED',

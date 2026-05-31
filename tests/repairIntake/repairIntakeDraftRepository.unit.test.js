@@ -146,7 +146,10 @@ test('factory accepts query-capable dbClient instances', async () => {
   const client = new QueryCapableClient();
   const repository = createRepairIntakeDraftRepository({ dbClient: client });
 
-  const result = await repository.findDraftForConversion({ draftId: 'draft_instance_client' });
+  const result = await repository.findDraftForConversion({
+    draftId: 'draft_instance_client',
+    organizationId: 'org_instance_client',
+  });
 
   assert.equal(result, null);
   assert.equal(client.calls.length, 1);
@@ -164,6 +167,7 @@ test('invalid input fails closed before dbClient query', async () => {
     {},
     { draftId: '' },
     { draftId: '   ' },
+    { draftId: 'draft_1166' },
   ]) {
     await assert.rejects(
       () => repository.findDraftForConversion(input),
@@ -198,7 +202,7 @@ test('valid lookup calls dbClient.query once with parameterized scoped SELECT', 
   assert.deepEqual(calls[0].params, ['draft_1166', 'org_1166', 'tenant_1166']);
 });
 
-test('organization and tenant scope are optional but included when provided', async () => {
+test('organization scope is required and tenant scope is included when provided', async () => {
   const { client, calls } = createDbClient();
   const repository = createRepairIntakeDraftRepository({ dbClient: client });
 
@@ -272,7 +276,10 @@ test('no row returns null', async () => {
   const { client } = createDbClient({ noRow: true });
   const repository = createRepairIntakeDraftRepository({ dbClient: client });
 
-  const result = await repository.findDraftForConversion({ draftId: 'draft_missing' });
+  const result = await repository.findDraftForConversion({
+    draftId: 'draft_missing',
+    organizationId: 'org_missing',
+  });
 
   assert.equal(result, null);
 });
@@ -391,7 +398,10 @@ test('rejected query throws sanitized repository error', async () => {
   const repository = createRepairIntakeDraftRepository({ dbClient: client });
 
   await assert.rejects(
-    () => repository.findDraftForConversion({ draftId: 'draft_1166' }),
+    () => repository.findDraftForConversion({
+      draftId: 'draft_1166',
+      organizationId: 'org_1166',
+    }),
     (error) => assertRepositoryError(error, 'REPAIR_INTAKE_DRAFT_REPOSITORY_QUERY_FAILED'),
   );
 });

@@ -107,9 +107,9 @@ function createFullInjectedApiModule(calls) {
       findDraftForConversion: async (lookup) => {
         calls.push({ name: 'draftRepository', payload: lookup });
         return {
-          id: 'draft_task1027',
-          organizationId: 'org_task1027',
-          tenantId: 'tenant_task1027',
+          id: lookup.draftId,
+          organizationId: lookup.organizationId,
+          tenantId: lookup.tenantId,
           status: 'ready',
           source: 'repair_intake',
           sourceRef: 'source_task1027',
@@ -268,7 +268,7 @@ function assertPlannerPayload(payload) {
   assert.equal(payload.body.permissionContext.canCreateCaseFromRepairIntakeDraft, true);
   assert.equal(payload.body.approvalContext.accepted, true);
   assert.equal(payload.draft.id, 'draft_task1027');
-  assert.equal(payload.draft.organizationId, 'org_task1027');
+  assert.equal(payload.draft.organizationId, 'org_task1027_context');
   assert.equal(payload.draft.status, 'ready');
   assert.equal(payload.draft.summary.title, 'safe draft summary');
   assert.equal(payload.plan, undefined);

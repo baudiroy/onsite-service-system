@@ -32,8 +32,14 @@ test('draftReader adapter source keeps input validation and safe lookup extracti
   assert.match(source, /if \(!isObject\(input\)\)/);
   assert.match(source, /function createLookup/);
   assert.match(source, /sanitizeValue\(input\)/);
-  assert.match(source, /draftId: firstSafeString\(input\.draftId, input\.params && input\.params\.draftId\)/);
+  assert.match(source, /input\.repairIntakeDraftId/);
+  assert.match(source, /input\.draftId/);
+  assert.match(source, /input\.params && input\.params\.repairIntakeDraftId/);
+  assert.match(source, /input\.params && input\.params\.draftId/);
   assert.match(source, /organizationId: firstSafeString/);
+  assert.match(source, /provide_organization_id/);
+  assert.match(source, /function draftMatchesLookup/);
+  assert.match(source, /draftId !== lookup\.draftId \|\| organizationId !== lookup\.organizationId/);
   assert.match(source, /tenantId: firstSafeString/);
   assert.match(source, /requestId: firstSafeString/);
   assert.match(source, /actorId: firstSafeString/);

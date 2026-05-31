@@ -47,9 +47,9 @@ test('repository source remains SELECT-only for repair_intake_drafts', () => {
 test('repository source uses parameterized query values without input interpolation into SQL', () => {
   const source = readSource();
 
-  assert.match(source, /const params = \[lookup\.draftId\]/);
+  assert.match(source, /const params = \[lookup\.draftId, lookup\.organizationId\]/);
   assert.match(source, /id = \$1/);
-  assert.match(source, /params\.push\(lookup\.organizationId\)/);
+  assert.match(source, /organization_id = \$2/);
   assert.match(source, /params\.push\(lookup\.tenantId\)/);
   assert.match(source, /dbClient\.query\(statement\.text, statement\.params\)/);
 
@@ -70,7 +70,10 @@ test('repository source keeps organization and tenant isolation markers', () => 
 
   assert.match(source, /organization_id/);
   assert.match(source, /tenant_id/);
-  assert.match(source, /organizationId: safeString\(input\.organizationId\)/);
+  assert.match(source, /const organizationId = safeString\(input\.organizationId\)/);
+  assert.match(source, /provide_organization_id/);
+  assert.match(source, /organizationId,/);
+  assert.match(source, /draft\.draftId !== lookup\.draftId \|\| draft\.organizationId !== lookup\.organizationId/);
   assert.match(source, /tenantId: safeString\(input\.tenantId\)/);
   assert.match(source, /requestId: safeString\(input\.requestId\)/);
   assert.match(source, /actorId: safeString\(input\.actorId\)/);
