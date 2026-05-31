@@ -232,15 +232,27 @@ test('draft-to-case audit writer adapter DB-capable shape is inventoried but not
 
 test('runtime factory audit persistence marker is explicit inventory behind injected dbClient only', () => {
   const factory = read(SOURCE_PATHS.runtimePortsFactory);
+  const auditAdapter = read(SOURCE_PATHS.draftCaseAuditWriterAdapter);
   const doc = read(DOC_PATHS.task2330);
 
   assertIncludesAll(factory, [
     'function createAuditPort({ dbClient, generateId: generate, now })',
-    'INSERT INTO repair_intake_audit_events',
+    "const DEFAULT_AUDIT_TABLE_NAME = 'repair_intake_audit_events';",
+    'createRepairIntakeDraftCaseAuditWriterAdapter({',
+    'tableName: DEFAULT_AUDIT_TABLE_NAME',
     'createRepairIntakeAuditWriterPortAdapter({',
     'auditPort,',
     'auditWriter,',
-  ], 'runtime ports factory audit inventory');
+  ], 'runtime ports factory delegated audit inventory');
+
+  assertIncludesAll(auditAdapter, [
+    "const DEFAULT_TABLE_NAME = 'repair_intake_audit_events';",
+    'function queryText(tableName)',
+    '`insert into ${tableName} (`',
+    'id, organization_id, tenant_id, event_type, draft_id, case_id, case_ref,',
+    'safe_metadata, visibility, occurred_at',
+    'function queryValues(payload)',
+  ], 'delegated audit adapter insert inventory');
 
   assertIncludesAll(doc, [
     'Contains a DB-capable `createAuditPort` that targets `repair_intake_audit_events` behind an explicitly injected `dbClient`.',
