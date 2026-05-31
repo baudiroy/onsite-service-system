@@ -185,6 +185,7 @@ test('factory accepts query-capable dbClient instances', async () => {
   const result = await repository.findExistingDraftToCaseResult({
     idempotencyKey: 'idem_instance_client',
     organizationId: 'org_instance_client',
+    draftId: 'draft_instance_client',
   });
 
   assert.equal(result, null);
@@ -204,6 +205,7 @@ test('invalid input fails closed before dbClient query', async () => {
     { idempotencyKey: '' },
     { idempotencyKey: 'idem_1178' },
     { idempotencyKey: 'idem_1178', organizationId: '' },
+    { idempotencyKey: 'idem_1178', organizationId: 'org_1178', draftId: '' },
   ]) {
     await assert.rejects(
       () => repository.findExistingDraftToCaseResult(input),
@@ -226,6 +228,7 @@ test('valid lookup calls dbClient.query once with parameterized scoped SELECT', 
     organizationId: 'org_1178',
     tenantId: 'tenant_1178',
     operationType: 'draft_to_case',
+    draftId: 'draft_1178',
     requestId: 'req_1178',
     actorId: 'actor_1178',
   });
@@ -236,10 +239,11 @@ test('valid lookup calls dbClient.query once with parameterized scoped SELECT', 
   assert.match(calls[0].sql, /organization_id = \$1/);
   assert.match(calls[0].sql, /operation_type = \$2/);
   assert.match(calls[0].sql, /idempotency_key = \$3/);
-  assert.match(calls[0].sql, /tenant_id = \$4/);
+  assert.match(calls[0].sql, /draft_id = \$4/);
+  assert.match(calls[0].sql, /tenant_id = \$5/);
   assert.equal(calls[0].sql.includes('idem_1178'), false);
   assert.equal(calls[0].sql.includes('org_1178'), false);
-  assert.deepEqual(calls[0].params, ['org_1178', 'draft_to_case', 'idem_1178', 'tenant_1178']);
+  assert.deepEqual(calls[0].params, ['org_1178', 'draft_to_case', 'idem_1178', 'draft_1178', 'tenant_1178']);
 });
 
 test('operation scope defaults safely and tenant scope is optional', async () => {
@@ -249,13 +253,15 @@ test('operation scope defaults safely and tenant scope is optional', async () =>
   await repository.findExistingDraftToCaseResult({
     idempotencyKey: 'idem_1178',
     organizationId: 'org_1178',
+    draftId: 'draft_1178',
   });
 
   assert.match(calls[0].sql, /organization_id = \$1/);
   assert.match(calls[0].sql, /operation_type = \$2/);
   assert.match(calls[0].sql, /idempotency_key = \$3/);
+  assert.match(calls[0].sql, /draft_id = \$4/);
   assert.equal(calls[0].sql.includes('tenant_id ='), false);
-  assert.deepEqual(calls[0].params, ['org_1178', 'draft_to_case', 'idem_1178']);
+  assert.deepEqual(calls[0].params, ['org_1178', 'draft_to_case', 'idem_1178', 'draft_1178']);
 });
 
 test('no row returns null', async () => {
@@ -265,6 +271,7 @@ test('no row returns null', async () => {
   const result = await repository.findExistingDraftToCaseResult({
     idempotencyKey: 'idem_missing_1178',
     organizationId: 'org_1178',
+    draftId: 'draft_1178',
   });
 
   assert.equal(result, null);
@@ -278,6 +285,7 @@ test('found row returns sanitized replay-like object', async () => {
     idempotencyKey: 'idem_1178',
     organizationId: 'org_1178',
     tenantId: 'tenant_1178',
+    draftId: 'draft_1178',
     requestId: 'req_1178',
     actorId: 'actor_1178',
   });
@@ -347,6 +355,7 @@ test('pg-style query result object maps replay rows even when result prototype i
     idempotencyKey: 'idem_1703',
     organizationId: 'org_1703',
     tenantId: 'tenant_1703',
+    draftId: 'draft_1703',
     requestId: 'req_1703',
     actorId: 'actor_1703',
   });
@@ -375,6 +384,7 @@ test('rejected query throws sanitized repository error', async () => {
     () => repository.findExistingDraftToCaseResult({
       idempotencyKey: 'idem_1178',
       organizationId: 'org_1178',
+      draftId: 'draft_1178',
     }),
     (error) => assertRepositoryError(error, 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_QUERY_FAILED'),
   );
@@ -475,7 +485,7 @@ test('recordDraftToCaseResult valid input calls parameterized idempotent writer 
   assertNoUnsafeText(result);
 });
 
-test('recordDraftToCaseResult no-row insert returns sanitized fallback without unsafe leakage', async () => {
+test('recordDraftToCaseResult no-row insert fails closed without unsafe leakage', async () => {
   const { client, calls } = createDbClient({ noRecordRow: true });
   const repository = createRepairIntakeIdempotencyRepository({ dbClient: client });
 
@@ -527,43 +537,7 @@ test('recordDraftToCaseResult no-row insert returns sanitized fallback without u
     assert.equal(calls[0].sql.includes(forbiddenInterpolation), false);
   }
 
-  assert.deepEqual(result, {
-    action: 'draft_to_case',
-    idempotencyKey: 'idem_1178',
-    draftId: 'draft_1178',
-    caseId: 'case_1178',
-    caseRef: {
-      caseRef: 'case_ref_1178',
-      caseId: 'case_1178',
-    },
-    organizationId: 'org_1178',
-    tenantId: 'tenant_1178',
-    requestId: 'req_1178',
-    actorId: 'actor_1178',
-    status: 'submitted',
-    submitted: true,
-    reasonCode: 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_RECORDED',
-    requiredActions: [],
-    result: {
-      caseId: 'case_1178',
-      status: 'submitted',
-      safeValue: 'safe fallback',
-      caseRef: {
-        caseRef: 'case_ref_1178',
-        caseId: 'case_1178',
-      },
-      draftId: 'draft_1178',
-      organizationId: 'org_1178',
-      tenantId: 'tenant_1178',
-      requestId: 'req_1178',
-      actorId: 'actor_1178',
-      submitted: true,
-    },
-    metadata: {
-      recordId: null,
-    },
-    warnings: [],
-  });
+  assert.equal(result, null);
   assertNoUnsafeText(result);
 });
 
@@ -579,9 +553,11 @@ test('recordDraftToCaseResult invalid input fails before dbClient query', async 
     { idempotencyKey: '', organizationId: 'org_1178' },
     { idempotencyKey: 'idem_1178', organizationId: '' },
     { idempotencyKey: 'idem_1178', organizationId: 'org_1178', safeRequestFingerprint: 'fp_1178' },
+    { idempotencyKey: 'idem_1178', organizationId: 'org_1178', draftId: '', safeRequestFingerprint: 'fp_1178' },
     {
       idempotencyKey: 'idem_1178',
       organizationId: 'org_1178',
+      draftId: 'draft_1178',
       result: { caseId: 'case_1178' },
     },
   ]) {
@@ -603,6 +579,7 @@ test('recordDraftToCaseResult rejected query throws sanitized repository error',
     () => repository.recordDraftToCaseResult({
       idempotencyKey: 'idem_1178',
       organizationId: 'org_1178',
+      draftId: 'draft_1178',
       safeRequestFingerprint: 'fingerprint_1178',
       result: { caseId: 'case_1178' },
     }),

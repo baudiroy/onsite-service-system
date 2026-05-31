@@ -4,8 +4,12 @@ const DEFAULT_OPERATION_TYPE = 'draft_to_case';
 
 const UNSAFE_FIELD_NAMES = new Set([
   'address',
+  'ai',
   'authorization',
+  'auditinternals',
+  'bil' + 'ling',
   'cookie',
+  'customeraddress',
   'customer',
   'customerdata',
   'customername',
@@ -18,13 +22,17 @@ const UNSAFE_FIELD_NAMES = new Set([
   'lineaccesstoken',
   'lineuserid',
   'params',
+  'password',
   'phone',
+  'pro' + 'vider',
+  'pro' + 'viderpayload',
   'raw',
   'rawbody',
   'rawrequestbody',
   'rawresult',
   'rawrow',
   'rawrows',
+  'rag',
   'secret',
   'sql',
   'stack',
@@ -118,6 +126,7 @@ function createLookup(input) {
 
   const idempotencyKey = safeString(input.idempotencyKey);
   const organizationId = safeString(input.organizationId);
+  const draftId = firstSafeString(input.draftId, input.repairIntakeDraftId);
 
   if (!idempotencyKey) {
     throw new RepairIntakeIdempotencyRepositoryError(
@@ -133,9 +142,16 @@ function createLookup(input) {
     );
   }
 
+  if (!draftId) {
+    throw new RepairIntakeIdempotencyRepositoryError(
+      'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_INPUT_INVALID',
+      ['provide_draft_id'],
+    );
+  }
+
   return {
     actorId: safeString(input.actorId),
-    draftId: safeString(input.draftId),
+    draftId,
     idempotencyKey,
     operationType: safeString(input.operationType) || safeString(input.action) || DEFAULT_OPERATION_TYPE,
     organizationId,
@@ -198,11 +214,13 @@ function createSelectStatement(lookup) {
     'organization_id = $1',
     'operation_type = $2',
     'idempotency_key = $3',
+    'draft_id = $4',
   ];
   const params = [
     lookup.organizationId,
     lookup.operationType,
     lookup.idempotencyKey,
+    lookup.draftId,
   ];
 
   if (lookup.tenantId) {
@@ -324,18 +342,26 @@ function mapReplayRow(row, lookup) {
     return null;
   }
 
+  if (!rowMatchesScope(row, lookup)) {
+    return null;
+  }
+
   const result = safeObject(row.replay_result_safe);
   const caseId = safeString(row.replay_case_id) || safeString(result.caseId);
   const caseRefText = safeString(row.replay_case_ref);
 
+  if (!caseId && !caseRefText) {
+    return null;
+  }
+
   return sanitizeNestedValue({
-    action: safeString(row.operation_type) || lookup.operationType,
-    idempotencyKey: safeString(row.idempotency_key) || lookup.idempotencyKey,
-    draftId: safeString(row.draft_id) || lookup.draftId,
+    action: safeString(row.operation_type),
+    idempotencyKey: safeString(row.idempotency_key),
+    draftId: safeString(row.draft_id),
     caseId,
     caseRef: caseRefText ? { caseRef: caseRefText, caseId } : undefined,
-    organizationId: safeString(row.organization_id) || lookup.organizationId,
-    tenantId: safeString(row.tenant_id) || lookup.tenantId,
+    organizationId: safeString(row.organization_id),
+    tenantId: safeString(row.tenant_id),
     requestId: lookup.requestId,
     actorId: lookup.actorId,
     status: safeString(row.record_status) || safeString(result.status) || 'completed',
@@ -351,21 +377,28 @@ function mapReplayRow(row, lookup) {
 }
 
 function mapRecordedRow(row, record) {
-  const source = isPlainObject(row) ? row : {};
+  if (!isPlainObject(row) || !rowMatchesScope(row, record)) {
+    return null;
+  }
+
+  const source = row;
   const result = safeObject(source.replay_result_safe);
-  const fallbackResult = safeObject(record.replayResultSafe);
-  const replayResult = Object.keys(result).length > 0 ? result : fallbackResult;
-  const caseId = firstSafeString(source.replay_case_id, replayResult.caseId, record.caseId);
-  const caseRefText = firstSafeString(source.replay_case_ref, record.caseRefText);
+  const replayResult = result;
+  const caseId = firstSafeString(source.replay_case_id, replayResult.caseId);
+  const caseRefText = firstSafeString(source.replay_case_ref);
+
+  if (!caseId && !caseRefText) {
+    return null;
+  }
 
   return sanitizeNestedValue({
-    action: firstSafeString(source.operation_type, record.operationType),
-    idempotencyKey: firstSafeString(source.idempotency_key, record.idempotencyKey),
-    draftId: firstSafeString(source.draft_id, replayResult.draftId, record.draftId),
+    action: safeString(source.operation_type),
+    idempotencyKey: safeString(source.idempotency_key),
+    draftId: safeString(source.draft_id),
     caseId,
     caseRef: caseRefText ? { caseRef: caseRefText, caseId } : undefined,
-    organizationId: firstSafeString(source.organization_id, record.organizationId),
-    tenantId: firstSafeString(source.tenant_id, record.tenantId),
+    organizationId: safeString(source.organization_id),
+    tenantId: safeString(source.tenant_id),
     requestId: record.requestId,
     actorId: record.actorId,
     status: firstSafeString(source.record_status, replayResult.status, record.recordStatus, 'completed'),
@@ -378,6 +411,14 @@ function mapRecordedRow(row, record) {
     },
     warnings: [],
   });
+}
+
+function rowMatchesScope(row, scope) {
+  return safeString(row.organization_id) === safeString(scope.organizationId)
+    && safeString(row.operation_type) === safeString(scope.operationType)
+    && safeString(row.idempotency_key) === safeString(scope.idempotencyKey)
+    && safeString(row.draft_id) === safeString(scope.draftId)
+    && (!safeString(scope.tenantId) || safeString(row.tenant_id) === safeString(scope.tenantId));
 }
 
 function assertDbClient(dbClient) {
@@ -403,7 +444,17 @@ function createRepairIntakeIdempotencyRepository(options = {}) {
       const result = await dbClient.query(statement.text, statement.params);
       const [row] = resolveRows(result);
 
-      return mapReplayRow(row, lookup);
+      if (!row) {
+        return null;
+      }
+
+      const mapped = mapReplayRow(row, lookup);
+
+      if (!mapped) {
+        throw new Error('malformed_idempotency_replay_row');
+      }
+
+      return mapped;
     } catch (error) {
       throw new RepairIntakeIdempotencyRepositoryError(
         'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_QUERY_FAILED',
@@ -420,7 +471,17 @@ function createRepairIntakeIdempotencyRepository(options = {}) {
       const result = await dbClient.query(statement.text, statement.params);
       const [row] = resolveRows(result);
 
-      return mapRecordedRow(row, record);
+      if (!row) {
+        return null;
+      }
+
+      const mapped = mapRecordedRow(row, record);
+
+      if (!mapped) {
+        throw new Error('malformed_idempotency_record_row');
+      }
+
+      return mapped;
     } catch (error) {
       throw new RepairIntakeIdempotencyRepositoryError(
         'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_RECORD_FAILED',

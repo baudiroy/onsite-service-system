@@ -154,9 +154,10 @@ test('contract integration find replay success path uses synthetic parameterized
   assert.match(calls[0].sql, /organization_id = \$1/);
   assert.match(calls[0].sql, /operation_type = \$2/);
   assert.match(calls[0].sql, /idempotency_key = \$3/);
-  assert.match(calls[0].sql, /tenant_id = \$4/);
+  assert.match(calls[0].sql, /draft_id = \$4/);
+  assert.match(calls[0].sql, /tenant_id = \$5/);
   assert.equal(calls[0].sql.includes('idem_1180'), false);
-  assert.deepEqual(calls[0].params, ['org_1180', 'draft_to_case', 'idem_1180', 'tenant_1180']);
+  assert.deepEqual(calls[0].params, ['org_1180', 'draft_to_case', 'idem_1180', 'draft_1180', 'tenant_1180']);
 
   assert.deepEqual(result, {
     ok: true,

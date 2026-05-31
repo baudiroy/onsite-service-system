@@ -388,8 +388,15 @@ function createPorts(calls, options = {}) {
 
 function createFullSyntheticApiModule(calls, options = {}) {
   const ports = createPorts(calls, options);
+  const idempotencyStore = {
+    ...ports.idempotencyStore,
+    recordDraftToCaseResult: (input) => ports.idempotencyStore.recordDraftToCaseResult({
+      ...input,
+      safeRequestFingerprint: input.safeRequestFingerprint || 'fingerprint_task1088',
+    }),
+  };
   const idempotencyPort = createRepairIntakeIdempotencyPortAdapter({
-    idempotencyStore: ports.idempotencyStore,
+    idempotencyStore,
   });
   const draftReader = createRepairIntakeDraftReaderPortAdapter({
     draftRepository: ports.draftRepository,

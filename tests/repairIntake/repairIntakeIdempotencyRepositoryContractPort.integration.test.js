@@ -29,6 +29,7 @@ function unsafeLookupInput() {
     organizationId: 'org_task1087',
     tenantId: 'tenant_task1087',
     requestId: 'req_task1087',
+    safeRequestFingerprint: 'fingerprint_task1087',
     actorId: 'actor_task1087',
     actor: {
       actorId: 'actor_task1087',
@@ -307,6 +308,7 @@ test('find no-existing sanitizes lookup through contract before adapter returns 
         organizationId: 'org_task1087',
         tenantId: 'tenant_task1087',
         requestId: 'req_task1087',
+        safeRequestFingerprint: 'fingerprint_task1087',
         metadata: {
           safeKey: 'safe lookup metadata task1087',
         },
@@ -358,6 +360,10 @@ test('record result sanitizes record input and raw repository result before adap
         organizationId: 'org_task1087',
         tenantId: 'tenant_task1087',
         requestId: 'req_task1087',
+        actorId: null,
+        operationType: null,
+        caseId: null,
+        safeRequestFingerprint: 'fingerprint_task1087',
         metadata: {
           safeKey: 'safe lookup metadata task1087',
         },
@@ -421,8 +427,8 @@ test('raw record thrown and rejected errors remain sanitized through contract an
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].name, 'rawRecord');
-    assert.equal(result.reasonCode, 'REPAIR_INTAKE_IDEMPOTENCY_REPOSITORY_CONTRACT_RECORD_FAILED');
-    assert.equal(result.status, 'failed');
+    assert.equal(result.reasonCode, 'REPAIR_INTAKE_IDEMPOTENCY_PORT_ADAPTER_RECORD_FAILED');
+    assert.equal(result.status, 'not_found');
     assert.equal(result.submitted, false);
     assertNoUnsafeText(calls);
     assertNoUnsafeText(result);

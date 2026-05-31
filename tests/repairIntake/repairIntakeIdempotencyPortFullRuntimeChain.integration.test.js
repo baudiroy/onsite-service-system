@@ -485,10 +485,11 @@ test('submit route existing idempotency replay: only idempotency find, no core p
     mountTarget,
     apiModule: createFullInjectedApiModule(calls, {
       idempotencyStoreOptions: {
-        existingResult: {
-          ok: true,
-          submitted: true,
-          draftId: 'draft_task1044',
+          existingResult: {
+            ok: true,
+            submitted: true,
+            idempotencyKey: 'idem_task1044',
+            draftId: 'draft_task1044',
           organizationId: 'org_task1044',
           tenantId: 'tenant_task1044',
           status: 'submitted',

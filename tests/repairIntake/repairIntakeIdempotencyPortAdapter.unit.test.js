@@ -66,6 +66,7 @@ function findStore(calls, options = {}) {
       }
 
       return {
+        idempotencyKey: 'idem_task1042',
         draftId: 'draft_task1042',
         organizationId: 'org_task1042',
         tenantId: 'tenant_task1042',
@@ -127,6 +128,7 @@ function existingResult() {
   return {
     ok: true,
     action: 'repair_intake_draft_to_case_submit',
+    idempotencyKey: 'idem_task1042',
     draftId: 'draft_task1042',
     organizationId: 'org_task1042',
     tenantId: 'tenant_task1042',

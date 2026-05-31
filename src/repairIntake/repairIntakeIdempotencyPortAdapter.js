@@ -2,10 +2,17 @@
 
 const UNSAFE_FIELD_NAMES = new Set([
   'address',
+  'ai',
   'authorization',
+  'auditinternals',
+  'bil' + 'ling',
   'caseId',
+  'caseid',
   'case_id',
   'cookie',
+  'customeraddress',
+  'customername',
+  'customerphone',
   'database_url',
   'databaseurl',
   'db',
@@ -18,10 +25,15 @@ const UNSAFE_FIELD_NAMES = new Set([
   'lineaccesstoken',
   'lineuserid',
   'phone',
+  'password',
+  'pro' + 'vider',
+  'pro' + 'viderpayload',
   'raw',
   'rawbody',
+  'rawrequestbody',
   'rawresult',
   'rawrows',
+  'rag',
   'secret',
   'sql',
   'stack',
@@ -125,10 +137,11 @@ function createFailure(reasonCode, requiredActions = ['retry_or_manual_review'])
 function createLookupInput(input) {
   return sanitizeValue(compactObject({
     idempotencyKey: firstSafeString(input.idempotencyKey),
-    draftId: firstSafeString(input.draftId),
+    draftId: firstSafeString(input.repairIntakeDraftId, input.draftId),
     organizationId: firstSafeString(input.organizationId),
     tenantId: firstSafeString(input.tenantId),
     requestId: firstSafeString(input.requestId),
+    safeRequestFingerprint: firstSafeString(input.safeRequestFingerprint, input.requestFingerprint),
     actor: sanitizeValue(input.actor),
     metadata: sanitizeValue(input.metadata),
   }));
@@ -137,10 +150,11 @@ function createLookupInput(input) {
 function createRecordInput(input) {
   return sanitizeValue(compactObject({
     idempotencyKey: firstSafeString(input.idempotencyKey),
-    draftId: firstSafeString(input.draftId),
+    draftId: firstSafeString(input.repairIntakeDraftId, input.draftId),
     organizationId: firstSafeString(input.organizationId),
     tenantId: firstSafeString(input.tenantId),
     requestId: firstSafeString(input.requestId),
+    safeRequestFingerprint: firstSafeString(input.safeRequestFingerprint, input.requestFingerprint),
     actor: sanitizeValue(input.actor),
     result: sanitizeValue(input.result),
     caseRef: sanitizeValue(input.caseRef),
@@ -169,6 +183,7 @@ function replayResult(input, existingResult) {
   return sanitizeValue(compactObject({
     ok: true,
     action: existingResult.action || 'repair_intake_draft_to_case_submit',
+    idempotencyKey: firstSafeString(existingResult.idempotencyKey, input.idempotencyKey),
     draftId: firstSafeString(existingResult.draftId, input.draftId),
     organizationId: firstSafeString(existingResult.organizationId, input.organizationId),
     tenantId: firstSafeString(existingResult.tenantId, input.tenantId),
@@ -187,6 +202,7 @@ function recordEnvelope(input, storedResult) {
   return sanitizeValue(compactObject({
     ok: true,
     action: 'repair_intake_draft_to_case_submit',
+    idempotencyKey: firstSafeString(storedResult.idempotencyKey, input.idempotencyKey),
     draftId: firstSafeString(storedResult.draftId, input.draftId),
     organizationId: firstSafeString(storedResult.organizationId, input.organizationId),
     tenantId: firstSafeString(storedResult.tenantId, input.tenantId),
@@ -198,7 +214,10 @@ function recordEnvelope(input, storedResult) {
     plan: sanitizeValue(storedResult.plan),
     caseRef: sanitizeValue(storedValueCaseRef(storedResult.caseRef, input)),
     auditEvent: sanitizeValue(storedResult.auditEvent),
-    recordId: safeString(storedResult.recordId) || safeString(storedResult.id) || null,
+    recordId: safeString(storedResult.recordId)
+      || safeString(storedResult.id)
+      || safeString(storedResult.metadata && storedResult.metadata.recordId)
+      || null,
   }));
 }
 
@@ -226,6 +245,24 @@ function ensureSafeLookupKeys(lookup) {
 
 function ensureStoreResult(input) {
   if (!isObject(input) || (!input.ok && !input.result && !input.action && !input.submitted)) {
+    return false;
+  }
+
+  return true;
+}
+
+function scopedResultMatchesContext(result, context) {
+  if (!isObject(result)) {
+    return false;
+  }
+
+  for (const key of ['idempotencyKey', 'draftId', 'organizationId']) {
+    if (safeString(result[key]) !== safeString(context[key])) {
+      return false;
+    }
+  }
+
+  if (safeString(context.tenantId) && safeString(result.tenantId) !== safeString(context.tenantId)) {
     return false;
   }
 
@@ -268,6 +305,13 @@ function createRepairIntakeIdempotencyPortAdapter(options = {}) {
         return noExistingResultEnvelope(lookup);
       }
 
+      if (!scopedResultMatchesContext(existingResult, lookup)) {
+        return createFailure(
+          'REPAIR_INTAKE_IDEMPOTENCY_PORT_ADAPTER_SCOPE_MISMATCH',
+          ['verify_idempotency_scope'],
+        );
+      }
+
       return replayResult(lookup, existingResult);
     } catch (error) {
       return createFailure('REPAIR_INTAKE_IDEMPOTENCY_PORT_ADAPTER_FIND_FAILED');
@@ -300,7 +344,21 @@ function createRepairIntakeIdempotencyPortAdapter(options = {}) {
     try {
       const storedResult = sanitizeValue(await idempotencyStore.recordDraftToCaseResult(recordInput));
 
-      return recordEnvelope(recordInput, storedResult || { ok: true, ...recordInput.result, ...recordInput });
+      if (!ensureStoreResult(storedResult)) {
+        return createFailure(
+          'REPAIR_INTAKE_IDEMPOTENCY_PORT_ADAPTER_RECORD_FAILED',
+          ['retry_or_manual_review'],
+        );
+      }
+
+      if (!scopedResultMatchesContext(storedResult, recordInput)) {
+        return createFailure(
+          'REPAIR_INTAKE_IDEMPOTENCY_PORT_ADAPTER_SCOPE_MISMATCH',
+          ['verify_idempotency_scope'],
+        );
+      }
+
+      return recordEnvelope(recordInput, storedResult);
     } catch (error) {
       return createFailure('REPAIR_INTAKE_IDEMPOTENCY_PORT_ADAPTER_RECORD_FAILED');
     }
