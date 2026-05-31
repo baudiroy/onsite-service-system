@@ -4,6 +4,9 @@ const { requirePermission } = require('../middlewares/requirePermission');
 const {
   createRepairIntakeDraftToCaseInjectedRouteComposition,
 } = require('../repairIntake/repairIntakeDraftToCaseInjectedRouteComposition');
+const {
+  normalizeRepairIntakeDraftToCaseTrustedContext,
+} = require('../repairIntake/repairIntakeDraftToCaseTrustedContextNormalizer');
 
 const REPAIR_INTAKE_DRAFT_TO_CASE_ROUTES_ENABLED_ENV = 'REPAIR_INTAKE_DRAFT_TO_CASE_ROUTES_ENABLED';
 const REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION = 'cases.create';
@@ -162,12 +165,28 @@ function buildAdminRequestLike(req = {}) {
   const requestBody = bodyWithoutServerOwnedContext(body);
   const context = isObject(req.context) ? req.context : {};
   const params = isObject(req.params) ? req.params : {};
-  const resolvedOrganizationId = organizationId(req, body, user);
-  const resolvedTenantId = tenantId(req, body, user);
-  const resolvedRequestId = requestId(req);
-  const resolvedIdempotencyKey = idempotencyKey(req);
-  const resolvedActorId = userId(user);
-  const resolvedDraftId = draftId(params, body);
+  const adminPermissionContext = {
+    canCreateCaseFromRepairIntakeDraft: true,
+    permission: REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION,
+  };
+  const trustedContextResult = normalizeRepairIntakeDraftToCaseTrustedContext({
+    params,
+    user,
+    context,
+    sessionContext: context,
+    permissionContext: adminPermissionContext,
+    tenantId: tenantId(req, body, user),
+    requestId: requestId(req),
+    idempotencyKey: idempotencyKey(req),
+  });
+  const trustedContext = trustedContextResult.ok === true ? trustedContextResult.context : {};
+  const resolvedOrganizationId = trustedContext.organizationId;
+  const resolvedTenantId = trustedContext.tenantId;
+  const resolvedRequestId = trustedContext.requestId;
+  const resolvedIdempotencyKey = trustedContext.idempotencyKey;
+  const resolvedActorId = trustedContext.actorId;
+  const resolvedDraftId = trustedContext.repairIntakeDraftId;
+  const resolvedPermissionContext = trustedContext.permissionContext || adminPermissionContext;
   const normalizedParams = {
     ...params,
     ...(resolvedDraftId ? {
@@ -182,7 +201,6 @@ function buildAdminRequestLike(req = {}) {
     body: {
       ...requestBody,
       permissionContext: {
-        ...(isObject(body.permissionContext) ? body.permissionContext : {}),
         canCreateCaseFromRepairIntakeDraft: true,
       },
     },
@@ -192,10 +210,7 @@ function buildAdminRequestLike(req = {}) {
       tenantId: resolvedTenantId,
       actorId: resolvedActorId,
       requestId: resolvedRequestId,
-      permissionContext: {
-        canCreateCaseFromRepairIntakeDraft: true,
-        permission: REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION,
-      },
+      permissionContext: resolvedPermissionContext,
     },
     actor: {
       id: resolvedActorId,

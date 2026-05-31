@@ -186,15 +186,16 @@ test('admin route builds trusted context from user request context and route par
   ], 'route body context scrubber');
 
   assertIncludesAll(buildAdminRequestLike, [
-    'const resolvedOrganizationId = organizationId(req, body, user)',
-    'const resolvedActorId = userId(user)',
-    'const resolvedRequestId = requestId(req)',
-    'const resolvedDraftId = draftId(params, body)',
-    'canCreateCaseFromRepairIntakeDraft: true',
-    'permission: REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION',
+    'const trustedContextResult = normalizeRepairIntakeDraftToCaseTrustedContext({',
     'organizationId: resolvedOrganizationId',
     'actorId: resolvedActorId',
     'requestId: resolvedRequestId',
+    'const resolvedOrganizationId = trustedContext.organizationId',
+    'const resolvedActorId = trustedContext.actorId',
+    'const resolvedRequestId = trustedContext.requestId',
+    'const resolvedDraftId = trustedContext.repairIntakeDraftId',
+    'canCreateCaseFromRepairIntakeDraft: true',
+    'permission: REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION',
   ], 'route admin request builder');
 
   assert.equal(/resolvedOrganizationId\s*=.*body\.organizationId/.test(buildAdminRequestLike), false);

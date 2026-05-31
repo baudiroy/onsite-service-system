@@ -140,12 +140,20 @@ test('route file contains buildAdminRequestLike and body context stripping marke
 
   assertIncludesAll(buildAdminRequestLike, [
     'const requestBody = bodyWithoutServerOwnedContext(body)',
-    'const resolvedOrganizationId = organizationId(req, body, user)',
-    'const resolvedTenantId = tenantId(req, body, user)',
-    'const resolvedRequestId = requestId(req)',
-    'const resolvedIdempotencyKey = idempotencyKey(req)',
-    'const resolvedActorId = userId(user)',
-    'const resolvedDraftId = draftId(params, body)',
+    'const trustedContextResult = normalizeRepairIntakeDraftToCaseTrustedContext({',
+    'params,',
+    'user,',
+    'context,',
+    'sessionContext: context',
+    'tenantId: tenantId(req, body, user)',
+    'requestId: requestId(req)',
+    'idempotencyKey: idempotencyKey(req)',
+    'const resolvedOrganizationId = trustedContext.organizationId',
+    'const resolvedTenantId = trustedContext.tenantId',
+    'const resolvedRequestId = trustedContext.requestId',
+    'const resolvedIdempotencyKey = trustedContext.idempotencyKey',
+    'const resolvedActorId = trustedContext.actorId',
+    'const resolvedDraftId = trustedContext.repairIntakeDraftId',
   ], 'route request-like builder markers');
 
   assertIncludesAll(bodyWithoutServerOwnedContext, [
@@ -161,10 +169,10 @@ test('route file contains buildAdminRequestLike and body context stripping marke
   ], 'route body stripping markers');
 });
 
-test('pure helper exists but remains unwired into route API controller and application modules', () => {
+test('pure helper exists and is wired only into route request-like construction', () => {
   const helperSource = read(SOURCE_PATHS.helper);
-  const runtimeSource = [
-    SOURCE_PATHS.route,
+  const routeSource = read(SOURCE_PATHS.route);
+  const downstreamSource = [
     SOURCE_PATHS.apiModule,
     SOURCE_PATHS.controllerAdapter,
     SOURCE_PATHS.applicationService,
@@ -178,10 +186,16 @@ test('pure helper exists but remains unwired into route API controller and appli
     'normalizeRepairIntakeDraftToCaseTrustedContext',
   ], 'pure helper');
 
-  assertExcludesAll(runtimeSource, [
+  assertIncludesAll(routeSource, [
+    "require('../repairIntake/repairIntakeDraftToCaseTrustedContextNormalizer')",
+    'normalizeRepairIntakeDraftToCaseTrustedContext({',
+    'const trustedContext = trustedContextResult.ok === true ? trustedContextResult.context : {}',
+  ], 'authorized route helper wiring');
+
+  assertExcludesAll(downstreamSource, [
     'repairIntakeDraftToCaseTrustedContextNormalizer',
     'normalizeRepairIntakeDraftToCaseTrustedContext',
-  ], 'runtime helper wiring');
+  ], 'downstream helper wiring');
 });
 
 test('Task2349 design names exactly one future wiring file boundary and adapter shape', () => {

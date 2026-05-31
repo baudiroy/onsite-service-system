@@ -127,10 +127,10 @@ test('Task2348 static guard reads current source test and doc artifacts only', (
   ]);
 });
 
-test('pure helper exists and remains unwired from route API controller and application modules', () => {
+test('pure helper exists and is wired only into the authorized route boundary', () => {
   const helperSource = read(SOURCE_PATHS.helper);
-  const runtimeSources = [
-    SOURCE_PATHS.route,
+  const routeSource = read(SOURCE_PATHS.route);
+  const downstreamSources = [
     SOURCE_PATHS.apiModule,
     SOURCE_PATHS.controllerAdapter,
     SOURCE_PATHS.applicationService,
@@ -144,10 +144,16 @@ test('pure helper exists and remains unwired from route API controller and appli
     'normalizeRepairIntakeDraftToCaseTrustedContext',
   ], 'pure helper source');
 
-  assertExcludesAll(runtimeSources, [
+  assertIncludesAll(routeSource, [
+    "require('../repairIntake/repairIntakeDraftToCaseTrustedContextNormalizer')",
+    'normalizeRepairIntakeDraftToCaseTrustedContext({',
+    'const trustedContext = trustedContextResult.ok === true ? trustedContextResult.context : {}',
+  ], 'authorized route helper wiring');
+
+  assertExcludesAll(downstreamSources, [
     'repairIntakeDraftToCaseTrustedContextNormalizer',
     'normalizeRepairIntakeDraftToCaseTrustedContext',
-  ], 'runtime helper wiring');
+  ], 'downstream helper wiring');
 });
 
 test('decision gate recommends exactly the route request-like construction boundary', () => {
@@ -197,12 +203,20 @@ test('route remains admin injected permission gated and strips body context at r
 
   assertIncludesAll(buildAdminRequestLike, [
     'const requestBody = bodyWithoutServerOwnedContext(body)',
-    'const resolvedOrganizationId = organizationId(req, body, user)',
-    'const resolvedTenantId = tenantId(req, body, user)',
-    'const resolvedRequestId = requestId(req)',
-    'const resolvedIdempotencyKey = idempotencyKey(req)',
-    'const resolvedActorId = userId(user)',
-    'const resolvedDraftId = draftId(params, body)',
+    'const trustedContextResult = normalizeRepairIntakeDraftToCaseTrustedContext({',
+    'params,',
+    'user,',
+    'context,',
+    'sessionContext: context',
+    'tenantId: tenantId(req, body, user)',
+    'requestId: requestId(req)',
+    'idempotencyKey: idempotencyKey(req)',
+    'const resolvedOrganizationId = trustedContext.organizationId',
+    'const resolvedTenantId = trustedContext.tenantId',
+    'const resolvedRequestId = trustedContext.requestId',
+    'const resolvedIdempotencyKey = trustedContext.idempotencyKey',
+    'const resolvedActorId = trustedContext.actorId',
+    'const resolvedDraftId = trustedContext.repairIntakeDraftId',
     'permission: REPAIR_INTAKE_DRAFT_TO_CASE_ADMIN_PERMISSION',
   ], 'route request-like construction markers');
 

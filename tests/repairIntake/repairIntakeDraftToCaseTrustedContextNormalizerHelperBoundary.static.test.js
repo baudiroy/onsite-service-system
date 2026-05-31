@@ -92,13 +92,23 @@ test('Task2347 helper boundary artifacts are scoped to pure helper and tests', (
   ], 'pure helper source');
 });
 
-test('pure helper is not wired into existing runtime route API controller or application paths', () => {
-  const runtimeSource = RUNTIME_SOURCE_PATHS.map(read).join('\n');
+test('pure helper is wired only at the authorized route request-like boundary', () => {
+  const routeSource = read('src/routes/repairIntakeDraftToCase.routes.js');
+  const downstreamSource = RUNTIME_SOURCE_PATHS
+    .filter((relativePath) => relativePath !== 'src/routes/repairIntakeDraftToCase.routes.js')
+    .map(read)
+    .join('\n');
 
-  assertExcludesAll(runtimeSource, [
+  assertIncludesAll(routeSource, [
+    "require('../repairIntake/repairIntakeDraftToCaseTrustedContextNormalizer')",
+    'normalizeRepairIntakeDraftToCaseTrustedContext({',
+    'const trustedContext = trustedContextResult.ok === true ? trustedContextResult.context : {}',
+  ], 'authorized route request-like helper wiring');
+
+  assertExcludesAll(downstreamSource, [
     'repairIntakeDraftToCaseTrustedContextNormalizer',
     'normalizeRepairIntakeDraftToCaseTrustedContext',
-  ], 'runtime source wiring');
+  ], 'downstream runtime source wiring');
 });
 
 test('helper boundary keeps no public route package DB smoke or provider coupling', () => {
