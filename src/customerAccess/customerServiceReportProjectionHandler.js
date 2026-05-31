@@ -9,6 +9,10 @@ const {
   buildCustomerServiceReportSafeDenyEnvelope,
   buildCustomerServiceReportSafeEnvelope,
 } = require('./customerServiceReportSafeEnvelopePresenter');
+const {
+  buildCustomerAccessResolverDecision,
+  buildCustomerAccessResolverDenyDecision,
+} = require('./customerAccessResolverDecisionHelper');
 
 const SAFE_DENY_MESSAGE_KEY = 'customerAccess.unavailable';
 const ALLOW_MESSAGE_KEY = 'customerAccess.serviceReport.available';
@@ -90,9 +94,12 @@ function booleanValue(...values) {
 
 function safeDenyEnvelope() {
   const safeReportDenyEnvelope = buildCustomerServiceReportSafeDenyEnvelope();
-  const messageKey = safeReportDenyEnvelope.status === 'deny' &&
+  const resolverDenyDecision = buildCustomerAccessResolverDenyDecision();
+  const messageKey = resolverDenyDecision.status === 'deny' &&
+    resolverDenyDecision.messageKey === SAFE_DENY_MESSAGE_KEY &&
+    safeReportDenyEnvelope.status === 'deny' &&
     safeReportDenyEnvelope.messageKey === SAFE_DENY_MESSAGE_KEY
-    ? safeReportDenyEnvelope.messageKey
+    ? resolverDenyDecision.messageKey
     : SAFE_DENY_MESSAGE_KEY;
 
   return {
@@ -207,7 +214,18 @@ function isAllowEnvelopeCandidate(serviceResult) {
     hasOnlyAllowedKeys(serviceResult.data, ['serviceReport']);
 }
 
-function safeHttpEnvelopeFromServiceResult(serviceResult) {
+function resolverDecisionFromServiceResult({ serviceResult, customerAccessContext }) {
+  if (!isAllowEnvelopeCandidate(serviceResult) && !isSafeAllowEnvelope(serviceResult)) {
+    return buildCustomerAccessResolverDenyDecision();
+  }
+
+  return buildCustomerAccessResolverDecision({
+    customerAccessContext,
+    projection: serviceResult.data.serviceReport,
+  });
+}
+
+function safeHttpEnvelopeFromServiceResult(serviceResult, customerAccessContext) {
   if (
     !isPlainObject(serviceResult) ||
     isThenable(serviceResult) ||
@@ -221,7 +239,23 @@ function safeHttpEnvelopeFromServiceResult(serviceResult) {
   }
 
   if (isSafeAllowEnvelope(serviceResult) || isAllowEnvelopeCandidate(serviceResult)) {
-    const safeReportEnvelope = buildCustomerServiceReportSafeEnvelope(serviceResult);
+    const resolverDecision = resolverDecisionFromServiceResult({
+      serviceResult,
+      customerAccessContext,
+    });
+
+    if (resolverDecision.allowed !== true || !isPlainObject(resolverDecision.projection)) {
+      return safeDenyEnvelope();
+    }
+
+    const safeReportEnvelope = buildCustomerServiceReportSafeEnvelope({
+      status: serviceResult.status,
+      messageKey: serviceResult.messageKey,
+      customerVisible: serviceResult.customerVisible,
+      data: {
+        serviceReport: resolverDecision.projection,
+      },
+    });
     const serviceReport = serviceReportFromSafeEnvelope(safeReportEnvelope);
 
     if (!serviceReport) {
@@ -337,6 +371,7 @@ async function handleCustomerServiceReportProjectionRequest(options = {}) {
     };
   }
 
+  const request = isObject(options.request) ? options.request : {};
   const serviceInput = buildProjectionServiceInput(options);
 
   if (!serviceInput) {
@@ -353,7 +388,7 @@ async function handleCustomerServiceReportProjectionRequest(options = {}) {
 
   try {
     const serviceResult = await invokeProjectionService(projectionService, serviceInput);
-    envelope = safeHttpEnvelopeFromServiceResult(serviceResult);
+    envelope = safeHttpEnvelopeFromServiceResult(serviceResult, request.customerAccessContext);
   } catch (_error) {
     envelope = safeDenyEnvelope();
   }

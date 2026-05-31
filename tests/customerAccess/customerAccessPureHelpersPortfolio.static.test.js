@@ -218,7 +218,7 @@ test('helper unit and boundary tests keep raw private internal non-exposure and 
   assert.match(resolverDecisionBoundary, /helper copies output into new allowlisted objects and unit tests keep immutability coverage/);
 });
 
-test('current runtime source files only wire the service-report safe envelope presenter into projection handler', () => {
+test('current runtime source files only wire accepted pure helpers into projection handler', () => {
   const resolverHelperPatterns = [
     /customerAccessResolverDecisionHelper/,
     /buildCustomerAccessResolverDecision/,
@@ -234,7 +234,11 @@ test('current runtime source files only wire the service-report safe envelope pr
     const source = read(file);
 
     for (const pattern of resolverHelperPatterns) {
-      assert.doesNotMatch(source, pattern, `${file} should not import or call resolver decision helpers`);
+      if (file === 'src/customerAccess/customerServiceReportProjectionHandler.js') {
+        assert.match(source, pattern, `${file} should keep accepted resolver decision helper wiring`);
+      } else if (file !== 'src/customerAccess/customerAccessResolverDecisionHelper.js') {
+        assert.doesNotMatch(source, pattern, `${file} should not import or call resolver decision helpers`);
+      }
     }
 
     for (const pattern of serviceReportPresenterPatterns) {

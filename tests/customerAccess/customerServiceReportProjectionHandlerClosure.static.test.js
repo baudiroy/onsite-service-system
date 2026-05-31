@@ -40,12 +40,15 @@ test('handler delegates to Task908 service and imports no forbidden runtime depe
     './customerAccessAuditEventBuilder',
     './customerAccessAuditWriterAdapter',
     './customerServiceReportSafeEnvelopePresenter',
+    './customerAccessResolverDecisionHelper',
   ]);
   assert.match(source, /getCustomerServiceReportProjection/);
   assert.match(source, /buildCustomerAccessAuditEvent/);
   assert.match(source, /writeCustomerAccessAuditEvent/);
   assert.match(source, /buildCustomerServiceReportSafeEnvelope/);
   assert.match(source, /buildCustomerServiceReportSafeDenyEnvelope/);
+  assert.match(source, /buildCustomerAccessResolverDecision/);
+  assert.match(source, /buildCustomerAccessResolverDenyDecision/);
   for (const specifier of requireSpecifiers(source)) {
     assert.doesNotMatch(specifier, /(routes|controllers|app|server|Repository|transaction|provider|OpenAI|RAG|billing|settlement|migration|smoke|config|logger)/i);
     assert.doesNotMatch(specifier, /(?:^|\/|-)env(?:$|\/|-)/i);

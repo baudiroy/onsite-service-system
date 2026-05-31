@@ -81,8 +81,11 @@ test('safeHttpEnvelopeFromServiceResult routes allowed reports through safe pres
   const handler = read(FILES.handler);
   const safeHttpEnvelopeFromServiceResult = functionBlock(handler, 'safeHttpEnvelopeFromServiceResult');
 
-  assert.match(safeHttpEnvelopeFromServiceResult, /function safeHttpEnvelopeFromServiceResult\(serviceResult\)/);
-  assert.match(safeHttpEnvelopeFromServiceResult, /buildCustomerServiceReportSafeEnvelope\(serviceResult\)/);
+  assert.match(safeHttpEnvelopeFromServiceResult, /function safeHttpEnvelopeFromServiceResult\(serviceResult, customerAccessContext\)/);
+  assert.match(safeHttpEnvelopeFromServiceResult, /resolverDecisionFromServiceResult\(\{\s*serviceResult,\s*customerAccessContext,\s*\}\)/);
+  assert.match(safeHttpEnvelopeFromServiceResult, /resolverDecision\.allowed !== true/);
+  assert.match(safeHttpEnvelopeFromServiceResult, /serviceReport:\s*resolverDecision\.projection/);
+  assert.match(safeHttpEnvelopeFromServiceResult, /buildCustomerServiceReportSafeEnvelope\(\{/);
   assert.match(safeHttpEnvelopeFromServiceResult, /serviceReportFromSafeEnvelope\(safeReportEnvelope\)/);
   assert.match(safeHttpEnvelopeFromServiceResult, /status:\s*'allow'/);
   assert.match(safeHttpEnvelopeFromServiceResult, /messageKey:\s*ALLOW_MESSAGE_KEY/);
