@@ -122,7 +122,7 @@ test('repository contract helper remains unwired and route write scope remains b
   ], 'Task2399 route write-scope block');
 });
 
-test('only PM-authorized Task2403 migration and no dedicated repository implementation were added', () => {
+test('only PM-authorized Task2403 migration and Task2407 repository adapter implementation were added', () => {
   const depotWorkshopMigrations = migrationFiles().filter((fileName) => (
     /depot|workshop|repair_order|repair_orders|work_order|work_orders/i.test(fileName)
   ));
@@ -131,7 +131,7 @@ test('only PM-authorized Task2403 migration and no dedicated repository implemen
   ));
 
   assert.deepEqual(depotWorkshopMigrations, ['028_create_depot_workshop_repair_orders.sql']);
-  assert.deepEqual(repositoryImplementations, []);
+  assert.deepEqual(repositoryImplementations, ['DepotWorkshopRepairOrderSqlRepositoryAdapter.js']);
 });
 
 test('pure write command helper remains the upstream command source', () => {

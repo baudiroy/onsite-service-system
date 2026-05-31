@@ -34,7 +34,7 @@ function assertDoesNotMatchAny(source, patterns, label) {
   }
 }
 
-test('Task2406 design packet context artifacts exist and future adapter is not implemented', () => {
+test('Task2406 design context exists and Task2407 adapter implementation is the only allowed future adapter file', () => {
   for (const relativePath of [
     TASK2406_DOC,
     MIGRATION_028,
@@ -45,11 +45,7 @@ test('Task2406 design packet context artifacts exist and future adapter is not i
     assert.equal(fs.existsSync(projectPath(relativePath)), true, `${relativePath} should exist`);
   }
 
-  assert.equal(
-    fs.existsSync(projectPath(FUTURE_ADAPTER_FILE)),
-    false,
-    'Task2406 must not add the future repository adapter implementation file',
-  );
+  assert.equal(fs.existsSync(projectPath(FUTURE_ADAPTER_FILE)), true);
 });
 
 test('design packet documents future adapter file factory dependency input output and table', () => {
