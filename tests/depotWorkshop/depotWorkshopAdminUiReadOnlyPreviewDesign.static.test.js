@@ -13,6 +13,7 @@ const ROUTE_FILE = 'src/routes/depotRepair.routes.js';
 const SERVICE_FILE = 'src/services/WorkshopAssignmentService.js';
 const PRESENTER_FILE = 'src/depotWorkshop/depotWorkshopAssignmentIntentResponsePresenter.js';
 const ADMIN_PREVIEW_API_CLIENT_FILE = 'admin/src/api/depotWorkshop.ts';
+const ADMIN_PREVIEW_PAGE_FILE = 'admin/src/pages/DepotWorkshopAssignmentIntentPreviewPage.tsx';
 
 function projectPath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -69,22 +70,30 @@ test('Task2422 inventory and Task2423 design packet exist', () => {
     'admin/src/config/menu.ts',
     'admin/src/lib/apiClient.ts',
     ADMIN_PREVIEW_API_CLIENT_FILE,
+    ADMIN_PREVIEW_PAGE_FILE,
   ]) {
     assert.equal(fs.existsSync(projectPath(relativePath)), true, `${relativePath} should exist`);
   }
 });
 
-test('Task2423 design is aligned with accepted Task2426 read-only API client only', () => {
+test('Task2423 design is aligned with accepted API client and unmounted read-only page only', () => {
   const adminSourceFiles = listFiles('admin/src');
   const adminSourceWithoutAcceptedClient = readAll(
-    adminSourceFiles.filter((relativePath) => relativePath !== ADMIN_PREVIEW_API_CLIENT_FILE),
+    adminSourceFiles.filter((relativePath) => ![ADMIN_PREVIEW_API_CLIENT_FILE, ADMIN_PREVIEW_PAGE_FILE].includes(relativePath)),
   );
   const apiClient = read(ADMIN_PREVIEW_API_CLIENT_FILE);
+  const previewPage = read(ADMIN_PREVIEW_PAGE_FILE);
 
   assert.equal(
     adminSourceFiles.includes(ADMIN_PREVIEW_API_CLIENT_FILE),
     true,
     'Task2426 accepted admin preview API client should exist',
+  );
+
+  assert.equal(
+    adminSourceFiles.includes(ADMIN_PREVIEW_PAGE_FILE),
+    true,
+    'Task2430 accepted unmounted admin preview page should exist',
   );
 
   assertIncludesAll(apiClient, [
@@ -97,7 +106,19 @@ test('Task2423 design is aligned with accepted Task2426 read-only API client onl
     'written?: false',
   ], 'Task2426 accepted read-only API client');
 
-  assertDoesNotMatchAny(adminSourceFiles.filter((relativePath) => relativePath !== ADMIN_PREVIEW_API_CLIENT_FILE).join('\n'), [
+  assertIncludesAll(previewPage, [
+    'DepotWorkshopAssignmentIntentPreviewPage',
+    'previewDepotWorkshopAssignmentIntent',
+    'repairOrderDraftSummary',
+    'repairOrderTransitionPlanSummary',
+    'repairOrderAuditIntentSummary',
+    'repairOrderCustomerProjectionPreview',
+    'Route write scope is blocked by depot_repair_route_write_scope_not_approved.',
+    'DB dry-run has not been completed.',
+    'Write action is not available from this preview.',
+  ], 'Task2430 accepted unmounted page');
+
+  assertDoesNotMatchAny(adminSourceFiles.filter((relativePath) => ![ADMIN_PREVIEW_API_CLIENT_FILE, ADMIN_PREVIEW_PAGE_FILE].includes(relativePath)).join('\n'), [
     /DepotWorkshopAssignmentIntentPreviewPage/,
     /DepotWorkshopAssignmentIntentPreviewPanel/,
     /depot-workshop/i,
@@ -121,6 +142,13 @@ test('Task2423 design is aligned with accepted Task2426 read-only API client onl
     /formal Field Service Report/i,
     /finalAppointmentId/i,
   ], 'Task2426 accepted API client forbidden write/report source');
+
+  assertDoesNotMatchAny(previewPage, [
+    /writePreparedAssignmentIntent/,
+    /enabledWriteAction/i,
+    /finalAppointmentId/,
+    /JSON\.stringify/,
+  ], 'Task2430 accepted page forbidden write/report source');
 });
 
 test('route remains prepare-only and writePreparedAssignmentIntent is not route-wired', () => {

@@ -14,6 +14,7 @@ const PRESENTER_FILE = 'src/depotWorkshop/depotWorkshopAssignmentIntentResponseP
 const TASK2414_DOC = 'docs/task-2414-depot-workshop-migration-028-disposable-db-dry-run-authorization-branch-closure-no-runtime-change-no-db-execution-no-migration-apply-no-provider-no-package.md';
 const TASK2421_DOC = 'docs/task-2421-depot-workshop-runtime-write-readiness-final-checkpoint-no-runtime-change-no-real-db-no-migration-apply-no-provider-no-package.md';
 const ADMIN_PREVIEW_API_CLIENT_FILE = 'admin/src/api/depotWorkshop.ts';
+const ADMIN_PREVIEW_PAGE_FILE = 'admin/src/pages/DepotWorkshopAssignmentIntentPreviewPage.tsx';
 
 function projectPath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -71,6 +72,7 @@ test('Task2422 inventory doc admin source and context artifacts exist', () => {
     'admin/src/config/menu.ts',
     'admin/src/lib/apiClient.ts',
     ADMIN_PREVIEW_API_CLIENT_FILE,
+    ADMIN_PREVIEW_PAGE_FILE,
   ]) {
     assert.equal(fs.existsSync(projectPath(relativePath)), true, `${relativePath} should exist`);
   }
@@ -79,12 +81,13 @@ test('Task2422 inventory doc admin source and context artifacts exist', () => {
   assert.equal(fs.existsSync(projectPath('admin/src')), true, 'admin/src should exist');
 });
 
-test('admin source has accepted Depot Workshop API client but no dedicated UI or menu yet', () => {
+test('admin source has accepted Depot Workshop API client and unmounted page but no menu yet', () => {
   const adminSourceFiles = listFiles('admin/src');
   const adminSourceWithoutAcceptedClient = readAll(
-    adminSourceFiles.filter((relativePath) => relativePath !== ADMIN_PREVIEW_API_CLIENT_FILE),
+    adminSourceFiles.filter((relativePath) => ![ADMIN_PREVIEW_API_CLIENT_FILE, ADMIN_PREVIEW_PAGE_FILE].includes(relativePath)),
   );
   const apiClient = read(ADMIN_PREVIEW_API_CLIENT_FILE);
+  const previewPage = read(ADMIN_PREVIEW_PAGE_FILE);
 
   assertIncludesAll(adminSourceFiles.join('\n'), [
     'admin/src/App.tsx',
@@ -93,6 +96,7 @@ test('admin source has accepted Depot Workshop API client but no dedicated UI or
     'admin/src/api/caseDispatch.ts',
     'admin/src/api/fieldServiceReports.ts',
     ADMIN_PREVIEW_API_CLIENT_FILE,
+    ADMIN_PREVIEW_PAGE_FILE,
     'admin/src/pages/CaseManagementPage.tsx',
   ], 'Task2422 admin source inventory');
 
@@ -106,7 +110,19 @@ test('admin source has accepted Depot Workshop API client but no dedicated UI or
     'written?: false',
   ], 'Task2426 accepted read-only API client');
 
-  assertDoesNotMatchAny(adminSourceFiles.filter((relativePath) => relativePath !== ADMIN_PREVIEW_API_CLIENT_FILE).join('\n'), [
+  assertIncludesAll(previewPage, [
+    'DepotWorkshopAssignmentIntentPreviewPage',
+    'previewDepotWorkshopAssignmentIntent',
+    'repairOrderDraftSummary',
+    'repairOrderTransitionPlanSummary',
+    'repairOrderAuditIntentSummary',
+    'repairOrderCustomerProjectionPreview',
+    'Route write scope is blocked by depot_repair_route_write_scope_not_approved.',
+    'DB dry-run has not been completed.',
+    'Write action is not available from this preview.',
+  ], 'Task2430 accepted unmounted page');
+
+  assertDoesNotMatchAny(adminSourceFiles.filter((relativePath) => ![ADMIN_PREVIEW_API_CLIENT_FILE, ADMIN_PREVIEW_PAGE_FILE].includes(relativePath)).join('\n'), [
     /depot/i,
     /workshop/i,
     /repairOrder/i,
@@ -130,6 +146,13 @@ test('admin source has accepted Depot Workshop API client but no dedicated UI or
     /formal Field Service Report/i,
     /finalAppointmentId/i,
   ], 'Task2426 accepted API client forbidden write/report source');
+
+  assertDoesNotMatchAny(previewPage, [
+    /writePreparedAssignmentIntent/,
+    /enabledWriteAction/i,
+    /finalAppointmentId/,
+    /JSON\.stringify/,
+  ], 'Task2430 accepted page forbidden write/report source');
 });
 
 test('backend route remains prepare-only and write method not route-wired', () => {

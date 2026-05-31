@@ -12,6 +12,7 @@ const TASK2426_DOC = 'docs/task-2426-depot-workshop-admin-api-client-read-only-p
 const ROUTE_FILE = 'src/routes/depotRepair.routes.js';
 const SERVICE_FILE = 'src/services/WorkshopAssignmentService.js';
 const PRESENTER_FILE = 'src/depotWorkshop/depotWorkshopAssignmentIntentResponsePresenter.js';
+const ADMIN_PAGE_FILE = 'admin/src/pages/DepotWorkshopAssignmentIntentPreviewPage.tsx';
 const ADMIN_APP_FILE = 'admin/src/App.tsx';
 const ADMIN_MENU_FILE = 'admin/src/config/menu.ts';
 const ADMIN_PACKAGE_FILE = 'admin/package.json';
@@ -44,6 +45,7 @@ test('Task2426 API client doc source route service and presenter artifacts exist
     ROUTE_FILE,
     SERVICE_FILE,
     PRESENTER_FILE,
+    ADMIN_PAGE_FILE,
     ADMIN_APP_FILE,
     ADMIN_MENU_FILE,
     ADMIN_PACKAGE_FILE,
@@ -110,18 +112,38 @@ test('API client introduces no write action naming and does not reference servic
   ], 'Task2426 forbidden write naming');
 });
 
-test('UI page menu route and package dependencies are not added', () => {
+test('accepted UI page remains unmounted and package dependencies are not added', () => {
+  const page = read(ADMIN_PAGE_FILE);
   const app = read(ADMIN_APP_FILE);
   const menu = read(ADMIN_MENU_FILE);
   const adminPackage = read(ADMIN_PACKAGE_FILE);
   const rootPackage = read(ROOT_PACKAGE_FILE);
+
+  assertIncludesAll(page, [
+    'DepotWorkshopAssignmentIntentPreviewPage',
+    'previewDepotWorkshopAssignmentIntent',
+    'repairOrderDraftSummary',
+    'repairOrderTransitionPlanSummary',
+    'repairOrderAuditIntentSummary',
+    'repairOrderCustomerProjectionPreview',
+    'Route write scope is blocked by depot_repair_route_write_scope_not_approved.',
+    'DB dry-run has not been completed.',
+    'Write action is not available from this preview.',
+  ], 'Task2430 accepted unmounted UI page');
+
+  assertDoesNotMatchAny(page, [
+    /writePreparedAssignmentIntent/,
+    /enabledWriteAction/i,
+    /finalAppointmentId/,
+    /JSON\.stringify/,
+  ], 'Task2430 accepted UI page forbidden behavior');
 
   assertDoesNotMatchAny(`${app}\n${menu}`, [
     /DepotWorkshopAssignmentIntentPreviewPage/,
     /DepotWorkshopAssignmentIntentPreviewPanel/,
     /\/depot-workshop\/assignment-intent-preview/,
     /depotWorkshop/i,
-  ], 'Task2426 admin UI menu route');
+  ], 'Task2430 admin UI menu route');
 
   assertDoesNotMatchAny(`${adminPackage}\n${rootPackage}`, [
     /depotWorkshop/i,

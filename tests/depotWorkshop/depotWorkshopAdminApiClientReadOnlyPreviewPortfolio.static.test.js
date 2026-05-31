@@ -8,6 +8,7 @@ const test = require('node:test');
 const repoRoot = path.resolve(__dirname, '../..');
 
 const CLIENT_FILE = 'admin/src/api/depotWorkshop.ts';
+const ADMIN_PAGE_FILE = 'admin/src/pages/DepotWorkshopAssignmentIntentPreviewPage.tsx';
 const TASK2422_DOC = 'docs/task-2422-depot-workshop-admin-ui-boundary-inventory-no-runtime-change-no-db-no-provider-no-package.md';
 const TASK2423_DOC = 'docs/task-2423-depot-workshop-admin-ui-read-only-preview-design-packet-no-runtime-change-no-db-no-provider-no-package.md';
 const TASK2424_DOC = 'docs/task-2424-depot-workshop-admin-ui-read-only-preview-design-portfolio-guard-no-runtime-change-no-db-no-provider-no-package.md';
@@ -75,6 +76,7 @@ function assertDoesNotMatchAny(source, patterns, label) {
 test('Task2426 through Task2428 API client portfolio artifacts exist', () => {
   for (const relativePath of [
     CLIENT_FILE,
+    ADMIN_PAGE_FILE,
     TASK2422_DOC,
     TASK2423_DOC,
     TASK2424_DOC,
@@ -162,9 +164,12 @@ test('accepted API client has no write function naming or service write referenc
   ], 'Task2428 forbidden API client write naming');
 });
 
-test('admin UI page menu route package and extra Depot Workshop clients remain absent', () => {
+test('accepted admin UI page remains unmounted and extra Depot Workshop clients remain absent', () => {
   const adminSourceFiles = listFiles('admin/src');
-  const nonClientAdminSource = readAll(adminSourceFiles.filter((relativePath) => relativePath !== CLIENT_FILE));
+  const page = read(ADMIN_PAGE_FILE);
+  const nonAcceptedAdminSource = readAll(
+    adminSourceFiles.filter((relativePath) => ![CLIENT_FILE, ADMIN_PAGE_FILE].includes(relativePath)),
+  );
   const appMenuAndPackages = [
     read(ADMIN_APP_FILE),
     read(ADMIN_MENU_FILE),
@@ -178,14 +183,39 @@ test('admin UI page menu route package and extra Depot Workshop clients remain a
     'Task2428 should allow only the accepted depotWorkshop API client file',
   );
 
-  assertDoesNotMatchAny(nonClientAdminSource, [
+  assert.equal(
+    adminSourceFiles.filter((relativePath) => /DepotWorkshopAssignmentIntentPreviewPage\.tsx$/.test(relativePath)).length,
+    1,
+    'Task2430 should allow only the accepted unmounted preview page file',
+  );
+
+  assertIncludesAll(page, [
+    'DepotWorkshopAssignmentIntentPreviewPage',
+    'previewDepotWorkshopAssignmentIntent',
+    'repairOrderDraftSummary',
+    'repairOrderTransitionPlanSummary',
+    'repairOrderAuditIntentSummary',
+    'repairOrderCustomerProjectionPreview',
+    'Route write scope is blocked by depot_repair_route_write_scope_not_approved.',
+    'DB dry-run has not been completed.',
+    'Write action is not available from this preview.',
+  ], 'Task2430 accepted unmounted page');
+
+  assertDoesNotMatchAny(page, [
+    /writePreparedAssignmentIntent/,
+    /enabledWriteAction/i,
+    /finalAppointmentId/,
+    /JSON\.stringify/,
+  ], 'Task2430 accepted UI page forbidden behavior');
+
+  assertDoesNotMatchAny(nonAcceptedAdminSource, [
     /DepotWorkshopAssignmentIntentPreviewPage/,
     /DepotWorkshopAssignmentIntentPreviewPanel/,
     /\/depot-workshop\/assignment-intent-preview/,
     /previewDepotWorkshopAssignmentIntent/,
     /writePreparedAssignmentIntent/,
     /enabledWriteAction/i,
-  ], 'Task2428 admin UI/menu source');
+  ], 'Task2430 admin UI/menu source');
 
   assertDoesNotMatchAny(appMenuAndPackages, [
     /DepotWorkshopAssignmentIntentPreviewPage/,
