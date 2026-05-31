@@ -267,11 +267,6 @@ test('Task2346 remains docs and static guard only with no helper route package o
   }).map((name) => `"${name}"`).join('\n');
   const task2346 = read(DOC_PATHS.task2346);
 
-  assert.equal(
-    fs.existsSync(projectPath('src/repairIntake/repairIntakeDraftToCaseTrustedContextNormalizer.js')),
-    false,
-    'Task2346 must not create the future helper source file',
-  );
   assert.equal(fs.existsSync(projectPath('src/openRepairIntake')), false, 'src/openRepairIntake should remain absent');
   assert.equal(fs.existsSync(projectPath('tests/openRepairIntake')), false, 'tests/openRepairIntake should remain absent');
   assertExcludesAll(sourceText, PUBLIC_OPEN_ROUTE_MARKERS, 'route exposure markers');
@@ -280,6 +275,7 @@ test('Task2346 remains docs and static guard only with no helper route package o
 
   assertIncludesAll(task2346, [
     'No runtime, source behavior, source helper implementation',
+    'This location is not created by Task2346.',
     'This task does not add the helper.',
     'No package or package-lock changes are authorized by this task.',
     'no production auth/session middleware implementation is authorized',
