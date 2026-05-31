@@ -21,28 +21,44 @@ const SAFE_FIELD_NAMES = new Set([
 const UNSAFE_FIELD_NAMES = new Set([
   'address',
   'authorization',
+  'billingPayload',
+  'body',
+  'client',
+  'clientSecret',
   'cookie',
+  'customerData',
   'customerName',
   'customerPhone',
+  'databaseError',
   'databaseUrl',
   'DATABASE_URL',
   'db',
+  'draftInput',
   'error',
   'finalAppointmentId',
   'headers',
   'lineAccessToken',
   'lineUserId',
   'paramsSql',
+  'password',
   'phone',
+  'providerPayload',
   'query',
   'raw',
+  'rawBody',
   'rawDraft',
+  'rawInput',
   'rawPlan',
+  'rawRepositoryResult',
   'rawRow',
   'rawRows',
+  'rawServicePayload',
   'repository',
+  'requestBody',
+  'secret',
   'sql',
   'stack',
+  'token',
   'connection',
 ]);
 
@@ -151,14 +167,22 @@ function firstSafeString(...values) {
   return null;
 }
 
-function failureEnvelope(reasonCode, requiredActions = ['retry_or_manual_review']) {
+function failureEnvelope(reasonCode, requiredActions = ['retry_or_manual_review'], input = {}) {
+  const fields = isPlainObject(input) ? sanitizeContractFields(input) : {};
+  const draft = isPlainObject(fields.draft) ? fields.draft : {};
+  const plan = isPlainObject(fields.plan) ? fields.plan : {};
+  const candidate = isPlainObject(plan.candidate) ? plan.candidate : {};
+
   return {
     ok: false,
     caseId: null,
     caseRef: null,
-    draftId: null,
-    organizationId: null,
-    tenantId: null,
+    draftId: firstSafeString(fields.draftId, fields.sourceDraftId, draft.draftId, draft.id, candidate.sourceDraftId),
+    sourceDraftId: firstSafeString(fields.sourceDraftId, fields.draftId, draft.draftId, draft.id, candidate.sourceDraftId),
+    organizationId: firstSafeString(fields.organizationId, draft.organizationId, plan.organizationId, candidate.organizationId),
+    tenantId: firstSafeString(fields.tenantId, draft.tenantId, plan.tenantId, candidate.tenantId),
+    requestId: firstSafeString(fields.requestId),
+    actorId: firstSafeString(fields.actorId),
     status: 'failed',
     reasonCode,
     requiredActions,
@@ -224,6 +248,7 @@ function createRepairIntakeCaseRepositoryContract(options = {}) {
       return failureEnvelope(
         'REPAIR_INTAKE_CASE_REPOSITORY_CONTRACT_INPUT_INVALID',
         ['provide_valid_creation_input'],
+        input,
       );
     }
 
@@ -233,6 +258,7 @@ function createRepairIntakeCaseRepositoryContract(options = {}) {
       return failureEnvelope(
         'REPAIR_INTAKE_CASE_REPOSITORY_CONTRACT_INPUT_INVALID',
         ['provide_valid_draft_and_plan'],
+        creationInput,
       );
     }
 
@@ -240,12 +266,31 @@ function createRepairIntakeCaseRepositoryContract(options = {}) {
       const caseResult = await repository.createCaseFromDraft(creationInput);
 
       if (!isPlainObject(caseResult)) {
-        return failureEnvelope('REPAIR_INTAKE_CASE_REPOSITORY_CONTRACT_CREATE_FAILED');
+        return failureEnvelope(
+          'REPAIR_INTAKE_CASE_REPOSITORY_CONTRACT_CREATE_FAILED',
+          ['retry_or_manual_review'],
+          creationInput,
+        );
+      }
+
+      const fields = sanitizeContractFields(caseResult);
+      const caseId = firstSafeString(fields.caseId, fields.caseRef && fields.caseRef.caseId);
+
+      if (caseResult.ok === false || (!caseId && !isPlainObject(fields.caseRef))) {
+        return failureEnvelope(
+          'REPAIR_INTAKE_CASE_REPOSITORY_CONTRACT_CREATE_FAILED',
+          safeArray(fields.requiredActions).length > 0 ? safeArray(fields.requiredActions) : ['retry_or_manual_review'],
+          creationInput,
+        );
       }
 
       return createdEnvelope(creationInput, caseResult);
     } catch (error) {
-      return failureEnvelope('REPAIR_INTAKE_CASE_REPOSITORY_CONTRACT_CREATE_FAILED');
+      return failureEnvelope(
+        'REPAIR_INTAKE_CASE_REPOSITORY_CONTRACT_CREATE_FAILED',
+        ['retry_or_manual_review'],
+        creationInput,
+      );
     }
   }
 

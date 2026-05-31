@@ -67,7 +67,7 @@ test('Task1079 case contract source keeps fail-closed validation and envelope co
     'function createdEnvelope',
     'repository.createCaseFromDraft(creationInput)',
     'catch (error)',
-    "return failureEnvelope('REPAIR_INTAKE_CASE_REPOSITORY_CONTRACT_CREATE_FAILED')",
+    "'REPAIR_INTAKE_CASE_REPOSITORY_CONTRACT_CREATE_FAILED'",
   ]) {
     assert.equal(source.includes(marker), true, `missing fail-closed marker ${marker}`);
   }
