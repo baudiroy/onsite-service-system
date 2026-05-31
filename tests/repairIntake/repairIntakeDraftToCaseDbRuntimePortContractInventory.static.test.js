@@ -244,11 +244,14 @@ test('DB-capable runtime port factory is inventoried without executing it', () =
     'function createConversionWriter({ dbClient, generateId: generate, now })',
     'function createCaseCreationPort({ caseRepository, recordConversion })',
     'function createAuditPort({ dbClient, generateId: generate, now })',
+    'const idempotencyStore = createIdempotencyStore(idempotencyRepository)',
+    'const caseCreationPort = createCaseCreationPort({',
+    'const auditPort = createAuditPort({',
     'return {',
     'draftRepository,',
-    'idempotencyStore: createIdempotencyStore(idempotencyRepository)',
-    'caseCreationPort: createCaseCreationPort({',
-    'auditPort: createAuditPort({',
+    'idempotencyStore,',
+    'caseCreationPort,',
+    'auditPort,',
   ], 'DB-capable runtime port factory inventory');
 
   for (const specifier of requireSpecifiers(source)) {

@@ -74,6 +74,24 @@ function createFakeDbClient() {
         };
       }
 
+      if (text.includes('INSERT INTO repair_intake_idempotency_records')) {
+        return {
+          rowCount: 1,
+          rows: [{
+            id: 'idempotency_runtime_ports_001',
+            organization_id: params[0],
+            tenant_id: params[1],
+            idempotency_key: params[2],
+            operation_type: params[3],
+            draft_id: params[4],
+            replay_case_id: params[6],
+            replay_case_ref: params[7],
+            replay_result_safe: JSON.parse(params[8]),
+            record_status: params[9],
+          }],
+        };
+      }
+
       return {
         rowCount: 1,
         rows: [],

@@ -6,11 +6,32 @@ const {
   createRepairIntakeCaseRepositoryAdapter,
 } = require('./repairIntakeCaseRepositoryAdapter');
 const {
+  createRepairIntakeCaseCreatorRepositoryAdapter,
+} = require('./repairIntakeCaseCreatorRepositoryAdapter');
+const {
+  createRepairIntakeCaseCreatorPortAdapter,
+} = require('./repairIntakeCaseCreatorPortAdapter');
+const {
+  createRepairIntakeCasePlannerPortAdapter,
+} = require('./repairIntakeCasePlannerPortAdapter');
+const {
   createRepairIntakeDraftRepository,
 } = require('./repairIntakeDraftRepository');
 const {
+  createRepairIntakeDraftRepositoryAdapter,
+} = require('./repairIntakeDraftRepositoryAdapter');
+const {
+  createRepairIntakeDraftReaderPortAdapter,
+} = require('./repairIntakeDraftReaderPortAdapter');
+const {
   createRepairIntakeIdempotencyRepository,
 } = require('./repairIntakeIdempotencyRepository');
+const {
+  createRepairIntakeIdempotencyPortAdapter,
+} = require('./repairIntakeIdempotencyPortAdapter');
+const {
+  createRepairIntakeAuditWriterPortAdapter,
+} = require('./repairIntakeAuditWriterPortAdapter');
 
 const DEFAULT_AUDIT_EVENT_TYPE = 'repair_intake_draft_to_case_submission';
 const DEFAULT_CONVERSION_STATUS = 'converted';
@@ -436,6 +457,27 @@ function createAuditPort({ dbClient, generateId: generate, now }) {
   };
 }
 
+function createCaseCreatorAuditWriter({ auditPort }) {
+  return {
+    recordRepairIntakeDraftToCaseCreated: async (input = {}) => {
+      const auditEvent = safeObject(input.auditEvent);
+      const command = safeObject(input.command);
+
+      return auditPort.recordDraftToCaseDecision({
+        draftId: firstString(auditEvent.draftId, command.draftId),
+        organizationId: firstString(auditEvent.organizationId, command.organizationId),
+        tenantId: firstString(auditEvent.tenantId, command.tenantId),
+        actorId: firstString(auditEvent.actorId, command.actorId),
+        requestId: firstString(auditEvent.requestId, command.requestId),
+        caseRef: input.caseRef,
+      });
+    },
+    record(input) {
+      return this.recordRepairIntakeDraftToCaseCreated(input);
+    },
+  };
+}
+
 function fingerprint(input) {
   const source = JSON.stringify({
     draftId: input.draftId,
@@ -548,6 +590,7 @@ function createRepairIntakeDraftToCaseRuntimePorts(options = {}) {
   const generateCaseNo = resolveOptionalGenerator(safeOptions.caseNumberGenerator);
   const now = resolveClock(safeOptions.clock);
   const draftRepository = createRepairIntakeDraftRepository({ dbClient });
+  const draftWriterRepository = createRepairIntakeDraftRepositoryAdapter({ dbClient });
   const idempotencyRepository = createRepairIntakeIdempotencyRepository({ dbClient });
   const generateDbCompatibleId = createDbCompatibleIdGenerator(generate);
   const caseRepository = createRepairIntakeCaseRepositoryAdapter({
@@ -565,20 +608,54 @@ function createRepairIntakeDraftToCaseRuntimePorts(options = {}) {
     generateId: generate,
     now,
   });
+  const caseCreationPort = createCaseCreationPort({
+    caseRepository,
+    recordConversion,
+  });
+  const auditPort = createAuditPort({
+    dbClient,
+    generateId: generate,
+    now,
+  });
+  const idempotencyStore = createIdempotencyStore(idempotencyRepository);
+  const draftReader = createRepairIntakeDraftReaderPortAdapter({
+    draftRepository,
+  });
+  const idempotencyPort = createRepairIntakeIdempotencyPortAdapter({
+    idempotencyStore,
+  });
+  const casePlanner = createRepairIntakeCasePlannerPortAdapter({
+    planningPolicy,
+  });
+  const caseCreator = createRepairIntakeCaseCreatorPortAdapter({
+    caseCreationPort,
+  });
+  const auditWriter = createRepairIntakeAuditWriterPortAdapter({
+    auditPort,
+  });
+  const caseCreatorRepository = safeOptions.transactionRunner
+    ? createRepairIntakeCaseCreatorRepositoryAdapter({
+      caseRepository: safeOptions.caseCreatorCaseRepository || caseRepository,
+      repairIntakeDraftRepository: draftWriterRepository,
+      transactionRunner: safeOptions.transactionRunner,
+      auditWriter: safeOptions.caseCreatorAuditWriter || createCaseCreatorAuditWriter({ auditPort }),
+      clock: now,
+    })
+    : undefined;
 
   return {
     draftRepository,
-    idempotencyStore: createIdempotencyStore(idempotencyRepository),
+    draftReader,
+    idempotencyStore,
+    idempotencyPort,
     planningPolicy,
-    caseCreationPort: createCaseCreationPort({
-      caseRepository,
-      recordConversion,
-    }),
-    auditPort: createAuditPort({
-      dbClient,
-      generateId: generate,
-      now,
-    }),
+    casePlanner,
+    caseRepository,
+    caseCreationPort,
+    caseCreator,
+    ...(caseCreatorRepository ? { caseCreatorRepository } : {}),
+    auditPort,
+    auditWriter,
   };
 }
 
