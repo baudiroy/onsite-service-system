@@ -54,7 +54,7 @@ function assertDoesNotMatchAny(source, patterns, label) {
   }
 }
 
-test('Task2393 design packet source and context artifacts exist without implementation file', () => {
+test('Task2393 design packet source and context artifacts exist', () => {
   for (const relativePath of [
     ROUTE_FILE,
     SERVICE_FILE,
@@ -69,7 +69,12 @@ test('Task2393 design packet source and context artifacts exist without implemen
     assert.equal(fs.existsSync(projectPath(relativePath)), true, `${relativePath} should exist`);
   }
 
-  assert.equal(fs.existsSync(projectPath(FUTURE_HELPER_FILE)), false, `${FUTURE_HELPER_FILE} must not be implemented by Task2393`);
+  if (fs.existsSync(projectPath(FUTURE_HELPER_FILE))) {
+    assertIncludesAll(read(FUTURE_HELPER_FILE), [
+      'buildDepotWorkshopAssignmentIntentWriteCommand',
+      'depot_workshop.assignment_intent.write',
+    ], 'Task2393 future helper after later authorization');
+  }
 });
 
 test('current route and service remain prepare-only with write scope blocked', () => {
