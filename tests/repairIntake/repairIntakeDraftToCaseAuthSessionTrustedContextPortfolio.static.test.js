@@ -273,13 +273,13 @@ test('safety portfolio prevents body client fields from overriding trusted conte
 
   assertIncludesAll(helperInvocation, [
     'params,',
-    'user,',
-    'context,',
-    'sessionContext: context',
-    'permissionContext: adminPermissionContext',
+    'user: {}',
+    'context: authSessionContext',
+    'sessionContext: authSessionContext',
+    'permissionContext: authSessionContext.permissionContext || adminPermissionContext',
     'tenantId: tenantId(req, body, user)',
-    'requestId: requestId(req)',
-    'idempotencyKey: idempotencyKey(req)',
+    'requestId: authSessionContext.requestId || requestId(req)',
+    'idempotencyKey: authSessionContext.idempotencyKey || idempotencyKey(req)',
   ], 'trusted helper invocation inputs');
 
   assertExcludesAll(helperInvocation, [
