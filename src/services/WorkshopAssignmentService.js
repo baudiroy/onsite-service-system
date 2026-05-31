@@ -12,6 +12,12 @@ const {
 const {
   planDepotWorkshopRepairOrderStatusTransition,
 } = require('../depotWorkshop/depotWorkshopRepairOrderTransitionPolicy');
+const {
+  buildDepotWorkshopAssignmentIntentWriteCommand,
+} = require('../depotWorkshop/depotWorkshopAssignmentIntentWriteCommand');
+const {
+  normalizeDepotWorkshopRepairOrderRepositoryResult,
+} = require('../depotWorkshop/depotWorkshopRepairOrderRepositoryContract');
 
 const WORKSHOP_ASSIGNMENT_SERVICE_KIND = 'depot_workshop.workshop_assignment_service';
 const WORKSHOP_ASSIGN_PERMISSION = 'workshop.assign';
@@ -196,6 +202,30 @@ function resolveDepotIntakeRepository(options = {}) {
     || options.repository;
 }
 
+function resolveRepairOrderRepository(options = {}) {
+  if (!isObject(options)) {
+    return undefined;
+  }
+
+  if (options.repairOrderRepository) {
+    return options.repairOrderRepository;
+  }
+
+  if (isObject(options.depotWorkshop) && options.depotWorkshop.repairOrderRepository) {
+    return options.depotWorkshop.repairOrderRepository;
+  }
+
+  return undefined;
+}
+
+function repairOrderWriterFrom(repository) {
+  if (isObject(repository) && typeof repository.writeRepairOrder === 'function') {
+    return repository.writeRepairOrder.bind(repository);
+  }
+
+  return undefined;
+}
+
 function failure(reasonCode, context = {}) {
   return compactRecord({
     ok: false,
@@ -216,6 +246,28 @@ function success(assignmentIntent, context = {}) {
     reasonCode: 'workshop_assignment_intent_prepared',
     requestId: requestIdFrom(context),
     assignmentIntent,
+  });
+}
+
+function writeSuccess(repositoryResult, context = {}) {
+  return compactRecord({
+    ok: true,
+    prepared: true,
+    written: repositoryResult.written === true,
+    serviceKind: WORKSHOP_ASSIGNMENT_SERVICE_KIND,
+    reasonCode: repositoryResult.reasonCode || 'workshop_assignment_intent_write_succeeded',
+    requestId: repositoryResult.requestId || requestIdFrom(context),
+    repairOrderResult: compactRecord({
+      repositoryKind: repositoryResult.repositoryKind,
+      repairOrderReference: repositoryResult.repairOrderReference,
+      organizationId: repositoryResult.organizationId,
+      tenantId: repositoryResult.tenantId,
+      caseId: repositoryResult.caseId,
+      depotIntakeId: repositoryResult.depotIntakeId,
+      repairOrderId: repositoryResult.repairOrderId,
+      written: repositoryResult.written === true,
+      requestId: repositoryResult.requestId,
+    }),
   });
 }
 
@@ -519,6 +571,7 @@ function buildAssignmentIntent(depotIntake, validation) {
 
 function createWorkshopAssignmentService(options = {}) {
   const depotIntakeRepository = resolveDepotIntakeRepository(options);
+  const repairOrderRepository = resolveRepairOrderRepository(options);
 
   return {
     kind: WORKSHOP_ASSIGNMENT_SERVICE_KIND,
@@ -549,6 +602,46 @@ function createWorkshopAssignmentService(options = {}) {
         return success(buildAssignmentIntent(depotIntake, validation), validation);
       } catch (caught) {
         return failure('workshop_assignment_service_failed', validation);
+      }
+    },
+
+    async writePreparedAssignmentIntent(input = {}) {
+      const writeRepairOrder = repairOrderWriterFrom(repairOrderRepository);
+
+      if (!writeRepairOrder) {
+        return failure('repair_order_repository_required', input);
+      }
+
+      const commandEnvelope = buildDepotWorkshopAssignmentIntentWriteCommand(input);
+
+      if (!commandEnvelope.ok) {
+        return failure(commandEnvelope.reasonCode, {
+          ...input,
+          requestId: commandEnvelope.requestId || requestIdFrom(input),
+        });
+      }
+
+      try {
+        const repositoryResult = await writeRepairOrder({
+          ...commandEnvelope,
+          command: { ...commandEnvelope.command },
+          auditIntent: commandEnvelope.auditIntent ? { ...commandEnvelope.auditIntent } : undefined,
+          customerProjectionPreview: commandEnvelope.customerProjectionPreview
+            ? { ...commandEnvelope.customerProjectionPreview }
+            : undefined,
+        });
+        const normalizedResult = normalizeDepotWorkshopRepairOrderRepositoryResult({
+          result: repositoryResult,
+          trustedScope: commandEnvelope.command,
+        });
+
+        if (!normalizedResult.ok) {
+          return failure(normalizedResult.reasonCode, commandEnvelope.command);
+        }
+
+        return writeSuccess(normalizedResult, commandEnvelope.command);
+      } catch (caught) {
+        return failure('repair_order_repository_write_failed', commandEnvelope.command);
       }
     },
   };

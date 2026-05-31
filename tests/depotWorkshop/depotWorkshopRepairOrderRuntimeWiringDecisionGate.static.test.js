@@ -208,15 +208,15 @@ test('decision gate records blockers prerequisites and exactly one next bounded 
   assert.equal(countOccurrences(doc, 'Recommended next bounded task:'), 1);
 });
 
-test('Task2415 introduces no runtime source behavior and keeps adapter unwired from current runtime', () => {
+test('Task2415 and later Task2416 keep adapter unwired from route app server runtime surfaces', () => {
   const runtimeFiles = [
     'src/routes/depotRepair.routes.js',
-    'src/services/WorkshopAssignmentService.js',
     'src/server.js',
     'src/app.js',
     'src/routes/index.js',
   ].filter((relativePath) => fs.existsSync(projectPath(relativePath)));
   const runtimeSource = runtimeFiles.map(read).join('\n');
+  const serviceSource = read(SERVICE_FILE);
 
   assertDoesNotMatchAny(runtimeSource, [
     /DepotWorkshopRepairOrderSqlRepositoryAdapter/,
@@ -225,6 +225,12 @@ test('Task2415 introduces no runtime source behavior and keeps adapter unwired f
     /writePreparedAssignmentIntent/,
     /INSERT\s+INTO\s+depot_workshop_repair_orders/i,
   ], 'Task2415 current runtime wiring');
+
+  assertIncludesAll(serviceSource, [
+    'async prepareAssignmentIntent(input = {})',
+    'async writePreparedAssignmentIntent(input = {})',
+    'buildDepotWorkshopAssignmentIntentWriteCommand(input)',
+  ], 'Task2416 accepted service method alignment');
 });
 
 test('decision gate does not authorize DB migration provider package report or finalAppointment work', () => {

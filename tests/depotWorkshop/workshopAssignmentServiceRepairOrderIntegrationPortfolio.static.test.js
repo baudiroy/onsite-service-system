@@ -29,9 +29,11 @@ const PORTFOLIO_ARTIFACTS = Object.freeze([
 ]);
 
 const ACCEPTED_HELPER_IMPORTS = Object.freeze([
+  '../depotWorkshop/depotWorkshopAssignmentIntentWriteCommand',
   '../depotWorkshop/depotWorkshopRepairOrderAuditEvent',
   '../depotWorkshop/depotWorkshopRepairOrderContract',
   '../depotWorkshop/depotWorkshopRepairOrderCustomerProjection',
+  '../depotWorkshop/depotWorkshopRepairOrderRepositoryContract',
   '../depotWorkshop/depotWorkshopRepairOrderTransitionPolicy',
 ]);
 
@@ -65,18 +67,22 @@ test('Task2383 portfolio guard sees accepted source doc and test artifacts', () 
   }
 });
 
-test('WorkshopAssignmentService.prepareAssignmentIntent is the only accepted integration boundary', () => {
+test('WorkshopAssignmentService preserves prepare-only boundary and Task2416 write method seam', () => {
   const source = read(SERVICE_FILE);
 
   assert.deepEqual(requireSpecifiers(source).sort(), [...ACCEPTED_HELPER_IMPORTS].sort());
   assertIncludesAll(source, [
     'createWorkshopAssignmentService',
     'prepareAssignmentIntent',
+    'writePreparedAssignmentIntent',
     'buildRepairOrderHelperSections',
     'buildDepotWorkshopRepairOrderDraft',
     'planDepotWorkshopRepairOrderStatusTransition',
     'buildDepotWorkshopRepairOrderAuditEvent',
     'buildDepotWorkshopRepairOrderCustomerProjection',
+    'buildDepotWorkshopAssignmentIntentWriteCommand',
+    'normalizeDepotWorkshopRepairOrderRepositoryResult',
+    'repairOrderWriterFrom(repairOrderRepository)',
     'findDepotIntakeState',
     'written: false',
     'writeRequired: false',

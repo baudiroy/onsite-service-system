@@ -170,12 +170,12 @@ test('accepted helper adapter contract migration and route boundaries remain fro
 test('adapter remains unwired from runtime and no real DB surface is introduced', () => {
   const runtimeFiles = [
     'src/routes/depotRepair.routes.js',
-    'src/services/WorkshopAssignmentService.js',
     'src/server.js',
     'src/app.js',
     'src/routes/index.js',
   ].filter((relativePath) => fs.existsSync(projectPath(relativePath)));
   const runtimeSource = runtimeFiles.map(read).join('\n');
+  const serviceSource = read('src/services/WorkshopAssignmentService.js');
   const fakeChainSource = read(FAKE_CHAIN_UNIT_TEST);
 
   assertDoesNotMatchAny(runtimeSource, [
@@ -184,6 +184,12 @@ test('adapter remains unwired from runtime and no real DB surface is introduced'
     /buildDepotWorkshopAssignmentIntentWriteCommand/,
     /INSERT\s+INTO\s+depot_workshop_repair_orders/i,
   ], 'Task2411 runtime wiring');
+
+  assertIncludesAll(serviceSource, [
+    'async writePreparedAssignmentIntent(input = {})',
+    'buildDepotWorkshopAssignmentIntentWriteCommand(input)',
+    'repairOrderWriterFrom(repairOrderRepository)',
+  ], 'Task2416 service fake repository composition alignment');
 
   assertDoesNotMatchAny(fakeChainSource, [
     /require\(['"]pg['"]\)/,
